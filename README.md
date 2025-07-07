@@ -51,3 +51,9 @@
 
 ***
  **Further details by Jaishankar M [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**
+
+## Windows test GUI
+
+- streamed uart data from the M181 to the windows test GUI ..
+
+<img src="firmware/docs/windows_gui_image.png" alt="image" style="width:600px;height:auto;">
