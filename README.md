@@ -31,6 +31,8 @@
 - IDE        → PlatformIO
 - Framework  → STM32Cube
 
+<img src="firmware/docs/LCR_Meter_Program_Setup_STLinkV2.png" alt="image" style="width:400px;height:auto;">
+
 ## Output parameter
 <img src="firmware/docs/output_fw-v0_20.jpg" alt="image" style="width:200px;height:auto;">
 
