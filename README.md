@@ -45,4 +45,4 @@
 
 
 ***
- **Further details will be added in [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**
+ **Further details by Jaishankar M [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**
