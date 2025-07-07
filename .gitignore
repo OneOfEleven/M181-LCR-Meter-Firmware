@@ -4,4 +4,11 @@
 .firmware/vscode/extensions.json
 .firmware/vscode/launch.json
 .firmware/vscode/ipch
+.windows_test/*.o
+.windows_test/*.d
 .windows_test/*.obj
+.windows_test/*.dsk
+.windows_test/*.tds
+.windows_test/*.lnk
+.windows_test/*.url
+.windows_test/*.ini
