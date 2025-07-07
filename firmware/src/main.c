@@ -279,16 +279,16 @@ void goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 	g->im = im * scale;
 }
 
-void goertzel_process_loop(const float *in_samples, t_comp *out_samples, const unsigned int len, t_goertzel *g)
+void goertzel_process_loop(const float *in_samples, t_comp *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
 {
-	const float scale = 2.0f / len;  // for correcting the output amplitude
+	const float scale = 2.0f / g_len;  // for correcting the output amplitude
 
 	for (unsigned int k = 0; k < len; k++)
 	{
 		register float m1 = 0;
 		register float m2 = 0;
 
-		for (register unsigned int i = 0, n = k; i < len; i++)
+		for (register unsigned int i = 0, n = k; i < g_len; i++)
 		{
 			register const float m = in_samples[n] + (g->coeff * m1) - m2;
 			m2 = m1;
@@ -703,7 +703,7 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 	// input is real
 	// output is complex (I/Q)
 
-	#if 1
+	#if 0
 	{	// don't filter the whole block, just compute RMS magnitudes and phases
 
 		{	// remove DC offsets
@@ -721,8 +721,8 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 				sum_afc += samp_afc;
 			}
 
-			sum_adc /= DMA_ADC_DATA_LENGTH;
-			sum_afc /= DMA_ADC_DATA_LENGTH;
+			sum_adc *= 1.0f / DMA_ADC_DATA_LENGTH;
+			sum_afc *= 1.0f / DMA_ADC_DATA_LENGTH;
 
 			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 			{
@@ -746,8 +746,8 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 				sum_afc += SQR(samp_afc);
 			}
 
-			sum_adc /= DMA_ADC_DATA_LENGTH;
-			sum_afc /= DMA_ADC_DATA_LENGTH;
+			sum_adc *= 1.0f / DMA_ADC_DATA_LENGTH;
+			sum_afc *= 1.0f / DMA_ADC_DATA_LENGTH;
 
 			mag_rms[buf_index + 0] = sqrtf(sum_adc);   
 			mag_rms[buf_index + 1] = sqrtf(sum_afc);
@@ -762,10 +762,46 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 		phase_deg[buf_index + 0] = (samp_adc.re != 0) ? fmodf((atan2f(samp_adc.im, samp_adc.re) * RAD_TO_DEG) + 270, 360) : 0;     
 		phase_deg[buf_index + 1] = (samp_afc.re != 0) ? fmodf((atan2f(samp_afc.im, samp_afc.re) * RAD_TO_DEG) + 270, 360) : 0;
 	}
-	#elif 0
+	#elif 1
 	{
-		goertzel_process_loop(adc_data[buf_index + 0], tmp_buf[0], DMA_ADC_DATA_LENGTH, &goertzel);
-		goertzel_process_loop(adc_data[buf_index + 1], tmp_buf[1], DMA_ADC_DATA_LENGTH, &goertzel);
+		const unsigned int filter_len = DMA_ADC_DATA_LENGTH / 2;  // the longer the fiilter the more time it takes to filter
+//		const unsigned int filter_len = DMA_ADC_DATA_LENGTH;
+
+		goertzel_process_loop(adc_data[buf_index + 0], tmp_buf[0], DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
+		goertzel_process_loop(adc_data[buf_index + 1], tmp_buf[1], DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
+
+		if (filter_len < (DMA_ADC_DATA_LENGTH / 2))
+		{	// remove DC offsets
+
+			register t_comp *tmp_adc = tmp_buf[0];
+			register t_comp *tmp_afc = tmp_buf[1];
+
+			register t_comp sum_adc = {0, 0};
+			register t_comp sum_afc = {0, 0};
+			
+			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			{
+				register const t_comp samp_adc = tmp_adc[i];
+				register const t_comp samp_afc = tmp_afc[i];
+				sum_adc.re += samp_adc.re;
+				sum_adc.im += samp_adc.im;
+				sum_afc.re += samp_afc.re;
+				sum_afc.im += samp_afc.im;
+			}
+
+			sum_adc.re *= 1.0f / DMA_ADC_DATA_LENGTH;
+			sum_adc.im *= 1.0f / DMA_ADC_DATA_LENGTH;
+			sum_afc.re *= 1.0f / DMA_ADC_DATA_LENGTH;
+			sum_afc.im *= 1.0f / DMA_ADC_DATA_LENGTH;
+
+			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			{
+				tmp_adc[i].re -= sum_adc.re;
+				tmp_adc[i].im -= sum_adc.im;
+				tmp_afc[i].re -= sum_afc.re;
+				tmp_afc[i].im -= sum_afc.im;
+			}
+		}
 
 		{	// compute phase using the 1st I/Q sample
 			const t_comp samp_adc = tmp_buf[0][0];
@@ -803,8 +839,8 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 
 			// save the RMS magnitudes
 
-			sum_adc /= DMA_ADC_DATA_LENGTH;
-			sum_afc /= DMA_ADC_DATA_LENGTH;
+			sum_adc *= 1.0f / DMA_ADC_DATA_LENGTH;
+			sum_afc *= 1.0f / DMA_ADC_DATA_LENGTH;
 
 			mag_rms[buf_index + 0] = sqrtf(sum_adc);   
 			mag_rms[buf_index + 1] = sqrtf(sum_afc);
