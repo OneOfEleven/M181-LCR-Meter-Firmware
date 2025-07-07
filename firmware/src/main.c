@@ -122,11 +122,14 @@ float                 adc_data[8][DMA_ADC_DATA_LENGTH] = {0};
 float                 phase_deg[8] = {0};
 float                 mag_rms[8]   = {0};
 
+// change the mode sequence order to maximise mode switching speed - due to overcome a design floor
+const unsigned int    vi_measure_mode_table[] = {0, 1, 3, 2};
+
 volatile unsigned int vi_measure_mode = MODE_VOLT_LO_GAIN;
 
 t_system_data         system_data = {0};
 
-t_comp                tmp_buf[2][DMA_ADC_DATA_LENGTH];
+t_comp                tmp_buf[DMA_ADC_DATA_LENGTH];
 
 t_packet              tx_packet;
 
@@ -599,8 +602,127 @@ void compute_amplitude(t_system_data *sd)
 	sd->rms_afc_current = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 3]);
 }
 
+// pass the new ADC samples through the goertzel dft
+//
+// goertzel output samples are 100% free of any DC offset, also very much cleaned of any out-of-band noise (crucial for following measurements)
+//
+// input is real
+// output is complex (I/Q)
+//
+void process_Goertzel(void)
+{
+	for (unsigned int buf_index = 0; buf_index < ARRAY_SIZE(adc_data); buf_index++)
+	{
+		#if 0
+		{	// don't filter the waveform, but do ..
+			//   remove DC offset
+			//   compute RMS magnitude
+			//   compute WAVEFORM phase
+
+			register float *buf = adc_data[buf_index];
+
+			{	// remove waveform DC offset
+
+				register float sum = 0;
+				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+					sum += buf[i];
+				sum *= 1.0f / DMA_ADC_DATA_LENGTH;
+
+				// remove DC offset using computed average (DC offset)
+				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+					buf[i] -= sum;
+			}
+
+			{	// compute waveform RMS magnitude
+
+				register float sum = 0;
+				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+					sum += SQR(buf[i]);
+				sum *= 1.0f / DMA_ADC_DATA_LENGTH;
+
+				mag_rms[buf_index] = sqrtf(sum);   
+			}
+
+			{	// compute waveform phase
+				goertzel_block(buf, DMA_ADC_DATA_LENGTH, &goertzel);
+				phase_deg[buf_index] = (goertzel.re != 0) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : 0;     
+			}
+		}
+		#else
+		{	// use Goertzel to filter the waveforms, length of filter is settable
+
+			#if 0
+				const unsigned int filter_len = DMA_ADC_DATA_LENGTH;      // max length filtering (best but takes more time)
+			#else
+				const unsigned int filter_len = DMA_ADC_DATA_LENGTH / 2;  // reduced filter length, less filtering, but quicker than full filtering
+			#endif
+
+			register t_comp *buf = tmp_buf;            // point to output samples from the Goertzel filter
+
+			goertzel_process_loop(adc_data[buf_index], buf, DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
+
+			if (filter_len < (DMA_ADC_DATA_LENGTH / 2))
+			{	// need to remove DC offset
+
+				register t_comp sum = {0, 0};
+				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+				{
+					register const t_comp samp = buf[i];
+					sum.re += samp.re;
+					sum.im += samp.im;
+				}
+				sum.re *= 1.0f / DMA_ADC_DATA_LENGTH;
+				sum.im *= 1.0f / DMA_ADC_DATA_LENGTH;
+
+				// remove DC offset using computed average (DC offset)
+				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+				{
+					buf[i].re -= sum.re;
+					buf[i].im -= sum.im;
+				}
+			}
+
+			{	// compute waveform phase using the 1st Goertzel I/Q output sample for each waveform
+				const t_comp samp = buf[0];
+				phase_deg[buf_index] = (samp.re != 0) ? fmodf((atan2f(samp.im, samp.re) * RAD_TO_DEG) + 270, 360) : 0;     
+			}
+
+			{	// compute RMS magnitude and save the Goertzel filtered output samples
+
+				register float *buf_out = adc_data[buf_index];
+
+				register float sum = 0;
+				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+				{
+					register const t_comp samp = buf[i];
+					sum += SQR(samp.re) + SQR(samp.im);
+
+					// '#if 0' to test without goertzel dft filtering
+					#if 1
+						// replace the unfiltered samples with the filtered samples
+						buf_out[i] = samp.re;      // for now, just keep the real (0 deg) output (imag/90-deg is dropped :( )
+					#endif
+				}
+
+				// save the RMS magnitude
+				sum *= 1.0f / DMA_ADC_DATA_LENGTH;   
+				mag_rms[buf_index] = sqrtf(sum);   
+			}
+		}
+		#endif
+	}
+}
+
 void process_data(t_system_data *sd)
 {
+	process_Goertzel();
+
+
+
+	// note, not yet using the output from the Goertzel DFT's
+
+
+
 	compute_amplitude(sd);
 
 	sd->impedance = sd->rms_voltage / sd->rms_current;
@@ -656,13 +778,20 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 	if (mode >= MODE_DONE)
 		return;
 
-	const unsigned int buf_index = mode * 2;
+	#if 0
+		const unsigned int buf_index = mode * 2;
+	#else
+		// due to HW design floor
+		const unsigned int buf_index = vi_measure_mode_table[mode] * 2;
+	#endif
 
 	if (mode == 0 && adc_data_avg_count == 0)
 		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);        // TEST
 
-	// we discard the first sample block after the GS/VI pins were changed
-	if (adc_data_avg_count > 0)	                 
+	// we discard the first few sample blocks (MODE_SWITCH_BLOCK_WAIT) after each time we change the GS/VI mode pins
+	// this is to give the HW time to settle after each mode change
+	//
+	if (adc_data_avg_count >= MODE_SWITCH_BLOCK_WAIT)	                 
 	{	// all other sample blocks added to the averaging buffer
 		for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 		{
@@ -671,18 +800,26 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 		}
 	}
 
-	if (++adc_data_avg_count < (1 + adc_average_count))  // with averaging
-//	if (++adc_data_avg_count < (1 + 1))                  // without averaging
+	if (++adc_data_avg_count < (MODE_SWITCH_BLOCK_WAIT + adc_average_count))
 		return;
 
+	// next measurement mode
+	mode++;
+
 	// set the GS/VI pins ready for the next measurement run
-	set_measure_mode_pins(++mode);
+	#if 0
+		set_measure_mode_pins(mode);
+	#else
+		// due to HW design floor
+		set_measure_mode_pins(vi_measure_mode_table[mode]);
+	#endif
 
 	{	// fetch the averaged ADC samples
-		const float scale = 1.0f / (adc_data_avg_count - 1);
+		register const float scale = 1.0f / (adc_data_avg_count - MODE_SWITCH_BLOCK_WAIT);
 
-		float *buf_adc = adc_data[buf_index + 0];
-		float *buf_afc = adc_data[buf_index + 1];
+		// buffers to save the new data into
+		register float *buf_adc = adc_data[buf_index + 0];
+		register float *buf_afc = adc_data[buf_index + 1];
 
 		for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 		{
@@ -695,165 +832,11 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 	memset(adc_data_avg, 0, sizeof(adc_data_avg));
 	adc_data_avg_count = 0;
 
-	// ************
-	// pass the new ADC samples through the goertzel dft
-	//
-	// goertzel output samples are 100% free of any DC offset, also very much cleaned of any out-of-band noise (crucial for following measurements)
-	//
-	// input is real
-	// output is complex (I/Q)
-
-	#if 0
-	{	// don't filter the whole block, just compute RMS magnitudes and phases
-
-		{	// remove DC offsets
-			register float *buf_adc = adc_data[buf_index + 0];
-			register float *buf_afc = adc_data[buf_index + 1];
-
-			register float sum_adc = 0;
-			register float sum_afc = 0;
-
-			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-			{
-				register const float samp_adc = buf_adc[i];
-				register const float samp_afc = buf_afc[i];
-				sum_adc += samp_adc;
-				sum_afc += samp_afc;
-			}
-
-			sum_adc *= 1.0f / DMA_ADC_DATA_LENGTH;
-			sum_afc *= 1.0f / DMA_ADC_DATA_LENGTH;
-
-			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-			{
-				buf_adc[i] -= sum_adc;
-				buf_afc[i] -= sum_afc;
-			}
-		}
-
-		{	// compute RMS magnitudes
-			register float *buf_adc = adc_data[buf_index + 0];
-			register float *buf_afc = adc_data[buf_index + 1];
-
-			register float sum_adc = 0;
-			register float sum_afc = 0;
-
-			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-			{
-				register const float samp_adc = buf_adc[i];
-				register const float samp_afc = buf_afc[i];
-				sum_adc += SQR(samp_adc);
-				sum_afc += SQR(samp_afc);
-			}
-
-			sum_adc *= 1.0f / DMA_ADC_DATA_LENGTH;
-			sum_afc *= 1.0f / DMA_ADC_DATA_LENGTH;
-
-			mag_rms[buf_index + 0] = sqrtf(sum_adc);   
-			mag_rms[buf_index + 1] = sqrtf(sum_afc);
-		}
-
-		goertzel_block(adc_data[buf_index + 0], DMA_ADC_DATA_LENGTH, &goertzel);
-		const t_comp samp_adc = {goertzel.re, goertzel.im};
-
-		goertzel_block(adc_data[buf_index + 1], DMA_ADC_DATA_LENGTH, &goertzel);
-		const t_comp samp_afc = {goertzel.re, goertzel.im};
-
-		phase_deg[buf_index + 0] = (samp_adc.re != 0) ? fmodf((atan2f(samp_adc.im, samp_adc.re) * RAD_TO_DEG) + 270, 360) : 0;     
-		phase_deg[buf_index + 1] = (samp_afc.re != 0) ? fmodf((atan2f(samp_afc.im, samp_afc.re) * RAD_TO_DEG) + 270, 360) : 0;
-	}
-	#elif 1
-	{
-		const unsigned int filter_len = DMA_ADC_DATA_LENGTH / 2;  // the longer the fiilter the more time it takes to filter
-//		const unsigned int filter_len = DMA_ADC_DATA_LENGTH;
-
-		goertzel_process_loop(adc_data[buf_index + 0], tmp_buf[0], DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
-		goertzel_process_loop(adc_data[buf_index + 1], tmp_buf[1], DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
-
-		if (filter_len < (DMA_ADC_DATA_LENGTH / 2))
-		{	// remove DC offsets
-
-			register t_comp *tmp_adc = tmp_buf[0];
-			register t_comp *tmp_afc = tmp_buf[1];
-
-			register t_comp sum_adc = {0, 0};
-			register t_comp sum_afc = {0, 0};
-			
-			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-			{
-				register const t_comp samp_adc = tmp_adc[i];
-				register const t_comp samp_afc = tmp_afc[i];
-				sum_adc.re += samp_adc.re;
-				sum_adc.im += samp_adc.im;
-				sum_afc.re += samp_afc.re;
-				sum_afc.im += samp_afc.im;
-			}
-
-			sum_adc.re *= 1.0f / DMA_ADC_DATA_LENGTH;
-			sum_adc.im *= 1.0f / DMA_ADC_DATA_LENGTH;
-			sum_afc.re *= 1.0f / DMA_ADC_DATA_LENGTH;
-			sum_afc.im *= 1.0f / DMA_ADC_DATA_LENGTH;
-
-			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-			{
-				tmp_adc[i].re -= sum_adc.re;
-				tmp_adc[i].im -= sum_adc.im;
-				tmp_afc[i].re -= sum_afc.re;
-				tmp_afc[i].im -= sum_afc.im;
-			}
-		}
-
-		{	// compute phase using the 1st I/Q sample
-			const t_comp samp_adc = tmp_buf[0][0];
-			const t_comp samp_afc = tmp_buf[1][0];
-			phase_deg[buf_index + 0] = (samp_adc.re != 0) ? fmodf((atan2f(samp_adc.im, samp_adc.re) * RAD_TO_DEG) + 270, 360) : 0;     
-			phase_deg[buf_index + 1] = (samp_afc.re != 0) ? fmodf((atan2f(samp_afc.im, samp_afc.re) * RAD_TO_DEG) + 270, 360) : 0;
-		}
-
-		{	// compute RMS magnitude and save the Goertzel output samples
-
-			float sum_adc = 0;
-			float sum_afc = 0;
-
-			t_comp *tmp_adc = tmp_buf[0];
-			t_comp *tmp_afc = tmp_buf[1];
-
-			float *buf_adc = adc_data[buf_index + 0];
-			float *buf_afc = adc_data[buf_index + 1];
-
-			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-			{
-				const t_comp samp_adc = tmp_adc[i];
-				const t_comp samp_afc = tmp_afc[i];
-
-				sum_adc += SQR(samp_adc.re) + SQR(samp_adc.im);
-				sum_afc += SQR(samp_afc.re) + SQR(samp_afc.im);
-
-				// '#if 0' to test without goertzel dft filtering
-				#if 1
-					// replace the unfiltered samples with the filtered samples
-					buf_adc[i] = samp_adc.re;      // for now, just keep the real (0 deg) output (imag/90-deg is dropped :( )
-					buf_afc[i] = samp_afc.re;      //
-				#endif
-			}
-
-			// save the RMS magnitudes
-
-			sum_adc *= 1.0f / DMA_ADC_DATA_LENGTH;
-			sum_afc *= 1.0f / DMA_ADC_DATA_LENGTH;
-
-			mag_rms[buf_index + 0] = sqrtf(sum_adc);   
-			mag_rms[buf_index + 1] = sqrtf(sum_afc);
-		}
-	}
-	#endif
-
-	// ************
+	// the new mode for the next measurement run
+	vi_measure_mode = mode;
 
 	if (mode >= MODE_DONE)
 		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);        // TEST
-
-	vi_measure_mode = mode;
 }
 
 // ***********************************************************

@@ -198,8 +198,8 @@ object Form1: TForm1
       '*.bin|RAW files|*.raw'
     FilterIndex = 2
     Options = [ofReadOnly, ofPathMustExist, ofFileMustExist, ofEnableSizing]
-    Left = 60
-    Top = 108
+    Left = 84
+    Top = 64
   end
   object SaveDialog1: TSaveDialog
     DefaultExt = '.bin'
@@ -209,14 +209,14 @@ object Form1: TForm1
       '*.bin|RAW files|*.raw'
     FilterIndex = 2
     Options = [ofOverwritePrompt, ofHideReadOnly, ofPathMustExist, ofEnableSizing]
-    Left = 96
-    Top = 116
+    Left = 140
+    Top = 64
   end
   object Timer1: TTimer
     Enabled = False
     Interval = 100
     OnTimer = Timer1Timer
-    Left = 12
-    Top = 100
+    Left = 32
+    Top = 60
   end
 end

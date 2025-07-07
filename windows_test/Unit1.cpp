@@ -1101,7 +1101,7 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 			continue;
 		}
 
-		// found a valid packet
+		// found an error-free packet
 		break;
 	}
 
