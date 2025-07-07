@@ -61,6 +61,10 @@
 - without Goertzel filter and no averaging ..
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
 
+## HPF modification to improve mode switching time
+
+<img src="firmware/docs/HPF_mod.png" alt="image" style="width:600px;height:auto;">
+
 ## Wiki
 
  **Further details by Jaishankar M [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**
