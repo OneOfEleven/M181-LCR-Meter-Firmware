@@ -48,8 +48,8 @@
 * ER → Equivalent Series Resistor(ESR)
 * D → Dissipation factor (or) Tan Delta
 
+## Wiki
 
-***
  **Further details by Jaishankar M [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**
 
 ## Windows test GUI
