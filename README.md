@@ -52,11 +52,14 @@
 
 - streamed uart data from the M181 to the windows test GUI (compiled with Borland c++ builder v6) ..
 
-- with Goertzel filter
+- with Goertzel filter ..
 <img src="firmware/docs/windows_gui_image.png" alt="image" style="width:600px;height:auto;">
 
-- without Goertzel filter
+- without Goertzel filter ..
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled.png" alt="image" style="width:600px;height:auto;">
+
+- without Goertzel filter and no averaging ..
+<img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
 
 ## Wiki
 
