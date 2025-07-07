@@ -1105,7 +1105,7 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 		break;
 	}
 
-	if (client.rx.buffer_wr < (sizeof(uint32_t) + sizeof(m_values)))
+	if (client.rx.buffer_wr < sizeof(t_packet))
 		return;
 
 	if (!PauseSpeedButton->Down)
@@ -1125,12 +1125,9 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 
 			for (unsigned int k = 0; k < len && !except; k++)
 			{
+				float v = m_values[i][k];
 				try
 				{
-					float v = m_values[i][k];
-					v = (v < -3000.0f) ? -3000.0f : (v > 3000.0f) ? 3000.0f : v;
-					m_values[i][k] = v;
-
 					if (v != v || _isnan(v))
 					{
 						except = true;
@@ -1138,6 +1135,9 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 					}
 					else
 					{
+						v = (v < -3000.0f) ? -3000.0f : (v > 3000.0f) ? 3000.0f : v;
+						m_values[i][k] = v;
+
 						avg_sum += v;
 						sum += SQR(v);
 					}

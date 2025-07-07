@@ -34,7 +34,7 @@
   </MACROS>
   <OPTIONS>
     <IDLCFLAGS value="-I$(BCB)\include -I$(BCB)\include\vcl -src_suffix cpp -D_DEBUG -boa"/>
-    <CFLAG1 value="-Od -Vx -Ve -xp -fp -X- -r- -a8 -6 -b- -k -y -v -vi- -c -tW -tWM"/>
+    <CFLAG1 value="-Od -Vx -Ve -xf -xp -RT- -fp -X- -r- -a8 -6 -b- -k -y -v -vi- -c -tW -tWM"/>
     <PFLAGS value="-$Y+ -$W -$U -$R -$Q -$O- -$B -$A8 -v -JPHNE -M"/>
     <RFLAGS value=""/>
     <AFLAGS value="/mx /w2 /zi"/>
@@ -63,7 +63,7 @@ IncludeVerInfo=1
 AutoIncBuild=0
 MajorVer=0
 MinorVer=0
-Release=7
+Release=8
 Build=0
 Debug=0
 PreRelease=0
@@ -76,7 +76,7 @@ CodePage=1252
 [Version Info Keys]
 CompanyName=1o11
 FileDescription=
-FileVersion=0.0.7.0
+FileVersion=0.0.8.0
 InternalName=
 LegalCopyright=
 LegalTrademarks=

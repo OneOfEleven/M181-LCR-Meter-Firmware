@@ -28,7 +28,7 @@
 #pragma hdrstop
 
 USEFORM("Unit1.cpp", Form1);
-//---------------------------------------------------------------------------
+
 WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
 	try
@@ -55,5 +55,6 @@ WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 			Application->ShowException(&exception);
 		}
 	}
+
 	return 0;
 }
