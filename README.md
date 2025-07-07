@@ -8,6 +8,9 @@
 ## Hardware - M181 LCR Meter
 - Official product page link [here](https://jyetech.com/m181-lcr-meter/)
 
+<img src="firmware/docs/pcb.png" alt="image" style="width:400px;height:auto;">
+<img src="firmware/docs/pcb_finished.png" alt="image" style="width:400px;height:auto;">
+
 **Note**: Firmware still under development.
 # Tasks to be completed
 - [ ] Auto calibration option
