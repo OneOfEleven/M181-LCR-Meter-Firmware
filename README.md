@@ -23,18 +23,16 @@
 - IDE        → PlatformIO
 - Framework  → STM32Cube
 
+<img src="firmware/docs/LCR_Meter_Program_Setup.jpg" alt="image" style="width:400px;height:auto;">
+
 ## STLinkV2 MCU programming
 - Programmer → STLink-V2
 - Interface  → SWD
 - IDE        → PlatformIO
 - Framework  → STM32Cube
 
-**Programming setup image**
-
-<img src="docs/LCR_Meter_Program_Setup.jpg" alt="image" style="width:400px;height:auto;">
-
 ## Output parameter
-<img src="docs/output_fw-v0_20.jpg" alt="image" style="width:200px;height:auto;">
+<img src="firmware/docs/output_fw-v0_20.jpg" alt="image" style="width:200px;height:auto;">
 
 * Ser → Calculation mode Series or Parallel
 * 1.0kHz → Frequency signal used for measurement
