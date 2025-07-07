@@ -55,6 +55,9 @@
 #define ADC2_Pin                     GPIO_PIN_1
 #define ADC2_pin_GPIO_Port           GPIOA
 
+#define TP21_Pin                     GPIO_PIN_2
+#define TP21_pin_GPIO_Port           GPIOA
+
 #define SW_I2C_SDA_Pin               GPIO_PIN_3
 #define SW_I2C_SDA_GPIO_Port         GPIOA
 
@@ -69,6 +72,9 @@
 
 #define VI_Pin                       GPIO_PIN_7
 #define VI_pin_GPIO_Port             GPIOA
+
+#define TP22_Pin                     GPIO_PIN_8
+#define TP22_pin_GPIO_Port           GPIOA
 
 #define UART1_TXD_Pin                GPIO_PIN_9
 #define UART1_TXD_GPIO_Port          GPIOA

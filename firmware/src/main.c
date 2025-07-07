@@ -30,13 +30,13 @@ typedef struct {
 } t_button;
 
 typedef struct {
-	int16_t pa0;
-	int16_t pa1;
+	int16_t adc;
+	int16_t afc;
 } t_adc_dma_data_16;
 
 typedef struct {
-	int32_t pa0;
-	int32_t pa1;
+	int32_t adc;
+	int32_t afc;
 } t_adc_dma_data_32;
 
 typedef struct {
@@ -94,9 +94,9 @@ char                  buffer_display[20] = {0};
 
 t_button              button[3] = {0};
 
-const uint16_t        DAC_resolution      = 256;                  // 8-bit
-float                 sine_wave_amplitude = 1.0;                  // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
-volatile unsigned int sine_table_index     = 0;                   //
+const uint16_t        DAC_resolution                      = 256;  // 8-bit
+float                 sine_wave_amplitude                 = 1.0;  // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
+volatile unsigned int sine_table_index                    = 0;    //
 uint8_t               sine_table[DMA_ADC_DATA_LENGTH / 2] = {0};  // matched to the ADC sampling
 
 unsigned int          volt_gain_sel = 0;
@@ -120,14 +120,13 @@ float                 adc_data[8][DMA_ADC_DATA_LENGTH] = {0};
 #pragma pack(pop)
 
 float                 phase_deg[8] = {0};
-float                 power[8]     = {0};
-float                 magnitude[8] = {0};
+float                 mag_rms[8]   = {0};
 
 volatile unsigned int vi_measure_mode = MODE_VOLT_LO_GAIN;
 
 t_system_data         system_data = {0};
 
-t_comp                tmp_pa[2][DMA_ADC_DATA_LENGTH];
+t_comp                tmp_buf[2][DMA_ADC_DATA_LENGTH];
 
 t_packet              tx_packet;
 
@@ -233,7 +232,6 @@ void start_ADC(void)
 
 	sine_table_index = ARRAY_SIZE(sine_table) * 0.285; // align the sinewave (@1kHz)
 
-	// start sampling timer
 	HAL_TIM_Base_Start_IT(&htim3);
 }
 
@@ -252,31 +250,25 @@ typedef struct {
 	float coeff;
 	float sin;
 	float cos;
-//	float m1;
-//	float m2;
-//	float re;
-//	float im;
+	float re;
+	float im;
 } t_goertzel;
 
-t_goertzel goertzel_filt = {0};
+t_goertzel goertzel = {0};
 
-/*
 // feed the supplied samples through the Goertzel filter
 //
-void goertzel_block(const int16_t *samples, const unsigned int len, t_goertzel *g)
+void goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 {
-	float m1 = g->m1;
-	float m2 = g->m2;
+	register float m1 = 0;
+	register float m2 = 0;
 
-	for (unsigned int i = 0; i < len; i++)
+	for (unsigned int i = len; i > 0; i--)
 	{
-		const float m = samples[i] + (g->coeff * m1) - m2;
+		register const float m = *samples++ + (g->coeff * m1) - m2;
 		m2 = m1;
 		m1 = m;
 	}
-
-	g->m1 = m1;
-	g->m2 = m2;
 
 	const float re = (m1 * g->cos) - m2;
 	const float im = -m1 * g->sin;
@@ -286,19 +278,19 @@ void goertzel_block(const int16_t *samples, const unsigned int len, t_goertzel *
 	g->re = re * scale;
 	g->im = im * scale;
 }
-*/
+
 void goertzel_process_loop(const float *in_samples, t_comp *out_samples, const unsigned int len, t_goertzel *g)
 {
 	const float scale = 2.0f / len;  // for correcting the output amplitude
 
 	for (unsigned int k = 0; k < len; k++)
 	{
-		float m1 = 0;
-		float m2 = 0;
+		register float m1 = 0;
+		register float m2 = 0;
 
-		for (unsigned int i = 0, n = k; i < len; i++)
+		for (register unsigned int i = 0, n = k; i < len; i++)
 		{
-			const float m = in_samples[n] + (g->coeff * m1) - m2;
+			register const float m = in_samples[n] + (g->coeff * m1) - m2;
 			m2 = m1;
 			m1 = m;
 			if (++n >= len)
@@ -314,19 +306,7 @@ void goertzel_process_loop(const float *in_samples, t_comp *out_samples, const u
 	}
 }
 
-/*
-// reset the Goertzel filters memory and output
-//
-void goertzel_reset(t_goertzel *g)
-{
-	g->m1 = 0;
-	g->m2 = 0;
-	g->re = 0;
-	g->im = 0;
-}
-*/
-
-// create the Goertzel filter coeffs and reset the memory
+// create the Goertzel filter coeffs
 //
 void goertzel_init(t_goertzel *g, const float normalized_freq)
 {
@@ -339,7 +319,8 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 	g->cos   = wr;
 	g->sin   = wi;
 
-//	goertzel_reset(g);
+	g->re    = 0;
+	g->im    = 0;
 }
 
 // ***********************************************************
@@ -460,62 +441,6 @@ void set_sine_wave_frequency(const uint32_t set_frequency)
 	}
 }
 
-void compute_amplitude(t_system_data *sd)
-{
-	//double sum_sq_adc_Volt        = 0;
-	//double sum_sq_AFC_adc_Volt    = 0;
-	//double sum_sq_adc_Current     = 0;
-	//double sum_sq_AFC_adc_Current = 0;
-
-	double sum_sq_adc[8]  = {0};
-	double rms_val_adc[8] = {0};
-	//double amp_val_adc[8] = {0};
-
-	const unsigned int n = DMA_ADC_DATA_LENGTH;
-
-	const double avg_scale = 1.0 / n;
-//	const double sqrt2     = sqrt(2.0);
-
-	// accumulate squared deviations
-	for (unsigned int row = 0; row < 8; row++)
-	{
-		for (unsigned int col = 0; col < n; col++)
-		{
-			double val_sq = 0;
-			if ((row % 2) == 0)
-				val_sq = adc_data[row][col];              // ERROR ?????
-			else
-				val_sq = adc_data[row][col];              // ERROR ?????
-
-			sum_sq_adc[row] += val_sq * val_sq;
-		}
-
-		// compute RMS
-		rms_val_adc[row] = sqrt(sum_sq_adc[row] * avg_scale);
-
-		// peak amplitude = RMS * sqrt(2)
-		//amp_val_adc[row] = rms_val_adc[row] * sqrt2;
-	}
-
-	// Automatic Gain Selection
-	// 1. Set Default as Gain A
-	volt_gain_sel = 0;
-	amp_gain_sel  = 0;
-
-	// 2. Check the gain value
-	const double threshold = 50;
-	if (rms_val_adc[(volt_gain_sel * 4) + 0] < threshold)
-		volt_gain_sel = 1;
-	if (rms_val_adc[(amp_gain_sel  * 4) + 2] < threshold)
-		amp_gain_sel = 1;
-
-	// Update system_data struct with amplitude after conversion
-	sd->rms_voltage     = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 0]);
-	sd->rms_afc_volt    = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 1]);
-	sd->rms_current     = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 2]);
-	sd->rms_afc_current = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 3]);
-}
-
 /*
 t_complex <float> serial_to_parallel(t_complex <float> z)
 {	// convert serial impedance to parallel impedance equivalent
@@ -623,6 +548,57 @@ float phase_compute(const float in_array[], const int start_l, const int length)
 	return phase_deg;
 }
 
+void compute_amplitude(t_system_data *sd)
+{
+	float sum_sq_adc[8]  = {0};
+	float rms_val_adc[8] = {0};
+	//float amp_val_adc[8] = {0};
+
+	const unsigned int n = DMA_ADC_DATA_LENGTH;
+
+	const float avg_scale = 1.0f / n;
+//	const float sqrt2     = sqrtf(2.0f);
+
+	// accumulate squared deviations
+	for (unsigned int row = 0; row < 8; row++)
+	{
+		for (unsigned int col = 0; col < n; col++)
+		{
+			float val_sq = 0;
+			if ((row % 2) == 0)
+				val_sq = adc_data[row][col];              // ERROR ?????
+			else
+				val_sq = adc_data[row][col];              // ERROR ?????
+
+			sum_sq_adc[row] += val_sq * val_sq;
+		}
+
+		// compute RMS
+		rms_val_adc[row] = sqrtf(sum_sq_adc[row] * avg_scale);
+
+		// peak amplitude = RMS * sqrtf(2)
+		//amp_val_adc[row] = rms_val_adc[row] * sqrt2;
+	}
+
+	// Automatic Gain Selection
+	// 1. Set Default as Gain A
+	volt_gain_sel = 0;
+	amp_gain_sel  = 0;
+
+	// 2. Check the gain value
+	const float threshold = 50;
+	if (rms_val_adc[(volt_gain_sel * 4) + 0] < threshold)
+		volt_gain_sel = 1;
+	if (rms_val_adc[(amp_gain_sel  * 4) + 2] < threshold)
+		amp_gain_sel = 1;
+
+	// Update system_data struct with amplitude after conversion
+	sd->rms_voltage     = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 0]);
+	sd->rms_afc_volt    = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 1]);
+	sd->rms_current     = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 2]);
+	sd->rms_afc_current = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 3]);
+}
+
 void process_data(t_system_data *sd)
 {
 	compute_amplitude(sd);
@@ -680,43 +656,44 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 	if (mode >= MODE_DONE)
 		return;
 
-	const unsigned int index = mode * 2;
+	const unsigned int buf_index = mode * 2;
 
-	// we discard the first sample block
+	if (mode == 0 && adc_data_avg_count == 0)
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);        // TEST
+
+	// we discard the first sample block after the GS/VI pins were changed
 	if (adc_data_avg_count > 0)	                 
 	{	// all other sample blocks added to the averaging buffer
 		for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 		{
-			adc_data_avg[i].pa0 += adc_buffer[i].pa0 - 2048;
-			adc_data_avg[i].pa1 += adc_buffer[i].pa1 - 2048;
+			adc_data_avg[i].adc += adc_buffer[i].adc - 2048;
+			adc_data_avg[i].afc += adc_buffer[i].afc - 2048;
 		}
 	}
 
-	if (++adc_data_avg_count < (1 + adc_average_count))
+	if (++adc_data_avg_count < (1 + adc_average_count))  // with averaging
+//	if (++adc_data_avg_count < (1 + 1))                  // without averaging
 		return;
+
+	// set the GS/VI pins ready for the next measurement run
+	set_measure_mode_pins(++mode);
 
 	{	// fetch the averaged ADC samples
 		const float scale = 1.0f / (adc_data_avg_count - 1);
 
-		float *pao_buf = adc_data[index + 0];
-		float *pa1_buf = adc_data[index + 1];
+		float *buf_adc = adc_data[buf_index + 0];
+		float *buf_afc = adc_data[buf_index + 1];
 
 		for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 		{
-			pao_buf[i] = adc_data_avg[i].pa0 * scale;        // averaged sample (saved as float)
-			pa1_buf[i] = adc_data_avg[i].pa1 * scale;        //    "      "
+			buf_adc[i] = adc_data_avg[i].adc * scale;        // averaged sample (saved as float)
+			buf_afc[i] = adc_data_avg[i].afc * scale;        //    "      "
 		}
 	}
 
-	// reset the averaging buffer
+	// reset averaging buffer ready for the next measurement run
 	memset(adc_data_avg, 0, sizeof(adc_data_avg));
 	adc_data_avg_count = 0;
-
-	// cycle through measurement modes
-	mode++;
-
-	// set the HW pins ready to start the next ADC capture
-	set_measure_mode_pins(mode);
 
 	// ************
 	// pass the new ADC samples through the goertzel dft
@@ -726,44 +703,119 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 	// input is real
 	// output is complex (I/Q)
 
-	goertzel_process_loop(adc_data[index + 0], tmp_pa[0], DMA_ADC_DATA_LENGTH, &goertzel_filt);
-	goertzel_process_loop(adc_data[index + 1], tmp_pa[1], DMA_ADC_DATA_LENGTH, &goertzel_filt);
+	#if 1
+	{	// don't filter the whole block, just compute RMS magnitudes and phases
 
-	// compute phase
-	phase_deg[index + 0] = (tmp_pa[0][0].re != 0) ? fmodf((atan2f(tmp_pa[0][0].im, tmp_pa[0][0].re) * RAD_TO_DEG) + 270, 360) : 0;     
-	phase_deg[index + 1] = (tmp_pa[1][0].re != 0) ? fmodf((atan2f(tmp_pa[1][0].im, tmp_pa[1][0].re) * RAD_TO_DEG) + 270, 360) : 0;
+		{	// remove DC offsets
+			register float *buf_adc = adc_data[buf_index + 0];
+			register float *buf_afc = adc_data[buf_index + 1];
 
-	power[index + 0] = 0;
-	power[index + 1] = 0;
+			register float sum_adc = 0;
+			register float sum_afc = 0;
 
+			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			{
+				register const float samp_adc = buf_adc[i];
+				register const float samp_afc = buf_afc[i];
+				sum_adc += samp_adc;
+				sum_afc += samp_afc;
+			}
+
+			sum_adc /= DMA_ADC_DATA_LENGTH;
+			sum_afc /= DMA_ADC_DATA_LENGTH;
+
+			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			{
+				buf_adc[i] -= sum_adc;
+				buf_afc[i] -= sum_afc;
+			}
+		}
+
+		{	// compute RMS magnitudes
+			register float *buf_adc = adc_data[buf_index + 0];
+			register float *buf_afc = adc_data[buf_index + 1];
+
+			register float sum_adc = 0;
+			register float sum_afc = 0;
+
+			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			{
+				register const float samp_adc = buf_adc[i];
+				register const float samp_afc = buf_afc[i];
+				sum_adc += SQR(samp_adc);
+				sum_afc += SQR(samp_afc);
+			}
+
+			sum_adc /= DMA_ADC_DATA_LENGTH;
+			sum_afc /= DMA_ADC_DATA_LENGTH;
+
+			mag_rms[buf_index + 0] = sqrtf(sum_adc);   
+			mag_rms[buf_index + 1] = sqrtf(sum_afc);
+		}
+
+		goertzel_block(adc_data[buf_index + 0], DMA_ADC_DATA_LENGTH, &goertzel);
+		const t_comp samp_adc = {goertzel.re, goertzel.im};
+
+		goertzel_block(adc_data[buf_index + 1], DMA_ADC_DATA_LENGTH, &goertzel);
+		const t_comp samp_afc = {goertzel.re, goertzel.im};
+
+		phase_deg[buf_index + 0] = (samp_adc.re != 0) ? fmodf((atan2f(samp_adc.im, samp_adc.re) * RAD_TO_DEG) + 270, 360) : 0;     
+		phase_deg[buf_index + 1] = (samp_afc.re != 0) ? fmodf((atan2f(samp_afc.im, samp_afc.re) * RAD_TO_DEG) + 270, 360) : 0;
+	}
+	#elif 0
 	{
-		float *pao_buf = adc_data[index + 0];
-		float *pa1_buf = adc_data[index + 1];
+		goertzel_process_loop(adc_data[buf_index + 0], tmp_buf[0], DMA_ADC_DATA_LENGTH, &goertzel);
+		goertzel_process_loop(adc_data[buf_index + 1], tmp_buf[1], DMA_ADC_DATA_LENGTH, &goertzel);
 
-		for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-		{
-			const t_comp pa0 = tmp_pa[0][i];
-			const t_comp pa1 = tmp_pa[1][i];
+		{	// compute phase using the 1st I/Q sample
+			const t_comp samp_adc = tmp_buf[0][0];
+			const t_comp samp_afc = tmp_buf[1][0];
+			phase_deg[buf_index + 0] = (samp_adc.re != 0) ? fmodf((atan2f(samp_adc.im, samp_adc.re) * RAD_TO_DEG) + 270, 360) : 0;     
+			phase_deg[buf_index + 1] = (samp_afc.re != 0) ? fmodf((atan2f(samp_afc.im, samp_afc.re) * RAD_TO_DEG) + 270, 360) : 0;
+		}
 
-			power[index + 0] += SQR(pa0.re) + SQR(pa0.im);
-			power[index + 1] += SQR(pa1.re) + SQR(pa1.im);
+		{	// compute RMS magnitude and save the Goertzel output samples
 
-			// set to '0' to test without goertzel dft filtering
-			#if 1
-				pao_buf[i] = pa0.re;                  // for now, just keep the real (0 deg) output (imag/90-deg is dropped :( )
-				pa1_buf[i] = pa1.re;                  //
-			#endif
+			float sum_adc = 0;
+			float sum_afc = 0;
+
+			t_comp *tmp_adc = tmp_buf[0];
+			t_comp *tmp_afc = tmp_buf[1];
+
+			float *buf_adc = adc_data[buf_index + 0];
+			float *buf_afc = adc_data[buf_index + 1];
+
+			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			{
+				const t_comp samp_adc = tmp_adc[i];
+				const t_comp samp_afc = tmp_afc[i];
+
+				sum_adc += SQR(samp_adc.re) + SQR(samp_adc.im);
+				sum_afc += SQR(samp_afc.re) + SQR(samp_afc.im);
+
+				// '#if 0' to test without goertzel dft filtering
+				#if 1
+					// replace the unfiltered samples with the filtered samples
+					buf_adc[i] = samp_adc.re;      // for now, just keep the real (0 deg) output (imag/90-deg is dropped :( )
+					buf_afc[i] = samp_afc.re;      //
+				#endif
+			}
+
+			// save the RMS magnitudes
+
+			sum_adc /= DMA_ADC_DATA_LENGTH;
+			sum_afc /= DMA_ADC_DATA_LENGTH;
+
+			mag_rms[buf_index + 0] = sqrtf(sum_adc);   
+			mag_rms[buf_index + 1] = sqrtf(sum_afc);
 		}
 	}
-
-	power[index + 0] /= DMA_ADC_DATA_LENGTH;
-	power[index + 1] /= DMA_ADC_DATA_LENGTH;
-
-	// compute the RMS magnitude
-	magnitude[index + 0] = sqrtf(power[index + 0]);   
-	magnitude[index + 1] = sqrtf(power[index + 1]);
+	#endif
 
 	// ************
+
+	if (mode >= MODE_DONE)
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);        // TEST
 
 	vi_measure_mode = mode;
 }
@@ -1594,6 +1646,9 @@ void GPIO_init(void)
 	HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, LOW);
 	HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, HIGH);
 
+	HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);
+	HAL_GPIO_WritePin(TP22_pin_GPIO_Port, TP22_Pin, LOW);
+
 	DAC_write(0);
 
 	// output pins
@@ -1606,6 +1661,10 @@ void GPIO_init(void)
 	HAL_GPIO_Init(GS_pin_GPIO_Port, &GPIO_InitStruct);
 	GPIO_InitStruct.Pin   = VI_Pin;
 	HAL_GPIO_Init(VI_pin_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin   = TP21_Pin;
+	HAL_GPIO_Init(TP21_pin_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin   = TP22_Pin;
+	HAL_GPIO_Init(TP22_pin_GPIO_Port, &GPIO_InitStruct);
 
 	// input pins
 	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -1805,7 +1864,7 @@ int main(void)
 
 	{	// setup the goertzel filter
 		const float normalized_freq = 2.0f / DMA_ADC_DATA_LENGTH;  // 2 cycles spanning the sample buffer
-		goertzel_init(&goertzel_filt, normalized_freq);
+		goertzel_init(&goertzel, normalized_freq);
 	}
 
 	set_measure_mode_pins(vi_measure_mode);
@@ -1849,8 +1908,8 @@ int main(void)
 		if (system_data.vi_measure_mode >= MODE_DONE)
 		{
 			// toggle the LED
-			system_data.led_state = (system_data.led_state == GPIO_PIN_SET) ? GPIO_PIN_RESET : GPIO_PIN_SET;
-			HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, system_data.led_state ? GPIO_PIN_SET : GPIO_PIN_RESET);
+//			system_data.led_state = (system_data.led_state == GPIO_PIN_SET) ? GPIO_PIN_RESET : GPIO_PIN_SET;
+//			HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, system_data.led_state ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
 			// process the new sampled data
 			process_data(&system_data);
