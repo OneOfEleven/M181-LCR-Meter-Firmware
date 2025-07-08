@@ -93,8 +93,8 @@ The level of leakage getting back into the ADC input, it matches the cheaper 20k
 To reduce this leakage/noise level ..
 
 - add a 100n cap to the ADC input pin
-- change R35 to 2k2
-- add a 22n cap across R20
+- change R35 to 1k
+- add a 10n cap across R20
 
 <img src="firmware/docs/schematic_M181_LCR.png" alt="image" style="width:600px;height:auto;">
 
