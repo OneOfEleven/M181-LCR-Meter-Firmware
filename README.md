@@ -56,11 +56,11 @@
 
 without Goertzel filter, no block averaging, no DC offset removal ..
 
-<img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
+<img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging_no_dc_removal.png" alt="image" style="width:600px;height:auto;">
 
 without Goertzel filter, with block averaging, with auto DC offset removal ..
 
-<img src="firmware/docs/windows_gui_image_goertzel_filter_disabled.png" alt="image" style="width:600px;height:auto;">
+<img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_dc_removal.png" alt="image" style="width:600px;height:auto;">
 
 with Goertzel 64 sample length filter (half a block), with block averaging ..
 
@@ -68,7 +68,7 @@ with Goertzel 64 sample length filter (half a block), with block averaging ..
 
 with Goertzel 128 sample length filter, with block averaging ..
 
-<img src="firmware/docs/windows_gui_image.png" alt="image" style="width:600px;height:auto;">
+<img src="firmware/docs/windows_gui_image_goertzerl_128_sample_filter_length.png" alt="image" style="width:600px;height:auto;">
 
 ## HPF modification to improve mode switching time
 
