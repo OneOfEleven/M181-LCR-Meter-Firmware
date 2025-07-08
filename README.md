@@ -74,6 +74,8 @@ with Goertzel 128 sample length filter (2 sine cycles), with block averaging ..
 
 Waveform as seen on TP4/V4 pin (ADC input pin) ..
 
+Add a 22k resistor across R18.
+
 <img src="firmware/docs/HPF_mod.png" alt="image" style="width:600px;height:auto;">
 
 # Original firmware mode scanning
@@ -92,7 +94,7 @@ To reduce this leakage/noise level ..
 
 - add a 100n cap to the ADC input pin
 - change R35 to 2k2
-- add 22n cap across R20
+- add a 22n cap across R20
 
 <img src="firmware/docs/schematic_M181_LCR.png" alt="image" style="width:600px;height:auto;">
 
