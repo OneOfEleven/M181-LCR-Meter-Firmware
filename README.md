@@ -17,7 +17,7 @@
 - [ ] Improve the phase difference calculation
 - [ ] Correct the current waveform crop issue in auto gain selection.
 - [ ] Add option for Parallel calculation ($C_p$,$L_p$)
-- [ ] Update a couple of component values to add 10kHz opton (see LTspice sims)
+- [ ] Update a couple of HW component values to add 10kHz option (see LTspice sims)
 - [ ] Use a block of flash to save settings/calibrations (emulated EEPROM)
 
 # System Overview ..
@@ -54,27 +54,27 @@
 
 - streamed uart data from the M181 to the windows test GUI (compiled with Borland c++ builder v6) ..
 
-  with Goertzel filter, with block averaging ..
+with Goertzel filter, with block averaging ..
 
 <img src="firmware/docs/windows_gui_image.png" alt="image" style="width:600px;height:auto;">
 
-  without Goertzel filter, with block averaging ..
+without Goertzel filter, with block averaging ..
 
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled.png" alt="image" style="width:600px;height:auto;">
 
-  without Goertzel filter, no block averaging ..
+without Goertzel filter, no block averaging ..
 
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
 
 ## HPF modification to improve mode switching time
 
-   Waveform as seen on TP4/V4 pin (ADC input pin) ..
+Waveform as seen on TP4/V4 pin (ADC input pin) ..
 
 <img src="firmware/docs/HPF_mod.png" alt="image" style="width:600px;height:auto;">
 
 # Original firmware mode scanning
 
-   The auther only scans all modes if need be (makes sense) ..
+The auther only scans all modes if need be (makes sense) ..
 
 <img src="firmware/docs/m181_mode_switching_original_fw.png" alt="image" style="width:600px;height:auto;">
 
