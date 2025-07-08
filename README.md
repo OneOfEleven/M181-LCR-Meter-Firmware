@@ -5,7 +5,7 @@
 # Original firmware source
 - Jaishankar M .. https://github.com/Jaishankar872/LCR_Meter_Proto_M181
 
-## Hardware - M181 LCR Meter
+# Hardware - M181 LCR Meter
 - Official product page link [here](https://jyetech.com/m181-lcr-meter/)
 
 <img src="firmware/docs/pcb.png" alt="image" style="width:500px;height:auto;">
@@ -29,7 +29,7 @@
 
 <img src="firmware/docs/LCR_Meter_Program_Setup.jpg" alt="image" style="width:400px;height:auto;">
 
-## STLinkV2 MCU programming
+# STLinkV2 MCU programming
 - Programmer → STLink-V2
 - Interface  → SWD
 - IDE        → PlatformIO
@@ -37,7 +37,7 @@
 
 <img src="firmware/docs/LCR_Meter_Program_Setup_STLinkV2.png" alt="image" style="width:400px;height:auto;">
 
-## Output parameter
+# Output parameter
 <img src="firmware/docs/output_fw-v0_20.jpg" alt="image" style="width:200px;height:auto;">
 
 * Ser → Calculation mode Series or Parallel
@@ -49,7 +49,7 @@
 * ER → Equivalent Series Resistor(ESR)
 * D → Dissipation factor (or) Tan Delta
 
-## Windows test GUI
+# Windows test GUI
 
 - streamed uart data from the M181 to the windows test GUI (compiled with Borland c++ builder v6) ..
 
@@ -62,16 +62,18 @@
 - without Goertzel filter and no averaging ..
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
 
-## HPF modification to improve mode switching time
+# HPF modification to improve mode switching time
 
+   Waveform as seen on TP4/V4 pin (ADC input pin) ..
+   
 <img src="firmware/docs/HPF_mod.png" alt="image" style="width:600px;height:auto;">
 
-## Original firmware mode scanning
+# Original firmware mode scanning
 
-- The auther only scans all modes if need be (makes sense) ..
+   The auther only scans all modes if need be (makes sense) ..
 
 <img src="firmware/docs/m181_mode_switching_original_fw.png" alt="image" style="width:600px;height:auto;">
 
-## Wiki
+# Wiki
 
  **Further details by Jaishankar M [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**
