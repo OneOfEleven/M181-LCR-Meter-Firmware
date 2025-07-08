@@ -54,11 +54,11 @@
 
 - streamed uart data from the M181 to the windows test GUI (compiled with Borland c++ builder v6) ..
 
-without Goertzel filter, no block averaging ..
+without Goertzel filter, no block averaging, no DC offset removal ..
 
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
 
-without Goertzel filter, with block averaging ..
+without Goertzel filter, with block averaging, with auto DC offset removal ..
 
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled.png" alt="image" style="width:600px;height:auto;">
 
