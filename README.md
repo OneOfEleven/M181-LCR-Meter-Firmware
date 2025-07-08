@@ -65,6 +65,12 @@
 
 <img src="firmware/docs/HPF_mod.png" alt="image" style="width:600px;height:auto;">
 
+## Original firmware mode switching
+
+- The auther only scans all modes if need be (makes sense) ..
+
+<img src="firmware/docs/m181_mode_switching_original_fw.png" alt="image" style="width:600px;height:auto;">
+
 ## Wiki
 
  **Further details by Jaishankar M [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**

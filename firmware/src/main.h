@@ -42,11 +42,11 @@
 
 #define PACKET_MARKER                0x19621996     // 32-bit marker to indicate 'start of packet' for the receiver (windows GUI etc)
 
-#define DMA_ADC_DATA_LENGTH          128            // must be 2^n (2, 4, 8 .. 1024 etc)
+#define DMA_ADC_DATA_LENGTH          128            // 2^n
 
-#define DEFAULT_ADC_AVERAGE_COUNT    24             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
+#define DEFAULT_ADC_AVERAGE_COUNT    32             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
 
-#define MODE_SWITCH_BLOCK_WAIT       10             // number of sample blocks to wait before saving blocks after switching mode - to overcome design floor
+#define MODE_SWITCH_BLOCK_WAIT       10             // number of sample blocks to wait after switching modes before saving them - to overcome design floor
 
 #define HIGH                         GPIO_PIN_SET
 #define LOW                          GPIO_PIN_RESET
@@ -138,8 +138,7 @@ enum {
 	MODE_DONE
 };
 
-typedef struct
-{
+typedef struct {
 	uint16_t     set_freq;
 	unsigned int led_state;
 	unsigned int vi_measure_mode;
