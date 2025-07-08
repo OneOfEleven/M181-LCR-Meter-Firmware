@@ -65,7 +65,7 @@
 
 <img src="firmware/docs/HPF_mod.png" alt="image" style="width:600px;height:auto;">
 
-## Original firmware mode switching
+## Original firmware mode scanning
 
 - The auther only scans all modes if need be (makes sense) ..
 
