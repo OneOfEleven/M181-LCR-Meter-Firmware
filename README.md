@@ -1,26 +1,26 @@
-# Goals
+## Goals
    To develop custom firmware for the M181 LCR Meter made by JyeTech.
    Hope to provide understanding in basics of LCR Meter.
 
-# Original firmware source
+## Original firmware source
 - Jaishankar M .. https://github.com/Jaishankar872/LCR_Meter_Proto_M181
 
-# Hardware - M181 LCR Meter
+## Hardware - M181 LCR Meter
 - Official product page link [here](https://jyetech.com/m181-lcr-meter/)
 
 <img src="firmware/docs/pcb.png" alt="image" style="width:500px;height:auto;">
 <img src="firmware/docs/pcb_finished.png" alt="image" style="width:500px;height:auto;">
 
 **Note**: Firmware still under development.
-# Tasks to be completed
+## Tasks to be completed
 - [ ] Auto calibration option
 - [ ] Improve the phase difference calculation
 - [ ] Correct the current waveform crop issue in auto gain selection.
 - [ ] Add option for Parallel calculation ($C_p$,$L_p$)
 - [ ] Use a block of flash to save settings/calibrations (emulated EEPROM)
 
+# System Overview ..
 
-# System Overview
 ## RPI MCU programming
 - Programmer → Raspberry pi debug probe (**modified)
 - Interface  → SWD
@@ -29,7 +29,7 @@
 
 <img src="firmware/docs/LCR_Meter_Program_Setup.jpg" alt="image" style="width:400px;height:auto;">
 
-# STLinkV2 MCU programming
+## STLinkV2 MCU programming
 - Programmer → STLink-V2
 - Interface  → SWD
 - IDE        → PlatformIO
@@ -37,7 +37,7 @@
 
 <img src="firmware/docs/LCR_Meter_Program_Setup_STLinkV2.png" alt="image" style="width:400px;height:auto;">
 
-# Output parameter
+## Output parameter
 <img src="firmware/docs/output_fw-v0_20.jpg" alt="image" style="width:200px;height:auto;">
 
 * Ser → Calculation mode Series or Parallel
@@ -65,7 +65,7 @@
 
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
 
-# HPF modification to improve mode switching time
+## HPF modification to improve mode switching time
 
    Waveform as seen on TP4/V4 pin (ADC input pin) ..
 
