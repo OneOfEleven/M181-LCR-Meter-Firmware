@@ -48,6 +48,10 @@
 
 #define MODE_SWITCH_BLOCK_WAIT       10             // number of sample blocks to wait after switching modes before saving them - to overcome design floor
 
+//#define GOERTZEL_FILTER_LENGTH     0                          // don't Goertzel filter
+  #define GOERTZEL_FILTER_LENGTH     (DMA_ADC_DATA_LENGTH / 2)  // one sine cycle filter length, less filtering, but quicker than full filtering
+//#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (nice but takes more time)
+
 #define HIGH                         GPIO_PIN_SET
 #define LOW                          GPIO_PIN_RESET
 

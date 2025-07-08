@@ -115,6 +115,10 @@ unsigned int          adc_average_count                 = DEFAULT_ADC_AVERAGE_CO
 t_adc_dma_data_32     adc_data_avg[DMA_ADC_DATA_LENGTH] = {0};
 volatile unsigned int adc_data_avg_count                = 0;
 
+// ADC rolling average
+t_comp                adc_avg[8]    = {0};
+uint32_t              adc_avg_count = 0;
+
 #pragma pack(push, 1)
 float                 adc_data[8][DMA_ADC_DATA_LENGTH] = {0};
 #pragma pack(pop)
@@ -621,10 +625,12 @@ void process_Goertzel(void)
 	//
 	// STM32F103CBT6 drop-in replacements .. STM32F303CBT6, STM32L412CBT6, STM32L431CCT6 and STM32L433CBT6
 
+	const float avg_coeff = (adc_avg_count >= 5) ? 0.5 : 0.9;
+
 	for (unsigned int buf_index = 0; buf_index < ARRAY_SIZE(adc_data); buf_index++)
 	{
-		#if 0
-		{	// don't filter the waveform, but do ..
+		#if !defined(GOERTZEL_FILTER_LENGTH) || (GOERTZEL_FILTER_LENGTH <= 0)
+		{	// don't filter the waveform, do these ..
 			//    remove waveform DC offset
 			//   compute waveform RMS magnitude
 			//   compute waveform phase
@@ -638,6 +644,11 @@ void process_Goertzel(void)
 				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 					sum += buf[i];
 				sum *= 1.0f / DMA_ADC_DATA_LENGTH;
+
+				{	// update a rolling average value (not really needed but hey ho)
+					adc_avg[buf_index].re = ((1.0f - avg_coeff) * adc_avg[buf_index].re) + (avg_coeff * sum);
+					sum = adc_avg[buf_index].re;
+				}
 
 				// remove DC offset using computed average (DC offset)
 				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
@@ -660,20 +671,16 @@ void process_Goertzel(void)
 			}
 		}
 		#else
-		{	// use Goertzel to filter the waveforms, length of filter is settable
+		{	// use Goertzel dft to filter the waveforms, length of filter is settable
 
-			#if 0
-				const unsigned int filter_len = DMA_ADC_DATA_LENGTH;      // max length filtering (best but takes more time)
-			#else
-				const unsigned int filter_len = DMA_ADC_DATA_LENGTH / 2;  // reduced filter length, less filtering, but quicker than full filtering
-			#endif
+			const unsigned int filter_len = GOERTZEL_FILTER_LENGTH;
 
 			register t_comp *buf = tmp_buf;            // point to Goertzel dft output samples
 
 			goertzel_wrap(adc_data[buf_index], buf, DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
 
-			if (filter_len < (DMA_ADC_DATA_LENGTH / 2))
-			{	// need to remove DC offset
+			if (filter_len != (DMA_ADC_DATA_LENGTH / 2) && filter_len != DMA_ADC_DATA_LENGTH)
+			{	// need to remove DC offset because the Goertzel filter is not a multiple number of sine cycles in length
 
 				// compute the average (DC offset)
 				register t_comp sum = {0, 0};
@@ -685,6 +692,13 @@ void process_Goertzel(void)
 				}
 				sum.re *= 1.0f / DMA_ADC_DATA_LENGTH;
 				sum.im *= 1.0f / DMA_ADC_DATA_LENGTH;
+
+				{	// update a rolling average value (not really needed but hey ho)
+					adc_avg[buf_index].re = ((1.0f - avg_coeff) * adc_avg[buf_index].re) + (avg_coeff * sum.re);
+					adc_avg[buf_index].im = ((1.0f - avg_coeff) * adc_avg[buf_index].im) + (avg_coeff * sum.im);
+					sum.re = adc_avg[buf_index].re;
+					sum.im = adc_avg[buf_index].im;
+				}
 
 				// remove DC offset using computed average (DC offset)
 				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
@@ -723,6 +737,8 @@ void process_Goertzel(void)
 		}
 		#endif
 	}
+
+	adc_avg_count++;
 }
 
 void process_data(t_system_data *sd)
@@ -1968,11 +1984,16 @@ int main(void)
 						tx_packet.marker = PACKET_MARKER;
 						memcpy(tx_packet.data, &adc_data, sizeof(adc_data));
 						tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));
-						
-						// start sending the packet (wait here for upto 200ms until it does start)
-						const uint32_t tick = HAL_GetTick();
-						while (HAL_BUSY == HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet)) && (HAL_GetTick() - tick) < 200)
-							__WFI();    // wait until next interrupt occurs
+
+						#if 0
+							// start sending the packet (wait here for upto 200ms until it does start)
+							const uint32_t tick = HAL_GetTick();
+							while (HAL_BUSY == HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet)) && (HAL_GetTick() - tick) < 200)
+								__WFI();    // wait until next interrupt occurs
+						#else
+							// don't hang around waiting for packet to start
+							HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet));
+						#endif
 					#endif
 				}
 			}
