@@ -53,19 +53,22 @@
 
 - streamed uart data from the M181 to the windows test GUI (compiled with Borland c++ builder v6) ..
 
-- with Goertzel filter ..
+  with Goertzel filter, with block averaging ..
+
 <img src="firmware/docs/windows_gui_image.png" alt="image" style="width:600px;height:auto;">
 
-- without Goertzel filter ..
+  without Goertzel filter, with block averaging ..
+
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled.png" alt="image" style="width:600px;height:auto;">
 
-- without Goertzel filter and no averaging ..
+  without Goertzel filter, no block averaging ..
+
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
 
 # HPF modification to improve mode switching time
 
    Waveform as seen on TP4/V4 pin (ADC input pin) ..
-   
+
 <img src="firmware/docs/HPF_mod.png" alt="image" style="width:600px;height:auto;">
 
 # Original firmware mode scanning
