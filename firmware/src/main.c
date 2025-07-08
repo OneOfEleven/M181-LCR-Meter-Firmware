@@ -122,7 +122,7 @@ float                 adc_data[8][DMA_ADC_DATA_LENGTH] = {0};
 float                 phase_deg[8] = {0};
 float                 mag_rms[8]   = {0};
 
-// change the mode sequence order to maximise mode switching speed - due to overcome a design floor
+// change the mode sequence order to maximise mode switching speed - to overcome a design floor
 const unsigned int    vi_measure_mode_table[] = {0, 1, 3, 2};
 
 volatile unsigned int vi_measure_mode = MODE_VOLT_LO_GAIN;
@@ -790,18 +790,18 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 	if (mode >= MODE_DONE)
 		return;
 
-	#if 0
-		const unsigned int buf_index = mode * 2;
-	#else
-		// due to HW design floor
-		const unsigned int buf_index = vi_measure_mode_table[mode] * 2;
-	#endif
+	const unsigned int buf_index = vi_measure_mode_table[mode] * 2;
 
 	if (mode == 0 && adc_data_avg_count == 0)
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);        // TEST
+	{
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);        // TEST only, LED on
+
+		set_measure_mode_pins(vi_measure_mode_table[mode]);                 // ensure the HW mode pins are set correctly
+	}
 
 	// we discard the first few sample blocks (MODE_SWITCH_BLOCK_WAIT) after each time we change the GS/VI mode pins
-	// this is to give the HW time to settle after each mode change
+	//
+	// each time the HW mode is changed, the ADC input sees a large unwanted spike/DC-offset that takes time to settle
 	//
 	if (adc_data_avg_count >= MODE_SWITCH_BLOCK_WAIT)	                 
 	{	// all other sample blocks added to the averaging buffer
@@ -819,14 +819,9 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 	mode++;
 
 	// set the GS/VI pins ready for the next measurement run
-	#if 0
-		set_measure_mode_pins(mode);
-	#else
-		// due to HW design floor
-		set_measure_mode_pins(vi_measure_mode_table[mode]);
-	#endif
+	set_measure_mode_pins(vi_measure_mode_table[mode]);
 
-	{	// fetch the averaged ADC samples
+	{	// fetch/scale the averaged ADC samples
 		register const float scale = 1.0f / (adc_data_avg_count - MODE_SWITCH_BLOCK_WAIT);
 
 		// buffers to save the new data into
@@ -844,11 +839,11 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 	memset(adc_data_avg, 0, sizeof(adc_data_avg));
 	adc_data_avg_count = 0;
 
-	// the new mode for the next measurement run
+	// save the new mode for the next measurement run
 	vi_measure_mode = mode;
 
 	if (mode >= MODE_DONE)
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);        // TEST
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);    // TEST only, LED off
 }
 
 // ***********************************************************
@@ -1957,18 +1952,18 @@ int main(void)
 					// send the sampled data down the serial link
 
 					#if 0
-						// send as ASCII (int_16's)
+						// send as ASCII
 
 						const unsigned int cols = 8;
 						for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 						{
-							printf("%3u ", 1 + i);
-							for (unsigned int col = 0; col < cols; col++)
-								printf("%d ", (int16_t)adc_data[col][i]);
-							printf("\r\n");
+							printf("%3u,", 1 + i);
+							for (unsigned int col = 0; col < (cols - 1); col++)
+								printf("%0.1f,", adc_data[col][i]);
+							printf("%0.1f\r\n", adc_data[col - 1][i]);
 						}
 					#else
-						// send as a binary packet (full resolution float)
+						// send as binary packet
 
 						tx_packet.marker = PACKET_MARKER;
 						memcpy(tx_packet.data, &adc_data, sizeof(adc_data));

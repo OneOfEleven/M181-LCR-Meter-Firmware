@@ -54,17 +54,17 @@
 
 - streamed uart data from the M181 to the windows test GUI (compiled with Borland c++ builder v6) ..
 
-with Goertzel filter, with block averaging ..
+without Goertzel filter, no block averaging ..
 
-<img src="firmware/docs/windows_gui_image.png" alt="image" style="width:600px;height:auto;">
+<img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
 
 without Goertzel filter, with block averaging ..
 
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled.png" alt="image" style="width:600px;height:auto;">
 
-without Goertzel filter, no block averaging ..
+with Goertzel filter, with block averaging ..
 
-<img src="firmware/docs/windows_gui_image_goertzel_filter_disabled_no_averaging.png" alt="image" style="width:600px;height:auto;">
+<img src="firmware/docs/windows_gui_image.png" alt="image" style="width:600px;height:auto;">
 
 ## HPF modification to improve mode switching time
 
