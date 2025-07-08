@@ -611,18 +611,29 @@ void compute_amplitude(t_system_data *sd)
 //
 void process_Goertzel(void)
 {
+	// the Goertzel DFT is used for creating I/Q output, phase computation and filtering (if desired)
+
+	// the STM32F103 MCU doesn't have a HW FPU, so full length filtering takes quite a time :(
+	//
+	// a better (drop in replacement) MCU to use would be the STM32F303CBT6 (or others), it has a HW FPU which greatly improves FP ops
+	// it also has a dual 12-DAC, but the two pins it outputs on can't be used for DAC output without modding the m181 PCB
+	// even so, the FPU alone would be a huge gain in speeding up the FP computation frame rate
+	//
+	// STM32F103CBT6 drop-in replacements .. STM32F303CBT6, STM32L412CBT6, STM32L431CCT6 and STM32L433CBT6
+
 	for (unsigned int buf_index = 0; buf_index < ARRAY_SIZE(adc_data); buf_index++)
 	{
 		#if 0
 		{	// don't filter the waveform, but do ..
-			//   remove DC offset
-			//   compute RMS magnitude
-			//   compute WAVEFORM phase
+			//    remove waveform DC offset
+			//   compute waveform RMS magnitude
+			//   compute waveform phase
 
-			register float *buf = adc_data[buf_index];
+			register float *buf = adc_data[buf_index];   // point to the ADC samples
 
 			{	// remove waveform DC offset
 
+				// compute the average (DC offset)
 				register float sum = 0;
 				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 					sum += buf[i];
@@ -651,27 +662,20 @@ void process_Goertzel(void)
 		#else
 		{	// use Goertzel to filter the waveforms, length of filter is settable
 
-			// this STM32F103CB MCU doesn't have a HW FPU, so full length filtering takes quite a time :(
-			//
-			// a better (drop in replacement) MCU to use is the STM32F303CBT6, it has a HW FPU which greatly improves FP ops
-			// it also has a dual 12-DAC, but the two pins it outputs on can't be used for DAC output without modding the m181 PCB
-			// even so, the HW FPU would be a huge gain in speeding up the update rate to the display
-			//
-			// STM32F103CBT6 drop-in replacements .. STM32F303CBT6  STM32L412CBT6  STM32L431CCT6  STM32L433CBT6
-
 			#if 0
 				const unsigned int filter_len = DMA_ADC_DATA_LENGTH;      // max length filtering (best but takes more time)
 			#else
 				const unsigned int filter_len = DMA_ADC_DATA_LENGTH / 2;  // reduced filter length, less filtering, but quicker than full filtering
 			#endif
 
-			register t_comp *buf = tmp_buf;            // point to output samples from the Goertzel dft
+			register t_comp *buf = tmp_buf;            // point to Goertzel dft output samples
 
 			goertzel_wrap(adc_data[buf_index], buf, DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
 
 			if (filter_len < (DMA_ADC_DATA_LENGTH / 2))
 			{	// need to remove DC offset
 
+				// compute the average (DC offset)
 				register t_comp sum = {0, 0};
 				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 				{
@@ -690,7 +694,7 @@ void process_Goertzel(void)
 				}
 			}
 
-			{	// compute waveform phase using the 1st Goertzel I/Q output sample for each waveform
+			{	// compute waveform phase using the 1st Goertzel I/Q output sample
 				const t_comp samp = buf[0];
 				phase_deg[buf_index] = (samp.re != 0) ? fmodf((atan2f(samp.im, samp.re) * RAD_TO_DEG) + 270, 360) : 0;     
 			}
@@ -711,9 +715,9 @@ void process_Goertzel(void)
 						buf_out[i] = samp.re;      // for now, just keep the real (0 deg) output (imag/90-deg is dropped :( )
 					#endif
 				}
+				sum *= 1.0f / DMA_ADC_DATA_LENGTH;   
 
 				// save the RMS magnitude
-				sum *= 1.0f / DMA_ADC_DATA_LENGTH;   
 				mag_rms[buf_index] = sqrtf(sum);   
 			}
 		}
