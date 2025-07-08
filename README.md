@@ -62,7 +62,11 @@ without Goertzel filter, with block averaging ..
 
 <img src="firmware/docs/windows_gui_image_goertzel_filter_disabled.png" alt="image" style="width:600px;height:auto;">
 
-with Goertzel filter, with block averaging ..
+with Goertzel 64 sample length filter (half a block), with block averaging ..
+
+<img src="firmware/docs/windows_gui_image_goertzel_64_sample_filter_length.png" alt="image" style="width:600px;height:auto;">
+
+with Goertzel 128 sample length filter, with block averaging ..
 
 <img src="firmware/docs/windows_gui_image.png" alt="image" style="width:600px;height:auto;">
 
