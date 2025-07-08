@@ -82,6 +82,12 @@ The auther only scans all modes if need be (makes sense) ..
 
 <img src="firmware/docs/m181_mode_switching_original_fw.png" alt="image" style="width:600px;height:auto;">
 
+# PCB bad analog layout design
+
+The level of leakage getting back into the ADC input, it matches the cheaper 20kHz voltage inverter frequency that the seller is fitting to the board :( ..
+
+<img src="firmware/docs/m181_cheap_voltage_inverter_leakage_into_ADC.png" alt="image" style="width:600px;height:auto;">
+
 # Wiki
 
  **Further details by Jaishankar M [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**
