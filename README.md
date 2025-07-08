@@ -88,6 +88,14 @@ The level of leakage getting back into the ADC input, it matches the cheaper 20k
 
 <img src="firmware/docs/m181_cheap_voltage_inverter_leakage_into_ADC.png" alt="image" style="width:600px;height:auto;">
 
+To reduce this leakage/noise level ..
+
+- add a 100n cap to the ADC input pin
+- change R35 to 2k2
+- add 22n cap across R20
+
+<img src="firmware/docs/schematic_M181_LCR.png" alt="image" style="width:600px;height:auto;">
+
 # Wiki
 
  **Further details by Jaishankar M [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**
