@@ -282,7 +282,7 @@ void goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 	g->im = im * scale;
 }
 
-void goertzel_process_loop(const float *in_samples, t_comp *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
+void goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
 {
 	const float scale = 2.0f / g_len;  // for correcting the output amplitude
 
@@ -651,15 +651,23 @@ void process_Goertzel(void)
 		#else
 		{	// use Goertzel to filter the waveforms, length of filter is settable
 
+			// this STM32F103CB MCU doesn't have a HW FPU, so full length filtering takes quite a time :(
+			//
+			// a better (drop in replacement) MCU to use is the STM32F303CBT6, it has a HW FPU which greatly improves FP ops
+			// it also has a dual 12-DAC, but the two pins it outputs on can't be used for DAC output without modding the m181 PCB
+			// even so, the HW FPU would be a huge gain in speeding up the update rate to the display
+			//
+			// STM32F103CBT6 drop-in replacements .. STM32F303CBT6  STM32L412CBT6  STM32L431CCT6  STM32L433CBT6
+
 			#if 0
 				const unsigned int filter_len = DMA_ADC_DATA_LENGTH;      // max length filtering (best but takes more time)
 			#else
 				const unsigned int filter_len = DMA_ADC_DATA_LENGTH / 2;  // reduced filter length, less filtering, but quicker than full filtering
 			#endif
 
-			register t_comp *buf = tmp_buf;            // point to output samples from the Goertzel filter
+			register t_comp *buf = tmp_buf;            // point to output samples from the Goertzel dft
 
-			goertzel_process_loop(adc_data[buf_index], buf, DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
+			goertzel_wrap(adc_data[buf_index], buf, DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
 
 			if (filter_len < (DMA_ADC_DATA_LENGTH / 2))
 			{	// need to remove DC offset
