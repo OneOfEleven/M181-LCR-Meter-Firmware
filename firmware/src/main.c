@@ -11,6 +11,8 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <float.h>
+#include <limits.h>
 
 #include "main.h"
 #include "delay.h"
@@ -25,7 +27,7 @@ typedef struct {
 	uint16_t          gpio_pin;
 	int16_t           debounce;        // counter for debounce
 	volatile uint32_t pressed_tick;    // tick value when button was pressed
-	volatile bool     released;        // true when button is released
+	volatile uint8_t  released;        // true when button is released
 	volatile uint32_t held_ms;         // number of ms the button is/was held for
 } t_button;
 
@@ -99,6 +101,8 @@ float                 sine_wave_amplitude                 = 1.0;  // 0.0 = 0%, 1
 volatile unsigned int sine_table_index                    = 0;    //
 uint8_t               sine_table[DMA_ADC_DATA_LENGTH / 2] = {0};  // matched to the ADC sampling
 
+unsigned int          op_mode = OP_MODE_MEASURING;
+
 unsigned int          volt_gain_sel = 0;
 unsigned int          amp_gain_sel  = 0;
 
@@ -108,12 +112,13 @@ int8_t                ref90_data[DMA_ADC_DATA_LENGTH] = {0};
 int16_t               phase_offset_array_index = 0;
 
 // raw ADC sample buffer
-t_adc_dma_data_16     raw_adc_dma_data[DMA_ADC_DATA_LENGTH * 2];      // *2 for double buffering (DMA ADC is now never stopped)
+t_adc_dma_data_16     raw_adc_dma_data[2][DMA_ADC_DATA_LENGTH];      // *2 for double buffering (ADC/DMA is continuously running)
 
-// ADC averaging buffer
+// ADC sample block averaging buffer
+// we take several sample blocks and average them together to reduce noise/increase dynamic range
 unsigned int          adc_average_count                 = DEFAULT_ADC_AVERAGE_COUNT;
 t_adc_dma_data_32     adc_data_avg[DMA_ADC_DATA_LENGTH] = {0};
-volatile unsigned int adc_data_avg_count                = 0;
+unsigned int          adc_data_avg_count                = 0;
 
 // ADC rolling average
 t_comp                adc_avg[8]    = {0};
@@ -123,18 +128,23 @@ uint32_t              adc_avg_count = 0;
 float                 adc_data[8][DMA_ADC_DATA_LENGTH] = {0};
 #pragma pack(pop)
 
-float                 phase_deg[8] = {0};
 float                 mag_rms[8]   = {0};
+float                 phase_deg[8] = {0};
 
-// change the mode sequence order to maximise mode switching speed - to overcome a design floor
+// custom HW VI mode sequence order to minimize mode switching time
+// because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins)
 const unsigned int    vi_measure_mode_table[] = {0, 1, 3, 2};
+volatile unsigned int vi_measure_index = 0;
+unsigned int          prev_vi_mode = -1;
 
-volatile unsigned int vi_measure_mode = MODE_VOLT_LO_GAIN;
-
+// various system settings and results
+t_settings            settings    = {0};
 t_system_data         system_data = {0};
 
+// temp buffer - used for the Goerttzel output samples
 t_comp                tmp_buf[DMA_ADC_DATA_LENGTH];
 
+// for TX'ing binary packets vis the serial port
 t_packet              tx_packet;
 
 // ***********************************************************
@@ -157,22 +167,22 @@ void set_measure_mode_pins(const unsigned int mode)
 	switch (mode)
 	{
 		default:
-		case MODE_VOLT_LO_GAIN:           // low gain voltage mode
+		case VI_MODE_VOLT_LO_GAIN:           // low gain voltage mode
 			HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, LOW);
 			HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, HIGH);
 			break;
 
-		case MODE_AMP_LO_GAIN:            // low gain current mode
+		case VI_MODE_AMP_LO_GAIN:            // low gain current mode
 			HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, HIGH);
 			HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, HIGH);
 			break;
 
-		case MODE_VOLT_HI_GAIN:           // high gain voltage mode
+		case VI_MODE_VOLT_HI_GAIN:           // high gain voltage mode
 			HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, LOW);
 			HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, LOW);
 			break;
 
-		case MODE_AMP_HI_GAIN:            // high gain current mode
+		case VI_MODE_AMP_HI_GAIN:            // high gain current mode
 			HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, HIGH);
 			HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, LOW);
 			break;
@@ -528,7 +538,7 @@ float phase_diff(const t_comp c1, const t_comp c2)
 	d.im = (c1.re * c2.im) - (c1.im * c2.re);
 
 	// phase
-	const float phase_deg = (d.re != 0) ? fmodf((atan2f(d.im, d.re) * RAD_TO_DEG) + 270, 360) : 0;
+	const float phase_deg = (d.re != 0.0f) ? fmodf((atan2f(d.im, d.re) * RAD_TO_DEG) + 270, 360) : NAN;
 
 	return phase_deg;
 }
@@ -550,7 +560,7 @@ float phase_compute(const float in_array[], const int start_l, const int length)
 	const float Q_avg = Q_sum * scale;
 
 	// compute phase angle
-	const float phase_deg = (I_avg != 0.0f) ? atan2f(Q_avg, I_avg) * RAD_TO_DEG : 0;
+	const float phase_deg = (I_avg != 0.0f) ? atan2f(Q_avg, I_avg) * RAD_TO_DEG : NAN;
 
 	return phase_deg;
 }
@@ -641,33 +651,35 @@ void process_Goertzel(void)
 
 				// compute the average (DC offset)
 				register float sum = 0;
-				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-					sum += buf[i];
+				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
+					sum += buf[k];
 				sum *= 1.0f / DMA_ADC_DATA_LENGTH;
 
+				#if 1
 				{	// update a rolling average value (not really needed but hey ho)
 					adc_avg[buf_index].re = ((1.0f - avg_coeff) * adc_avg[buf_index].re) + (avg_coeff * sum);
 					sum = adc_avg[buf_index].re;
 				}
+				#endif
 
 				// remove DC offset using computed average (DC offset)
-				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-					buf[i] -= sum;
+				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
+					buf[k] -= sum;
 			}
 
 			{	// compute waveform RMS magnitude
 
 				register float sum = 0;
-				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-					sum += SQR(buf[i]);
+				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
+					sum += SQR(buf[k]);
 				sum *= 1.0f / DMA_ADC_DATA_LENGTH;
 
-				mag_rms[buf_index] = sqrtf(sum);   
+				mag_rms[buf_index] = sqrtf(sum);
 			}
 
 			{	// compute waveform phase
 				goertzel_block(buf, DMA_ADC_DATA_LENGTH, &goertzel);
-				phase_deg[buf_index] = (goertzel.re != 0) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : 0;     
+				phase_deg[buf_index] = (goertzel.re != 0.0f) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 		}
 		#else
@@ -684,33 +696,35 @@ void process_Goertzel(void)
 
 				// compute the average (DC offset)
 				register t_comp sum = {0, 0};
-				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
 				{
-					register const t_comp samp = buf[i];
+					register const t_comp samp = buf[k];
 					sum.re += samp.re;
 					sum.im += samp.im;
 				}
 				sum.re *= 1.0f / DMA_ADC_DATA_LENGTH;
 				sum.im *= 1.0f / DMA_ADC_DATA_LENGTH;
 
+				#if 1
 				{	// update a rolling average value (not really needed but hey ho)
 					adc_avg[buf_index].re = ((1.0f - avg_coeff) * adc_avg[buf_index].re) + (avg_coeff * sum.re);
 					adc_avg[buf_index].im = ((1.0f - avg_coeff) * adc_avg[buf_index].im) + (avg_coeff * sum.im);
 					sum.re = adc_avg[buf_index].re;
 					sum.im = adc_avg[buf_index].im;
 				}
+				#endif
 
 				// remove DC offset using computed average (DC offset)
-				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
 				{
-					buf[i].re -= sum.re;
-					buf[i].im -= sum.im;
+					buf[k].re -= sum.re;
+					buf[k].im -= sum.im;
 				}
 			}
 
 			{	// compute waveform phase using the 1st Goertzel I/Q output sample
 				const t_comp samp = buf[0];
-				phase_deg[buf_index] = (samp.re != 0) ? fmodf((atan2f(samp.im, samp.re) * RAD_TO_DEG) + 270, 360) : 0;     
+				phase_deg[buf_index] = (samp.re != 0.0f) ? fmodf((atan2f(samp.im, samp.re) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
@@ -718,21 +732,22 @@ void process_Goertzel(void)
 				register float *buf_out = adc_data[buf_index];
 
 				register float sum = 0;
-				for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
 				{
-					register const t_comp samp = buf[i];
+					register const t_comp samp = buf[k];
+
 					sum += SQR(samp.re) + SQR(samp.im);
 
 					// '#if 0' to test without goertzel dft filtering
 					#if 1
 						// replace the unfiltered samples with the filtered samples
-						buf_out[i] = samp.re;      // for now, just keep the real (0 deg) output (imag/90-deg is dropped :( )
+						buf_out[k] = samp.re;      // for now, just keep the real (0 deg) output (imag/90-deg is dropped :( )
 					#endif
 				}
-				sum *= 1.0f / DMA_ADC_DATA_LENGTH;   
+				sum *= 1.0f / DMA_ADC_DATA_LENGTH;
 
 				// save the RMS magnitude
-				mag_rms[buf_index] = sqrtf(sum);   
+				mag_rms[buf_index] = sqrtf(sum);
 			}
 		}
 		#endif
@@ -741,9 +756,59 @@ void process_Goertzel(void)
 	adc_avg_count++;
 }
 
+void combine_afc(const unsigned int vi, float *avg_mag_rms, float *avg_deg)
+{	// combine AFC mag/phase results (the AFC sample blocks are all the same so use the average)
+	//
+	// voltage results .. vi = 0
+	// current results .. vi = 1
+
+	unsigned int count        = 0;
+	float        sum_mag_rms  = 0;
+	t_comp       sum_phase    = {0, 0};
+
+	for (unsigned int i = 1; i < 4; i += 2)
+	{
+		const unsigned int buf_index = (vi * 4) + i;
+
+		sum_mag_rms += mag_rms[buf_index];
+
+		const float phase_rad = phase_deg[buf_index] * DEG_TO_RAD;
+		sum_phase.re += cosf(phase_rad);
+		sum_phase.im += sinf(phase_rad);
+
+		count++;
+	}
+
+	*avg_mag_rms = sum_mag_rms / count;
+	*avg_deg     = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
+}
+
 void process_data(t_system_data *sd)
 {
+	float voltage_afc_mag_rms = 0;
+	float voltage_afc_deg     = 0;
+	float current_afc_mag_rms = 0;
+	float current_afc_deg     = 0;
+
 	process_Goertzel();
+
+	combine_afc(0, &voltage_afc_mag_rms, &voltage_afc_deg);
+	combine_afc(1, &current_afc_mag_rms, &current_afc_deg);
+
+	// *********************
+	// automatic gain selection
+
+	const float threshold = 1900;
+	volt_gain_sel = (mag_rms[2] >= threshold) ? 0 : 1;
+	amp_gain_sel  = (mag_rms[3] >= threshold) ? 0 : 1;
+
+	// amplitude after conversion
+	sd->rms_voltage     = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
+	sd->rms_afc_volt    = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
+	sd->rms_current     = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
+	sd->rms_afc_current = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
+
+	// *********************
 
 
 
@@ -751,7 +816,7 @@ void process_data(t_system_data *sd)
 
 
 
-	compute_amplitude(sd);
+//	compute_amplitude(sd);
 
 	sd->impedance = sd->rms_voltage / sd->rms_current;
 
@@ -772,16 +837,16 @@ void process_data(t_system_data *sd)
 	sd->current_phase -= 180.0f;
 
 	sd->vi_phase  = fabsf(fabsf(sd->voltage_phase) - fabsf(sd->current_phase));            // Phase calculation for voltage & current
-	sd->esr       = lcr_compute(LCR_MODE_RESISTANCE, sd->set_freq, sd->impedance, sd->vi_phase);
-	sd->tan_delta = lcr_compute(LCR_MODE_TAN_DELTA,  sd->set_freq, sd->impedance, sd->vi_phase);
+	sd->esr       = lcr_compute(LCR_MODE_RESISTANCE, settings.set_freq, sd->impedance, sd->vi_phase);
+	sd->tan_delta = lcr_compute(LCR_MODE_TAN_DELTA,  settings.set_freq, sd->impedance, sd->vi_phase);
 
-	switch (sd->lcr_mode)
+	switch (settings.lcr_mode)
 	{
 		case LCR_MODE_INDUCTANCE:
-			sd->inductance  = lcr_compute(sd->lcr_mode, sd->set_freq, sd->impedance, sd->vi_phase);
+			sd->inductance  = lcr_compute(settings.lcr_mode, settings.set_freq, sd->impedance, sd->vi_phase);
 			break;
 		case LCR_MODE_CAPACITANCE:
-			sd->capacitance = lcr_compute(sd->lcr_mode, sd->set_freq, sd->impedance, sd->vi_phase);
+			sd->capacitance = lcr_compute(settings.lcr_mode, settings.set_freq, sd->impedance, sd->vi_phase);
 			break;
 		case LCR_MODE_RESISTANCE:
 			sd->resistance = sd->impedance; // lcr_compute(sd->LCR_Mode, sd->set_freq, sd->impedance, sd->VI_phase);
@@ -797,30 +862,43 @@ void process_data(t_system_data *sd)
 	sd->unit_esr         = unit_conversion(&sd->esr);
 }
 
-void process_ADC(const t_adc_dma_data_16 *adc_buffer)
+void process_ADC(const void *buffer)
 {
 	// process the new ADC 12-bit samples
 
-	unsigned int mode = vi_measure_mode;
+	// point to the new block of ADC samples
+	const t_adc_dma_data_16 *adc_buffer = (t_adc_dma_data_16 *)buffer;
 
-	if (mode >= MODE_DONE)
-		return;
+	// current VI mode index
+	unsigned int vi_index = vi_measure_index;
 
-	const unsigned int buf_index = vi_measure_mode_table[mode] * 2;
+	// ignore this sample block if we've completed the VI measurement scan
+	if (vi_index >= VI_MODE_DONE)
+		return;                                                             
 
-	if (mode == 0 && adc_data_avg_count == 0)
-	{
+	// use a table to set HD mode pins in a custom order to cope with a HW design floor
+	const unsigned int vi_mode = vi_measure_mode_table[vi_index];
+
+	const unsigned int buf_index = vi_mode * 2;
+
+	if (vi_index == 0 && adc_data_avg_count == 0)
+	{	// the first sample block after setting the HW mode pins
+
+		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
+
 		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);        // TEST only, LED on
-
-		set_measure_mode_pins(vi_measure_mode_table[mode]);                 // ensure the HW mode pins are set correctly
 	}
 
-	// we discard the first few sample blocks (MODE_SWITCH_BLOCK_WAIT) after each time we change the GS/VI mode pins
+	// each time the HW VI mode is changed, the ADC input sees a large unwanted spike/DC-offset that takes time to settle :(
+	// so we simply discard a number of sample blocks after each HW VI mode change
 	//
-	// each time the HW mode is changed, the ADC input sees a large unwanted spike/DC-offset that takes time to settle
-	//
-	if (adc_data_avg_count >= MODE_SWITCH_BLOCK_WAIT)	                 
-	{	// all other sample blocks added to the averaging buffer
+	// actually, the spike only appears to occur after the GS pin (gain setting) is changed
+
+	// skip less blocks if the gain pin hasn't changed
+	const unsigned int skip_block_count = ((vi_mode >> 1) == (prev_vi_mode >> 1)) ? MODE_SWITCH_BLOCK_WAIT_SHORT : MODE_SWITCH_BLOCK_WAIT_LONG; 
+
+	if (adc_data_avg_count >= skip_block_count)
+	{	// add the new sample block to the averaging buffer
 		for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
 		{
 			adc_data_avg[i].adc += adc_buffer[i].adc - 2048;
@@ -828,17 +906,17 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 		}
 	}
 
-	if (++adc_data_avg_count < (MODE_SWITCH_BLOCK_WAIT + adc_average_count))
+	if (++adc_data_avg_count < (skip_block_count + adc_average_count))
 		return;
 
 	// next measurement mode
-	mode++;
+	vi_index++;
 
 	// set the GS/VI pins ready for the next measurement run
-	set_measure_mode_pins(vi_measure_mode_table[mode]);
+	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
 
 	{	// fetch/scale the averaged ADC samples
-		register const float scale = 1.0f / (adc_data_avg_count - MODE_SWITCH_BLOCK_WAIT);
+		register const float scale = 1.0f / (adc_data_avg_count - skip_block_count);
 
 		// buffers to save the new data into
 		register float *buf_adc = adc_data[buf_index + 0];
@@ -855,10 +933,13 @@ void process_ADC(const t_adc_dma_data_16 *adc_buffer)
 	memset(adc_data_avg, 0, sizeof(adc_data_avg));
 	adc_data_avg_count = 0;
 
-	// save the new mode for the next measurement run
-	vi_measure_mode = mode;
+	// remember current VI mode
+	prev_vi_mode = vi_mode;
 
-	if (mode >= MODE_DONE)
+	// save the new VI mode for the next measurement run
+	vi_measure_index = vi_index;
+
+	if (vi_index >= VI_MODE_DONE)
 		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);    // TEST only, LED off
 }
 
@@ -959,7 +1040,7 @@ void bootup_screen(void)
 	ssd1306_UpdateScreen();
 }
 
-void draw_screen(const t_system_data *sd, const bool full_update)
+void draw_screen(const t_system_data *sd, const uint8_t full_update)
 {
 	//#define DRAW_LINES          // use this if you want horizontal lines drawn
 
@@ -1052,19 +1133,19 @@ void draw_screen(const t_system_data *sd, const bool full_update)
 		ssd1306_WriteString("D ", Font_7x10, White);
 	}
 
-	if (sd->vi_measure_mode >= MODE_DONE || full_update)
+	if (vi_measure_index >= VI_MODE_DONE || full_update)
 	{
 		// Line 1: Frequency display
 
 		ssd1306_SetCursor(val2_x, line1_y);
-		sprintf(buffer_display, "%0.1f", sd->set_freq * 1e-3f);  // kHz
+		sprintf(buffer_display, "%0.1f", settings.set_freq * 1e-3f);  // kHz
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 		// Line 2: Mode
 
 		float value = 0;
 
-		switch (sd->lcr_mode)
+		switch (settings.lcr_mode)
 		{
 			case LCR_MODE_INDUCTANCE:
 				sprintf(buffer_display, "L ");
@@ -1086,7 +1167,7 @@ void draw_screen(const t_system_data *sd, const bool full_update)
 
 		// Line 2: unit display
 
-		switch (sd->lcr_mode)
+		switch (settings.lcr_mode)
 		{
 			case LCR_MODE_INDUCTANCE:
 /*				if (sd->unit_inductance <= -3)
@@ -1174,14 +1255,14 @@ void draw_screen(const t_system_data *sd, const bool full_update)
 		// Line 4: UART Mode
 
 		ssd1306_SetCursor(val45_x, line4_y);
-		sprintf(buffer_display, sd->uart_all_print_dso ? "N" : "F");       // ON/OFF
+		sprintf(buffer_display, settings.uart_all_print_dso ? "N" : "F");       // ON/OFF
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 	}
 
 	// Line 3: status
 
 	ssd1306_SetCursor(val35_x, line3_y);
-	sprintf(buffer_display, "%u", sd->vi_measure_mode);
+	sprintf(buffer_display, "%u", system_data.vi_measure_mode);
 	ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 	ssd1306_UpdateScreen();
@@ -1296,18 +1377,18 @@ void SysTick_Handler(void)
 			butt->debounce = debounce;
 			if (pressed_tick == 0 && debounce >= debounce_max)
 			{	// just pressed
-				butt->released     = false;
+				butt->released     = 0;
 				butt->held_ms      = 0;
 				butt->pressed_tick = tick;
 			}
 			if (butt->pressed_tick > 0 && debounce <= 0)
 			{	// just released
-				butt->held_ms      = tick - butt->pressed_tick; 
-				butt->released     = true;
+				butt->held_ms      = tick - butt->pressed_tick;
+				butt->released     = 1;
 				butt->pressed_tick = 0;
 			}
 			if (butt->pressed_tick > 0)
-				butt->held_ms      = tick - butt->pressed_tick; 
+				butt->held_ms      = tick - butt->pressed_tick;
 		}
 	}
 
@@ -1352,13 +1433,13 @@ void USART1_IRQHandler(void)
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	if (hadc->Instance == ADC1)
-		process_ADC(&raw_adc_dma_data[0]);                    // lower half of ADC buffer
+		process_ADC(&raw_adc_dma_data[0]);  // lower half of ADC buffer
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	if (hadc->Instance == ADC1)
-		process_ADC(&raw_adc_dma_data[DMA_ADC_DATA_LENGTH]);  // upper half of ADC buffer
+		process_ADC(&raw_adc_dma_data[1]);  // upper half of ADC buffer
 }
 
 // ***********************************************************
@@ -1756,7 +1837,7 @@ void process_buttons(t_system_data *sd)
 
 	if (button[0].released)
 	{	// HOLD button
-		button[0].released     = false;
+		button[0].released     = 0;
 		button[0].pressed_tick = 0;
 
 		if (button[0].held_ms >= 800)
@@ -1774,16 +1855,16 @@ void process_buttons(t_system_data *sd)
 			// TODO: display HOLD
 
 
-			// toggle UART data 
-			sd->uart_all_print_dso = !sd->uart_all_print_dso;
+			// toggle UART data
+			settings.uart_all_print_dso = (1u - settings.uart_all_print_dso) & 1u;
 
-			draw_screen(sd, true);
+			draw_screen(sd, 1);
 		}
 	}
 
 	if (button[1].released)
 	{	// S/P button
-		button[1].released     = false;
+		button[1].released     = 0;
 		button[1].pressed_tick = 0;
 
 		if (button[1].held_ms >= 800)
@@ -1803,29 +1884,29 @@ void process_buttons(t_system_data *sd)
 
 
 			// cycle the frequency
-			switch (sd->set_freq)
+			switch (settings.set_freq)
 			{
 				case 100:
-					sd->set_freq = 500;
+					settings.set_freq = 500;
 					break;
 				default:
 				case 500:
-					sd->set_freq = 1000;
+					settings.set_freq = 1000;
 					break;
 				case 1000:
-					sd->set_freq = 100;
+					settings.set_freq = 100;
 					break;
 			}
 
-			set_sine_wave_frequency(sd->set_freq);
+			set_sine_wave_frequency(settings.set_freq);
 
-			draw_screen(sd, true);
+			draw_screen(sd, 1);
 		}
 	}
 
 	if (button[2].released)
 	{	// S/P button
-		button[2].released     = false;
+		button[2].released     = 0;
 		button[2].pressed_tick = 0;
 
 		if (button[2].held_ms >= 800)
@@ -1835,12 +1916,12 @@ void process_buttons(t_system_data *sd)
 		else
 		{
 			// cycle through the LCR modes
-			unsigned int mode = sd->lcr_mode;
+			unsigned int mode = settings.lcr_mode;
 			if (++mode > LCR_MODE_RESISTANCE)
 				mode = LCR_MODE_INDUCTANCE;
-			sd->lcr_mode = mode;
+			settings.lcr_mode = mode;
 
-			draw_screen(sd, true);
+			draw_screen(sd, 1);
 		}
 	}
 }
@@ -1883,12 +1964,12 @@ int main(void)
 	button[2].gpio_pin  = BUTT_RCL_Pin;
 
 	// defaults
-	system_data.set_freq           = 1000;
-//	system_data.lcr_mode           = LCR_MODE_INDUCTANCE;
-//	system_data.lcr_mode           = LCR_MODE_CAPACITANCE;
-	system_data.lcr_mode           = LCR_MODE_RESISTANCE;
-//	system_data.uart_all_print_dso = false;
-	system_data.uart_all_print_dso = true;   // send debugging data down the serial link by default
+	settings.set_freq           = 1000;
+//	settings.lcr_mode           = LCR_MODE_INDUCTANCE;
+//	settings.lcr_mode           = LCR_MODE_CAPACITANCE;
+	settings.lcr_mode           = LCR_MODE_RESISTANCE;
+//	settings.uart_all_print_dso = 0;
+	settings.uart_all_print_dso = 1;   // send ADC data via the serial port
 
 	DWT_Delay_Init();
 	HAL_Init();
@@ -1909,9 +1990,10 @@ int main(void)
 		goertzel_init(&goertzel, normalized_freq);
 	}
 
-	set_measure_mode_pins(vi_measure_mode);
+	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
+	set_measure_mode_pins(system_data.vi_measure_mode);
 
-	set_sine_wave_frequency(system_data.set_freq);
+	set_sine_wave_frequency(settings.set_freq);
 
 	generate_ref_signal(DMA_ADC_DATA_LENGTH);
 
@@ -1945,21 +2027,18 @@ int main(void)
 		process_buttons(&system_data);
 
 		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
-		system_data.vi_measure_mode = vi_measure_mode;
+		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 
-		if (system_data.vi_measure_mode >= MODE_DONE)
-		{
-			// toggle the LED
-//			system_data.led_state = (system_data.led_state == GPIO_PIN_SET) ? GPIO_PIN_RESET : GPIO_PIN_SET;
-//			HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, system_data.led_state ? GPIO_PIN_SET : GPIO_PIN_RESET);
+		if (vi_measure_index >= VI_MODE_DONE)
+		{	// full measurement cycle is complete
 
 			// process the new sampled data
 			process_data(&system_data);
 
 			// show it on screen
-			draw_screen(&system_data, false);
+			draw_screen(&system_data, 0);
 
-			if (system_data.uart_all_print_dso)
+			if (settings.uart_all_print_dso)
 			{
 				const HAL_UART_StateTypeDef state = HAL_UART_GetState(&huart1);
 				if (state == HAL_UART_STATE_READY)
@@ -1967,7 +2046,7 @@ int main(void)
 					//
 					// send the sampled data down the serial link
 
-					#if 0
+					#ifdef MATLAB_SERIAL
 						// send as ASCII
 
 						const unsigned int cols = 8;
@@ -1981,9 +2060,31 @@ int main(void)
 					#else
 						// send as binary packet
 
-						tx_packet.marker = PACKET_MARKER;
-						memcpy(tx_packet.data, &adc_data, sizeof(adc_data));
-						tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));
+						// STM32's are little endian (data is LS-Byte 1st)
+						// the receiving end needs to take that into account when processing the rx'ed data
+						// your receiving app can use htons(), htonl(), ntohs(), ntohl() to swap endianess (if need be)
+
+						// create TX packet
+						tx_packet.marker = PACKET_MARKER;                                         // packet start marker
+						memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
+
+						#ifdef UART_BIG_ENDIAN
+							// make the packet values BIG endian
+							// though the receivng end (your PC etc) is the one that needs to be dealing with this, not us
+
+							tx_packet.marker = __builtin_bswap32(tx_packet.marker);
+
+							uint32_t *pd = (uint32_t *)tx_packet.data;
+							for (unsigned int i = 0; i < (sizeof(adc_data) / sizeof(uint32_t)); i++)
+								*pd++ = __builtin_bswap32(*pd);
+						#endif
+
+						tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
+
+						#ifdef UART_BIG_ENDIAN
+							// make the packet CRC little endian
+							tx_packet.crc = __builtin_bswap16(tx_packet.crc);
+						#endif
 
 						#if 0
 							// start sending the packet (wait here for upto 200ms until it does start)
@@ -1991,7 +2092,7 @@ int main(void)
 							while (HAL_BUSY == HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet)) && (HAL_GetTick() - tick) < 200)
 								__WFI();    // wait until next interrupt occurs
 						#else
-							// don't hang around waiting for packet to start
+							// don't hang around waiting for the send to start
 							HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet));
 						#endif
 					#endif
@@ -1999,11 +2100,11 @@ int main(void)
 			}
 
 			// start next data capture
-			vi_measure_mode = MODE_VOLT_LO_GAIN;
+			vi_measure_index = 0;
 		}
 		else
 		if (system_data.vi_measure_mode != prev_vi_measure_mode && draw_screen_count > 0)
-			draw_screen(&system_data, false);
+			draw_screen(&system_data, 0);
 
 		#ifdef USE_IWDG
 			service_IWDG(false);

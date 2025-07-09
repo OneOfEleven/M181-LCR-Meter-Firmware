@@ -85,12 +85,12 @@ uint8_t I2C_read_bit(void)
 	return b;
 }
 
-bool I2C_write_byte(uint8_t B, bool start, bool stop)
+uint8_t I2C_write_byte(uint8_t B, const uint8_t start, const uint8_t stop)
 {
 	if (start)
 		I2C_start_cond();
 
-	for (int i = 0; i < 8; i++)
+	for (unsigned int i = 0; i < 8; i++)
 	{
 		I2C_write_bit(B & 0x80); // write the most-significant bit
 		B <<= 1;
@@ -104,11 +104,11 @@ bool I2C_write_byte(uint8_t B, bool start, bool stop)
 	return !ack;   // 0-ack, 1-nack
 }
 
-uint8_t I2C_read_byte(bool ack, bool stop)
+uint8_t I2C_read_byte(const uint8_t ack, const uint8_t stop)
 {
 	uint8_t B = 0;
 
-	for (int i = 0; i < 8; i++)
+	for (unsigned int i = 0; i < 8; i++)
 	{
 		B <<= 1;
 		B |= I2C_read_bit();
@@ -125,67 +125,70 @@ uint8_t I2C_read_byte(bool ack, bool stop)
 	return B;
 }
 
-bool I2C_send_byte(uint8_t address, uint8_t data)
+uint8_t I2C_send_byte(const uint8_t address, const uint8_t data)
 {
-	//if (I2C_write_byte(address << 1, true, false))   // start, send address, write
-	if (I2C_write_byte(address, true, false))          // start, send address, write
+	//if (I2C_write_byte(address << 1, 1, 0))   // start, send address, write
+	if (I2C_write_byte(address, 1, 0))          // start, send address, write
 	{	// send data, stop
-		if (I2C_write_byte(data, false, true))
-			return true;
+		if (I2C_write_byte(data, 0, 1))
+			return 1;
 	}
 
 	I2C_stop_cond(); // make sure to impose a stop if NAK'd
-	return false;
+	return 0;
 }
 
-uint8_t I2C_receive_byte(uint8_t address)
+uint8_t I2C_receive_byte(const uint8_t address)
 {
-	if (I2C_write_byte((address << 1) | 0x01, true, false)) // start, send address, read
-		return I2C_read_byte(false, true);
+	if (I2C_write_byte((address << 1) | 0x01, 1, 0)) // start, send address, read
+		return I2C_read_byte(0, 1);
 
 	return 0;            // return zero if NAK'd
 }
 
-_Bool I2C_send_byte_data(uint8_t address, uint8_t reg, uint8_t data)
+uint8_t I2C_send_byte_data(const uint8_t address, const uint8_t reg, const uint8_t data)
 {
-	//if (I2C_write_byte(address << 1, true, false))   // start, send address, write
-	if (I2C_write_byte(address, true, false))
-		if (I2C_write_byte(reg, false, false)) // send desired register
-			if (I2C_write_byte(data, false, true))
-				return true; // send data, stop
+	//if (I2C_write_byte(address << 1, 1, 0))   // start, send address, write
+	if (I2C_write_byte(address, 1, 0))
+		if (I2C_write_byte(reg, 0, 0)) // send desired register
+			if (I2C_write_byte(data, 0, 1))
+				return 1; // send data, stop
 
 	I2C_stop_cond();
 
-	return false;
+	return 0;
 }
 
-uint8_t I2C_receive_byte_data(uint8_t address, uint8_t reg)
+uint8_t I2C_receive_byte_data(const uint8_t address, const uint8_t reg)
 {
-	//if (I2C_write_byte(address << 1, true, false))   // start, send address, write
-	if (I2C_write_byte(address, true, false))
-		if (I2C_write_byte(reg, false, false)) // send desired register
-			if (I2C_write_byte((address << 1) | 0x01, true, false)) // start again, send address, read
-				return I2C_read_byte(false, true); // read data
+	//if (I2C_write_byte(address << 1, 1, 0))   // start, send address, write
+	if (I2C_write_byte(address, 1, 0))
+		if (I2C_write_byte(reg, 0, 0))                       // send desired register
+			if (I2C_write_byte((address << 1) | 0x01, 1, 0)) // start again, send address, read
+				return I2C_read_byte(0, 1);                  // read data
 
 	I2C_stop_cond();
 
 	return 0; // return zero if NACKed
 }
 
-bool I2C_transmit(uint8_t address, uint8_t data[], uint8_t size)
+uint8_t I2C_transmit(const uint8_t address, const uint8_t data[], const uint8_t size)
 {
-	if (I2C_write_byte(address, true, false)) // first byte
+	if (data == NULL || size == 0)
+		return 0;
+
+	if (I2C_write_byte(address, 1, 0)) // first byte
 	{
-		for (int i = 0; i < size; i++)
+		for (unsigned int i = 0; i < size; i++)
 		{
 			if (i >= (size - 1))
 			{
-				if (I2C_write_byte(data[i], false, true))
-					return true;
+				if (I2C_write_byte(data[i], 0, 1))
+					return 1;
 			}
 			else
 			{
-				if (!I2C_write_byte(data[i], false, false))
+				if (!I2C_write_byte(data[i], 0, 0))
 					break; // last byte
 			}
 		}
@@ -193,29 +196,32 @@ bool I2C_transmit(uint8_t address, uint8_t data[], uint8_t size)
 
 	I2C_stop_cond();
 
-	return false;
+	return 0;
 }
 
-bool I2C_receive(uint8_t address, uint8_t reg[], uint8_t *data, uint8_t reg_size, uint8_t size)
+uint8_t I2C_receive(const uint8_t address, const uint8_t reg[], uint8_t *data, const uint8_t reg_size, const uint8_t size)
 {
-	if (I2C_write_byte(address, true, false))
+	if (reg == NULL || data == NULL || reg_size == 0 || size == 0)
+		return 0;
+
+	if (I2C_write_byte(address, 1, 0))
 	{
-		for (int i = 0; i < reg_size; i++)
-			if (!I2C_write_byte(reg[i], false, false))
+		for (unsigned int i = 0; i < reg_size; i++)
+			if (!I2C_write_byte(reg[i], 0, 0))
 				break;
 
-		if (I2C_write_byte(address | 0x01, true, false)) // start again, send address, read (LSB signifies R or W)
+		if (I2C_write_byte(address | 0x01, 1, 0)) // start again, send address, read (LSB signifies R or W)
 		{
-			for (int j = 0; j < size; j++)
-				*data++ = I2C_read_byte(false, false);   // read data
+			for (unsigned int j = 0; j < size; j++)
+				*data++ = I2C_read_byte(0, 0);   // read data
 
 			I2C_stop_cond();
 
-			return true;
+			return 1;
 		}
 	}
 
 	I2C_stop_cond();
 
-	return false;
+	return 0;
 }

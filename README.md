@@ -97,11 +97,10 @@ To reduce this leakage/noise level ..
 - add a 100n cap to the ADC input pin
 - change R35 to 1k
 - add a 10n cap across R20
-- add a 10uF directly next to R32
+- add an extra 10uF to -5V line directly next to R32
+- change R32 for an inductor - yet to test
 
 <img src="firmware/docs/19kHz_leakage_reduction_2.png" alt="image" style="width:600px;height:auto;">
-
-
 
 # Wiki
 

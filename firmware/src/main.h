@@ -18,7 +18,7 @@
 #endif
 
 #include <stdint.h>
-#include <stdbool.h>
+//#include <stdbool.h>
 #include <math.h>
 
 #include "stm32f1xx_hal.h"
@@ -37,19 +37,27 @@
 
 #define SQR(x)                      ((x) * (x))
 
-//#define UART_BAUDRATE              115200
-#define UART_BAUDRATE                230400         // maximum rate CH340N USB chip can do
+//#define MATLAB_SERIAL                             // use this to send UART data as ascii text (rather than binary packets)
+
+//#define UART_BAUDRATE                115200
+//#define UART_BAUDRATE                230400
+//#define UART_BAUDRATE                460800
+#define UART_BAUDRATE                921600
+//#define UART_BAUDRATE                1843200      // max rate the CH340N can do
+
+//#define UART_BIG_ENDIAN                           // use this if you want your uart data sent in big endian order
 
 #define PACKET_MARKER                0x19621996     // 32-bit marker to indicate 'start of packet' for the receiver (windows GUI etc)
 
 #define DMA_ADC_DATA_LENGTH          128            // 2^n
 
+#define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
+#define MODE_SWITCH_BLOCK_WAIT_LONG  10             // number of sample blocks to wait after switching modes before saving them
+
 #define DEFAULT_ADC_AVERAGE_COUNT    32             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
 
-#define MODE_SWITCH_BLOCK_WAIT       10             // number of sample blocks to wait after switching modes before saving them - to overcome design floor
-
 //#define GOERTZEL_FILTER_LENGTH     0                          // don't Goertzel filter
-  #define GOERTZEL_FILTER_LENGTH     (DMA_ADC_DATA_LENGTH / 2)  // one sine cycle filter length, less filtering, but quicker than full filtering
+#define GOERTZEL_FILTER_LENGTH    (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
 //#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (nice but takes more time)
 
 #define HIGH                         GPIO_PIN_SET
@@ -127,6 +135,14 @@
 #define BUTT_RCL_Pin                 GPIO_PIN_15
 #define BUTT_RCL_GPIO_Port           GPIOB
 
+// operating mode
+enum {
+	OP_MODE_MEASURING = 0,
+	OP_MODE_OPEN_ZEROING,
+	OP_MODE_SHORT_ZEROING
+};
+
+// LCR mode
 enum {
 	LCR_MODE_INDUCTANCE = 0,
 	LCR_MODE_CAPACITANCE,
@@ -134,17 +150,38 @@ enum {
 	LCR_MODE_TAN_DELTA
 };
 
+// VI mode
 enum {
-	MODE_VOLT_LO_GAIN = 0,
-	MODE_AMP_LO_GAIN,
-	MODE_VOLT_HI_GAIN,
-	MODE_AMP_HI_GAIN,
-	MODE_DONE
+	VI_MODE_VOLT_LO_GAIN = 0,
+	VI_MODE_AMP_LO_GAIN,
+	VI_MODE_VOLT_HI_GAIN,
+	VI_MODE_AMP_HI_GAIN,
+	VI_MODE_DONE
 };
 
+// this array will be stored in flash (emulated EEPROM)
+#pragma pack(push, 1)
 typedef struct {
 	uint16_t     set_freq;
-	unsigned int led_state;
+	unsigned int lcr_mode;
+	uint8_t      uart_all_print_dso;
+
+	struct {
+		float    mag_rms[4];
+		float    phase_deg[4];
+		uint8_t  done;
+	} open_zero;
+
+	struct {
+		float    mag_rms[4];
+		float    phase_deg[4];
+		uint8_t  done;
+	} short_zero;
+
+} t_settings;
+#pragma pack(pop)
+
+typedef struct {
 	unsigned int vi_measure_mode;
 	float        rms_voltage;
 	float        rms_afc_volt;
@@ -164,8 +201,6 @@ typedef struct {
 	float        esr;
 	float        tan_delta;
 	float        qf;
-	bool         uart_all_print_dso;
-	unsigned int lcr_mode;
 } t_system_data;
 
 void Error_Handler(void);
@@ -182,7 +217,6 @@ void SysTick_Handler(void);
 void DMA1_Channel1_IRQHandler(void);
 void DMA1_Channel4_IRQHandler(void);
 void USART1_IRQHandler(void);
-void TIM2_IRQHandler(void);
 void TIM3_IRQHandler(void);
 
 #ifdef __cplusplus
