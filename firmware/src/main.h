@@ -60,6 +60,8 @@
 #define GOERTZEL_FILTER_LENGTH    (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
 //#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (nice but takes more time)
 
+#define ZEROING_COUNT                10             // number of averages to use for short and zeroing
+
 #define HIGH                         GPIO_PIN_SET
 #define LOW                          GPIO_PIN_RESET
 
@@ -167,14 +169,14 @@ typedef struct {
 	uint8_t      uart_all_print_dso;
 
 	struct {
-		float    mag_rms[4];
-		float    phase_deg[4];
+		float    mag_rms[8];
+		float    phase_deg[8];
 		uint8_t  done;
 	} open_zero;
 
 	struct {
-		float    mag_rms[4];
-		float    phase_deg[4];
+		float    mag_rms[8];
+		float    phase_deg[8];
 		uint8_t  done;
 	} short_zero;
 

@@ -103,6 +103,13 @@ uint8_t               sine_table[DMA_ADC_DATA_LENGTH / 2] = {0};  // matched to 
 
 unsigned int          op_mode = OP_MODE_MEASURING;
 
+// for the zeroing modes
+struct {
+	unsigned int      count;
+	float             mag_sum[8];
+	t_comp            phase_sum[8];
+} zeroing = {0};
+
 unsigned int          volt_gain_sel = 0;
 unsigned int          amp_gain_sel  = 0;
 
@@ -762,13 +769,14 @@ void combine_afc(const unsigned int vi, float *avg_mag_rms, float *avg_deg)
 	// voltage results .. vi = 0
 	// current results .. vi = 1
 
-	unsigned int count        = 0;
+	unsigned int sum_count    = 0;
 	float        sum_mag_rms  = 0;
 	t_comp       sum_phase    = {0, 0};
 
+	// scan over each AFC results
 	for (unsigned int i = 1; i < 4; i += 2)
 	{
-		const unsigned int buf_index = (vi * 4) + i;
+		const unsigned int buf_index = ((vi & 1u) * 4) + i;
 
 		sum_mag_rms += mag_rms[buf_index];
 
@@ -776,10 +784,10 @@ void combine_afc(const unsigned int vi, float *avg_mag_rms, float *avg_deg)
 		sum_phase.re += cosf(phase_rad);
 		sum_phase.im += sinf(phase_rad);
 
-		count++;
+		sum_count++;
 	}
 
-	*avg_mag_rms = sum_mag_rms / count;
+	*avg_mag_rms = sum_mag_rms / sum_count;
 	*avg_deg     = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
 }
 
@@ -1040,7 +1048,7 @@ void bootup_screen(void)
 	ssd1306_UpdateScreen();
 }
 
-void draw_screen(const t_system_data *sd, const uint8_t full_update)
+void draw_screen(const uint8_t full_update)
 {
 	//#define DRAW_LINES          // use this if you want horizontal lines drawn
 
@@ -1101,36 +1109,59 @@ void draw_screen(const t_system_data *sd, const uint8_t full_update)
 
 		// Line 2
 
-		// horizontal line(s)
-		#ifdef DRAW_LINES
-			#if 0
-				// solid line
-				ssd1306_FillRectangle(0, line_spacing_y - 1, SSD1306_WIDTH, line_spacing_y, White);
-			#else
-				// dotted lines
-				for (unsigned int x = 0; x < SSD1306_WIDTH; x += 3)
-				{
-					ssd1306_DrawPixel(x, line_spacing_y - 1, White);
-					ssd1306_DrawPixel(x, line3_y - 4, White);
-				}
-			#endif
-		#endif
+		switch (op_mode)
+		{
+			default:
+			case OP_MODE_MEASURING:
+			{
+				// horizontal line(s)
+				#ifdef DRAW_LINES
+					#if 0
+						// solid line
+						ssd1306_FillRectangle(0, line_spacing_y - 1, SSD1306_WIDTH, line_spacing_y, White);
+					#else
+						// dotted lines
+						for (unsigned int x = 0; x < SSD1306_WIDTH; x += 3)
+						{
+							ssd1306_DrawPixel(x, line_spacing_y - 1, White);
+							ssd1306_DrawPixel(x, line3_y - 4, White);
+						}
+					#endif
+				#endif
 
-		// Line 3
+				// Line 3
 
-		ssd1306_SetCursor(val31_x, line3_y);
-		ssd1306_WriteString("V  ", Font_7x10, White);
+				ssd1306_SetCursor(val31_x, line3_y);
+				ssd1306_WriteString("V  ", Font_7x10, White);
 
-		ssd1306_SetCursor(val33_x, line3_y);
-		ssd1306_WriteString("A ", Font_7x10, White);
+				ssd1306_SetCursor(val33_x, line3_y);
+				ssd1306_WriteString("A ", Font_7x10, White);
 
-		// Line 4
+				// Line 4
 
-		ssd1306_SetCursor(val41_x, line4_y);
-		ssd1306_WriteString("ER ", Font_7x10, White);
+				ssd1306_SetCursor(val41_x, line4_y);
+				ssd1306_WriteString("ER ", Font_7x10, White);
 
-		ssd1306_SetCursor(val43_x, line4_y);
-		ssd1306_WriteString("D ", Font_7x10, White);
+				ssd1306_SetCursor(val43_x, line4_y);
+				ssd1306_WriteString("D ", Font_7x10, White);
+
+				break;
+			}
+
+			case OP_MODE_OPEN_ZEROING:
+			{
+
+				break;
+			}
+
+			case OP_MODE_SHORT_ZEROING:
+			{
+
+				break;
+			}
+		}
+
+		draw_screen_count = 0;
 	}
 
 	if (vi_measure_index >= VI_MODE_DONE || full_update)
@@ -1143,119 +1174,143 @@ void draw_screen(const t_system_data *sd, const uint8_t full_update)
 
 		// Line 2: Mode
 
-		float value = 0;
-
-		switch (settings.lcr_mode)
+		switch (op_mode)
 		{
-			case LCR_MODE_INDUCTANCE:
-				sprintf(buffer_display, "L ");
-				value = sd->inductance;
+			default:
+			case OP_MODE_MEASURING:
+				{
+					float value = 0;
+
+					switch (settings.lcr_mode)
+					{
+						case LCR_MODE_INDUCTANCE:
+							sprintf(buffer_display, "L ");
+							value = system_data.inductance;
+							break;
+					
+						case LCR_MODE_CAPACITANCE:
+							sprintf(buffer_display, "C ");
+							value = system_data.capacitance;
+							break;
+
+						case LCR_MODE_RESISTANCE:
+							sprintf(buffer_display, "R ");
+							value = system_data.resistance;
+							break;
+					}
+					ssd1306_SetCursor(val21_x, line2_y);
+					ssd1306_WriteString(buffer_display, Font_11x18, White);
+
+					// Line 2: unit display
+
+					switch (settings.lcr_mode)
+					{
+						case LCR_MODE_INDUCTANCE:
+/*							if (system_data.unit_inductance <= -3)
+								sprintf(buffer_display, "nH");
+							else
+							if (system_data.unit_inductance == -2)
+								sprintf(buffer_display, "uH");
+							else
+							if (system_data.unit_inductance == -1)
+								sprintf(buffer_display, "mH");
+							else
+								sprintf(buffer_display, "H ");
+*/
+							sprintf(buffer_display, "%2d", system_data.unit_inductance);  // TEST
+							break;
+
+						case LCR_MODE_CAPACITANCE:
+/*							if (system_data.unit_capacitance <= -4)
+								sprintf(buffer_display, "pF");
+							else
+							if (system_data.unit_capacitance == -3)
+								sprintf(buffer_display, "nF");
+							else
+							if (system_data.unit_capacitance == -2)
+								sprintf(buffer_display, "uF");
+							else
+							if (system_data.unit_capacitance == -1)
+								sprintf(buffer_display, "mF");
+							else
+								sprintf(buffer_display, "F ");
+*/	
+							sprintf(buffer_display, "%2d", system_data.unit_capacitance);  // TEST
+							break;
+
+						case LCR_MODE_RESISTANCE:
+/*							if (system_data.unit_resistance <= -1)
+								sprintf(buffer_display, "m");
+							else
+							if (system_data.unit_resistance == 0)
+								sprintf(buffer_display, " ");
+							else
+							if (system_data.unit_resistance == 1)
+								sprintf(buffer_display, "k");
+							else
+							if (system_data.unit_resistance == 2)
+								sprintf(buffer_display, "M");
+							else
+								sprintf(buffer_display, "G");
+							print_custom_symbol(val23_x + 7, line2_y + 4, omega_7x10, 7, 10);
+*/
+							sprintf(buffer_display, "%2d", system_data.unit_resistance);  // TEST
+							break;
+					}
+					ssd1306_SetCursor(val23_x, line2_y + 4);
+					ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+					ssd1306_SetCursor(val22_x, line2_y);
+					print_sprint(4, value, buffer_display);
+					ssd1306_WriteString(buffer_display, Font_11x18, White);
+
+					ssd1306_SetCursor(val24_x, line2_y + 4);
+					print_sprint(4, system_data.vi_phase, buffer_display);
+					ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+					// Line 3: Voltage and Current reading
+
+					ssd1306_SetCursor(val32_x, line3_y);
+					sprintf(buffer_display, "%.3f", (system_data.rms_voltage >= 0) ? system_data.rms_voltage : 0);
+					ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+					ssd1306_SetCursor(val34_x, line3_y);
+					sprintf(buffer_display, "%.3f", (system_data.rms_current >= 0) ? system_data.rms_current : 0);
+					ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+					// Line 4: ESR and Tan Delta
+
+					ssd1306_SetCursor(val42_x, line4_y);
+					print_sprint(4, system_data.esr, buffer_display);
+					ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+					ssd1306_SetCursor(val44_x, line4_y);
+					print_sprint(4, system_data.tan_delta, buffer_display);
+					ssd1306_WriteString(buffer_display, Font_7x10, White);
+				}
 				break;
 
-			case LCR_MODE_CAPACITANCE:
-				sprintf(buffer_display, "C ");
-				value = sd->capacitance;
-				break;
+			case OP_MODE_OPEN_ZEROING:
+				sprintf(buffer_display, "OPEN zeroing %2u", ZEROING_COUNT - zeroing.count - 1);
+				ssd1306_SetCursor(val21_x, line2_y);
+				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-			case LCR_MODE_RESISTANCE:
-				sprintf(buffer_display, "R ");
-				value = sd->resistance;
+
+				break;
+	
+			case OP_MODE_SHORT_ZEROING:
+				sprintf(buffer_display, "SHORT zeroing %2u", ZEROING_COUNT - zeroing.count - 1);
+				ssd1306_SetCursor(val21_x, line2_y);
+				ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+
 				break;
 		}
-		ssd1306_SetCursor(val21_x, line2_y);
-		ssd1306_WriteString(buffer_display, Font_11x18, White);
-
-		// Line 2: unit display
-
-		switch (settings.lcr_mode)
-		{
-			case LCR_MODE_INDUCTANCE:
-/*				if (sd->unit_inductance <= -3)
-					sprintf(buffer_display, "nH");
-				else
-				if (sd->unit_inductance == -2)
-					sprintf(buffer_display, "uH");
-				else
-				if (sd->unit_inductance == -1)
-					sprintf(buffer_display, "mH");
-				else
-					sprintf(buffer_display, "H ");
-*/
-				sprintf(buffer_display, "%2d", sd->unit_inductance);  // TEST
-				break;
-
-			case LCR_MODE_CAPACITANCE:
-/*				if (sd->unit_capacitance <= -4)
-					sprintf(buffer_display, "pF");
-				else
-				if (sd->unit_capacitance == -3)
-					sprintf(buffer_display, "nF");
-				else
-				if (sd->unit_capacitance == -2)
-					sprintf(buffer_display, "uF");
-				else
-				if (sd->unit_capacitance == -1)
-					sprintf(buffer_display, "mF");
-				else
-					sprintf(buffer_display, "F ");
-*/
-				sprintf(buffer_display, "%2d", sd->unit_capacitance);  // TEST
-				break;
-
-			case LCR_MODE_RESISTANCE:
-/*				if (sd->unit_resistance <= -1)
-					sprintf(buffer_display, "m");
-				else
-				if (sd->unit_resistance == 0)
-					sprintf(buffer_display, " ");
-				else
-				if (sd->unit_resistance == 1)
-					sprintf(buffer_display, "k");
-				else
-				if (sd->unit_resistance == 2)
-					sprintf(buffer_display, "M");
-				else
-					sprintf(buffer_display, "G");
-				print_custom_symbol(val23_x + 7, line2_y + 4, omega_7x10, 7, 10);
-*/
-				sprintf(buffer_display, "%2d", sd->unit_resistance);  // TEST
-				break;
-		}
-		ssd1306_SetCursor(val23_x, line2_y + 4);
-		ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-		ssd1306_SetCursor(val22_x, line2_y);
-		print_sprint(4, value, buffer_display);
-		ssd1306_WriteString(buffer_display, Font_11x18, White);
-
-		ssd1306_SetCursor(val24_x, line2_y + 4);
-		print_sprint(4, sd->vi_phase, buffer_display);
-		ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-		// Line 3: Voltage and Current reading
-
-		ssd1306_SetCursor(val32_x, line3_y);
-		sprintf(buffer_display, "%.3f", (sd->rms_voltage >= 0) ? sd->rms_voltage : 0);
-		ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-		ssd1306_SetCursor(val34_x, line3_y);
-		sprintf(buffer_display, "%.3f", (sd->rms_current >= 0) ? sd->rms_current : 0);
-		ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-		// Line 4: ESR and Tan Delta
-
-		ssd1306_SetCursor(val42_x, line4_y);
-		print_sprint(4, sd->esr, buffer_display);
-		ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-		ssd1306_SetCursor(val44_x, line4_y);
-		print_sprint(4, sd->tan_delta, buffer_display);
-		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 		// Line 4: UART Mode
 
 		ssd1306_SetCursor(val45_x, line4_y);
-		sprintf(buffer_display, settings.uart_all_print_dso ? "N" : "F");       // ON/OFF
+		sprintf(buffer_display, settings.uart_all_print_dso ? "U" : " ");       // ON/OFF
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 	}
 
@@ -1823,7 +1878,7 @@ void GPIO_init(void)
 
 // ***********************************************************
 
-void process_buttons(t_system_data *sd)
+void process_buttons(void)
 {
 /*
 	const uint32_t tick = HAL_GetTick();
@@ -1842,11 +1897,8 @@ void process_buttons(t_system_data *sd)
 
 		if (button[0].held_ms >= 800)
 		{
-
-
-			// todo: open calibrate
-
-
+			memset(&zeroing, 0, sizeof(zeroing));
+			op_mode = OP_MODE_OPEN_ZEROING;
 		}
 		else
 		{
@@ -1858,8 +1910,9 @@ void process_buttons(t_system_data *sd)
 			// toggle UART data
 			settings.uart_all_print_dso = (1u - settings.uart_all_print_dso) & 1u;
 
-			draw_screen(sd, 1);
 		}
+
+		draw_screen(1);
 	}
 
 	if (button[1].released)
@@ -1869,12 +1922,10 @@ void process_buttons(t_system_data *sd)
 
 		if (button[1].held_ms >= 800)
 		{
-			reboot();
+//			reboot();
 
-
-			// todo: short calibrate
-
-
+			memset(&zeroing, 0, sizeof(zeroing));
+			op_mode = OP_MODE_SHORT_ZEROING;
 		}
 		else
 		{
@@ -1899,9 +1950,9 @@ void process_buttons(t_system_data *sd)
 			}
 
 			set_sine_wave_frequency(settings.set_freq);
-
-			draw_screen(sd, 1);
 		}
+
+		draw_screen(1);
 	}
 
 	if (button[2].released)
@@ -1920,9 +1971,9 @@ void process_buttons(t_system_data *sd)
 			if (++mode > LCR_MODE_RESISTANCE)
 				mode = LCR_MODE_INDUCTANCE;
 			settings.lcr_mode = mode;
-
-			draw_screen(sd, 1);
 		}
+
+		draw_screen(1);
 	}
 }
 
@@ -2024,7 +2075,7 @@ int main(void)
 		__WFI();    // wait here until next interrupt occurs
 //		__WFE();    // wait here in low power mode until next interrupt occurs
 
-		process_buttons(&system_data);
+		process_buttons();
 
 		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
 		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
@@ -2036,7 +2087,7 @@ int main(void)
 			process_data(&system_data);
 
 			// show it on screen
-			draw_screen(&system_data, 0);
+			draw_screen(0);
 
 			if (settings.uart_all_print_dso)
 			{
@@ -2062,7 +2113,7 @@ int main(void)
 
 						// STM32's are little endian (data is LS-Byte 1st)
 						// the receiving end needs to take that into account when processing the rx'ed data
-						// your receiving app can use htons(), htonl(), ntohs(), ntohl() to swap endianess (if need be)
+						// your receiving app can use htons(), htonl(), ntohs(), ntohl() to swap endianness (if need be)
 
 						// create TX packet
 						tx_packet.marker = PACKET_MARKER;                                         // packet start marker
@@ -2075,8 +2126,8 @@ int main(void)
 							tx_packet.marker = __builtin_bswap32(tx_packet.marker);
 
 							uint32_t *pd = (uint32_t *)tx_packet.data;
-							for (unsigned int i = 0; i < (sizeof(adc_data) / sizeof(uint32_t)); i++)
-								*pd++ = __builtin_bswap32(*pd);
+							for (unsigned int i = 0; i < (sizeof(adc_data) / sizeof(uint32_t)); i++, pd++)
+								*pd = __builtin_bswap32(*pd);
 						#endif
 
 						tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
@@ -2099,12 +2150,77 @@ int main(void)
 				}
 			}
 
+			switch (op_mode)
+			{
+				default:
+				case OP_MODE_MEASURING:
+					break;
+
+				case OP_MODE_OPEN_ZEROING:
+				{
+					for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
+						zeroing.mag_sum[i] += mag_rms[i];
+
+					for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.phase_sum); i++)
+					{
+						const float phase_rad = phase_deg[i] * DEG_TO_RAD;
+						zeroing.phase_sum[i].re += cosf(phase_rad);
+						zeroing.phase_sum[i].im += sinf(phase_rad);
+					}
+
+					if (++zeroing.count >= ZEROING_COUNT)
+					{
+						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
+							settings.open_zero.mag_rms[i] = zeroing.mag_sum[i] / zeroing.count;
+
+						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.phase_sum); i++)
+							settings.open_zero.phase_deg[i] = (zeroing.phase_sum[i].re != 0.0f) ? atan2f(zeroing.phase_sum[i].im, zeroing.phase_sum[i].re) * RAD_TO_DEG : NAN;
+
+						settings.open_zero.done = 1;
+						memset(&zeroing, 0, sizeof(zeroing));
+						op_mode = OP_MODE_MEASURING;
+
+						draw_screen(1);
+					}
+					break;
+				}
+
+				case OP_MODE_SHORT_ZEROING:
+				{
+					for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
+						zeroing.mag_sum[i] += mag_rms[i];
+
+					for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.phase_sum); i++)
+					{
+						const float phase_rad = phase_deg[i] * DEG_TO_RAD;
+						zeroing.phase_sum[i].re += cosf(phase_rad);
+						zeroing.phase_sum[i].im += sinf(phase_rad);
+					}
+
+					if (++zeroing.count >= ZEROING_COUNT)
+					{
+						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
+							settings.short_zero.mag_rms[i] = zeroing.mag_sum[i] / zeroing.count;
+
+						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.phase_sum); i++)
+							settings.short_zero.phase_deg[i] = (zeroing.phase_sum[i].re != 0.0f) ? atan2f(zeroing.phase_sum[i].im, zeroing.phase_sum[i].re) * RAD_TO_DEG : NAN;
+
+						settings.short_zero.done = 1;
+						memset(&zeroing, 0, sizeof(zeroing));
+						op_mode = OP_MODE_MEASURING;
+
+						draw_screen(1);
+					}
+					break;
+				}
+			}
+
 			// start next data capture
 			vi_measure_index = 0;
 		}
 		else
 		if (system_data.vi_measure_mode != prev_vi_measure_mode && draw_screen_count > 0)
-			draw_screen(&system_data, 0);
+			draw_screen(0);
 
 		#ifdef USE_IWDG
 			service_IWDG(false);
