@@ -267,6 +267,112 @@ void stop_ADC(void)
 }
 
 // ***********************************************************
+// emulated eepom in flash
+//
+// note, wear leveling currently not implemented, soon though
+
+int8_t read_settings(const uint8_t fetch)
+{	// read settings from flash
+
+	t_settings _settings = {0};
+
+	{	// read from flash
+		const __IO uint16_t *r = (uint16_t *)EEPROM_START_ADDRESS;
+		uint16_t            *w = (uint16_t *)&_settings;
+		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint16_t))
+			 *w++ = *r++;
+	}
+
+	{	// validate eeprom settings
+
+		if (_settings.marker != SETTINGS_MARKER)
+			return -1;
+
+		const uint16_t crc1 = _settings.crc;
+		_settings.crc = 0;
+		const uint16_t crc2 = CRC16_block(0, &_settings, sizeof(t_settings));
+		if (crc1 != crc2)
+			return -2;
+	}
+
+	// copy to the main settings
+	if (fetch)
+		memcpy(&settings, &_settings, sizeof(t_settings));
+
+	return 0;
+}
+
+int8_t write_settings(void)
+{	// write settings to flash
+
+	settings.marker = SETTINGS_MARKER;
+	settings.seq_num++;
+	settings.crc = 0;
+	settings.crc = CRC16_block(0, &settings, sizeof(t_settings));
+
+	FLASH_EraseInitTypeDef erase_init = {0};
+	erase_init.TypeErase   = FLASH_TYPEERASE_PAGES;
+	erase_init.PageAddress = EEPROM_START_ADDRESS;
+	erase_init.NbPages     = 1;
+	
+	uint32_t page_error = 0;
+
+	uint8_t empty = 1;
+
+	{	// see if the page needs erasing
+		const __IO uint32_t *flash = (uint32_t *)EEPROM_START_ADDRESS;
+		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
+			 if (*flash++ != 0xffffffff)
+			 	empty = 0;
+	}
+
+	HAL_FLASH_Unlock();
+
+	if (!empty)
+	{	// erase the entire page
+		const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
+		if (status != HAL_OK)
+		{
+			HAL_FLASH_Lock();
+			return -1;
+		}
+	}
+
+	// write settings to flash
+	for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint16_t))
+	{
+		const uint16_t w = ((uint16_t *)&settings)[i / sizeof(uint16_t)];
+
+		const HAL_StatusTypeDef status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, EEPROM_START_ADDRESS + i, w);
+		if (status != HAL_OK)
+		{
+			HAL_FLASHEx_Erase(&erase_init, &page_error);
+			HAL_FLASH_Lock();
+			return -2;
+		}
+	}
+
+	{	// confirm the write is correct - read settings back
+		const __IO uint32_t *flash = (uint32_t *)EEPROM_START_ADDRESS;
+		const uint32_t      *set   = (uint32_t *)&settings;
+	
+		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
+		{
+			if (*flash++ != *set++)
+			{	// error
+				HAL_FLASHEx_Erase(&erase_init, &page_error);
+				HAL_FLASH_Lock();
+				return -2;
+			}
+		}
+	}
+	
+	HAL_FLASH_Lock();
+
+	return 0;
+}
+
+// ***********************************************************
 // Goertzel stuff
 
 typedef struct {
@@ -1389,30 +1495,48 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
 	__disable_irq();
-	HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
 	while (1)
 	{
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
+		DWT_Delay_us(70000);
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
+		DWT_Delay_us(70000);
 	}
 }
 
 void MemManage_Handler(void)
 {
+	__disable_irq();
 	while (1)
 	{
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
+		DWT_Delay_us(100000);
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
+		DWT_Delay_us(100000);
 	}
 }
 
 void BusFault_Handler(void)
 {
+	__disable_irq();
 	while (1)
 	{
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
+		DWT_Delay_us(100000);
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
+		DWT_Delay_us(100000);
 	}
 }
 
 void UsageFault_Handler(void)
 {
+	__disable_irq();
 	while (1)
 	{
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
+		DWT_Delay_us(100000);
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
+		DWT_Delay_us(100000);
 	}
 }
 
@@ -1975,6 +2099,9 @@ void process_buttons(void)
 			}
 
 			set_measurement_frequency(settings.measuring_Hz);
+
+			// save settings to flash
+			write_settings();
 		}
 
 		draw_screen(1);
@@ -1996,6 +2123,9 @@ void process_buttons(void)
 			if (++mode > LCR_MODE_RESISTANCE)
 				mode = LCR_MODE_INDUCTANCE;
 			settings.lcr_mode = mode;
+
+			// save settings to flash
+			write_settings();
 		}
 
 		draw_screen(1);
@@ -2065,6 +2195,9 @@ int main(void)
 		const float normalized_freq = 2.0f / DMA_ADC_DATA_LENGTH;  // 2 cycles spanning the sample buffer
 		goertzel_init(&goertzel, normalized_freq);
 	}
+
+	// fetch saved settings from flash
+	read_settings(1);
 
 	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 	set_measure_mode_pins(system_data.vi_measure_mode);
@@ -2195,6 +2328,8 @@ int main(void)
 
 					if (++zeroing.count >= ZEROING_COUNT)
 					{
+						//memset(&settings.open_zero, 0, sizeof(settings.open_zero));
+						
 						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
 							settings.open_zero.mag_rms[i] = zeroing.mag_sum[i] / zeroing.count;
 
@@ -2202,11 +2337,15 @@ int main(void)
 							settings.open_zero.phase_deg[i] = (zeroing.phase_sum[i].re != 0.0f) ? atan2f(zeroing.phase_sum[i].im, zeroing.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
 						settings.open_zero.done = 1;
-						memset(&zeroing, 0, sizeof(zeroing));
+
+						// save settings to flash
+						write_settings();
+						
 						op_mode = OP_MODE_MEASURING;
 
 						draw_screen(1);
 					}
+
 					break;
 				}
 
@@ -2224,6 +2363,8 @@ int main(void)
 
 					if (++zeroing.count >= ZEROING_COUNT)
 					{
+						//memset(&settings.short_zero, 0, sizeof(settings.short_zero));
+
 						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
 							settings.short_zero.mag_rms[i] = zeroing.mag_sum[i] / zeroing.count;
 
@@ -2231,11 +2372,15 @@ int main(void)
 							settings.short_zero.phase_deg[i] = (zeroing.phase_sum[i].re != 0.0f) ? atan2f(zeroing.phase_sum[i].im, zeroing.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
 						settings.short_zero.done = 1;
-						memset(&zeroing, 0, sizeof(zeroing));
+
+						// save settings to flash
+						write_settings();
+
 						op_mode = OP_MODE_MEASURING;
 
 						draw_screen(1);
 					}
+
 					break;
 				}
 			}
