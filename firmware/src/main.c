@@ -680,7 +680,7 @@ float lcr_compute(const unsigned int mode, const uint16_t freq, const float impe
 			return resistive;
 
 		case LCR_MODE_TAN_DELTA:       // Tan Delta calculation
-			return (impedance * resistive) / reactance;
+			return resistive / reactance;
 
 		default:
 			return 0;
@@ -1017,7 +1017,7 @@ void process_data(void)
 	const float inductance  = reactance / omega;                            // L = X / ω
 	const float capacitance = 1.0f / (omega * reactance);                   // C = 1 / (ωX)
 	const float esr         = resistive;
-	const float tan_delta   = (system_data.impedance * resistive) / reactance;
+	const float tan_delta   = resistive / reactance;
 
 	system_data.inductance  = inductance;
 	system_data.capacitance = capacitance;
@@ -1460,6 +1460,7 @@ void draw_screen(const uint8_t full_update)
 							ssd1306_SetCursor(val44_x, line4_y);
 							print_sprint(4, system_data.tan_delta, buffer_display);
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
+
 							break;
 
 						case LCR_MODE_RESISTANCE:
