@@ -98,7 +98,7 @@ To reduce this leakage/noise level ..
 - change R35 to 1k
 - add a 10n cap across R20
 - add an extra 10uF to -5V line directly next to R32
-- change R32 for an inductor - yet to do, none currently to hand, need to order some >= 100uH 0805 inductors that will fit the board
+- swap R31 and R32 for inductors - yet to do, none currently to hand, need to order some >= 100uH 0805 inductors that will fit the board
 
 <img src="firmware/docs/19kHz_leakage_reduction_2.png" alt="image" style="width:600px;height:auto;">
 
