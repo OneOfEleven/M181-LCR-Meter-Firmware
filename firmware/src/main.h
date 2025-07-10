@@ -22,7 +22,7 @@
 #include <math.h>
 
 #include "stm32f1xx_hal.h"
-#include "stm32f1xx_hal_tim.h"
+//#include "stm32f1xx_hal_tim.h"
 
 #ifndef DEBUG
 	#define USE_IWDG                               // useful to reset the CPU if something locks up etc
