@@ -27,9 +27,9 @@
 	#define SSD1306_COM_ALTERNATIVE_PIN_CONFIG    1
 #endif
 
-uint8_t _txBuffer[6];
-uint8_t _rxBuffer[6];
-uint8_t _reg[2];
+//extern uint8_t _txBuffer[6];
+//extern uint8_t _rxBuffer[6];
+//extern uint8_t _reg[2];
 
 typedef enum
 {

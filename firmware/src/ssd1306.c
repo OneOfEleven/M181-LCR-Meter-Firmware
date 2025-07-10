@@ -5,6 +5,10 @@
 #include "stm32_sw_i2c.h"
 #include "delay.h"
 
+//uint8_t _txBuffer[6];
+//uint8_t _rxBuffer[6];
+//uint8_t _reg[2];
+
 static uint8_t SSD1306_Buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
 
 static SSD1306_t SSD1306;

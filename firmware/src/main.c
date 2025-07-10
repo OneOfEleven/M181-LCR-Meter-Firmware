@@ -225,7 +225,7 @@ void reboot(void)
 		HAL_IWDG_Refresh(&hiwdg);
 	}
 
-	void service_IWDG(const bool force_update)
+	void service_IWDG(const uint8_t force_update)
 	{	// service the watchdog
 		if (hiwdg.Instance != NULL && (iwdg_tick >= 4000 || force_update))
 		{
@@ -1523,7 +1523,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 }
 
 // ***********************************************************
-
+/*
 void HAL_MspInit(void)
 {
 	__HAL_RCC_AFIO_CLK_ENABLE();
@@ -1531,7 +1531,7 @@ void HAL_MspInit(void)
 
 	__HAL_AFIO_REMAP_SWJ_NOJTAG();
 }
-
+*/
 void HAL_ADC_MspInit(ADC_HandleTypeDef *hadc)
 {
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -2007,8 +2007,8 @@ void process_buttons(void)
 int main(void)
 {
 	// free PB3 and PB4 for general use
-	AFIO->MAPR &= ~(AFIO_MAPR_SWJ_CFG);   // Clear the SWJ_CFG bits
-	AFIO->MAPR |=   AFIO_MAPR_SWJ_CFG_1;  // Set SWJ_CFG to disable JTAG but keep SWD
+//	AFIO->MAPR &= ~(AFIO_MAPR_SWJ_CFG);   // Clear the SWJ_CFG bits
+//	AFIO->MAPR |=   AFIO_MAPR_SWJ_CFG_1;  // Set SWJ_CFG to disable JTAG but keep SWD
 
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wunused-variable"
@@ -2086,7 +2086,7 @@ int main(void)
 
 	#ifdef USE_IWDG
 		// feed the dog
-		service_IWDG(true);
+		service_IWDG(1);
 	#endif
 
 	while (1)
@@ -2248,7 +2248,7 @@ int main(void)
 			draw_screen(0);
 
 		#ifdef USE_IWDG
-			service_IWDG(false);
+			service_IWDG(0);
 		#endif
 	}
 }
