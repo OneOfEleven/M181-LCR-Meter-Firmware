@@ -272,9 +272,9 @@ void stop_ADC(void)
 // performs flash wear leveling
 
 const __IO uint32_t * find_last_good_settings(void)
-{	// find the last valid flash saved settings
+{	// find the last valid flash saved settings we did
 
-	const __IO uint32_t *flash_addr_end  = (uint32_t *)(EEPROM_START_ADDRESS + PAGE_SIZE);
+	const __IO uint32_t *flash_addr_end  = (uint32_t *)EEPROM_END_ADDRESS;
 	const __IO uint32_t *flash_addr      = (uint32_t *)EEPROM_START_ADDRESS;
 	const __IO uint32_t *flash_addr_good = NULL;
 
@@ -294,11 +294,8 @@ const __IO uint32_t * find_last_good_settings(void)
 			const uint16_t crc1 = settings.crc;
 			settings.crc = 0;
 			const uint16_t crc2 = CRC16_block(0, &settings, sizeof(t_settings));
-			if (crc1 != crc2)
-				break;
-
-			// found a slot with valid settings 
-			flash_addr_good = flash_addr;
+			if (crc1 == crc2)
+				flash_addr_good = flash_addr;       // found a slot with valid settings 
 		}
 
 		flash_addr = addr;
@@ -327,14 +324,16 @@ int read_settings(void)
 int write_settings(void)
 {	// write settings to flash
 
+	const __IO uint32_t *flash_addr_end = (uint32_t *)EEPROM_END_ADDRESS;
+
 	FLASH_EraseInitTypeDef erase_init = {0};
 	erase_init.TypeErase   = FLASH_TYPEERASE_PAGES;
 	erase_init.PageAddress = EEPROM_START_ADDRESS;
-	erase_init.NbPages     = 1;
+	erase_init.NbPages     = (EEPROM_END_ADDRESS - EEPROM_START_ADDRESS) / PAGE_SIZE;
 
 	uint32_t page_error = 0;
 
-	// add marker and CRC to the current settings
+	// add marker and CRC to the current settings so we can find them in flash
 	settings.marker = SETTINGS_MARKER;
 	settings.crc = 0;
 	settings.crc = CRC16_block(0, &settings, sizeof(t_settings));
@@ -347,8 +346,6 @@ int write_settings(void)
 		// point to next available flash slot
 		flash_addr += sizeof(t_settings) / sizeof(flash_addr[0]);
 	
-		const __IO uint32_t *flash_addr_end = (uint32_t *)(EEPROM_START_ADDRESS + PAGE_SIZE);
-
 		if ((flash_addr + (sizeof(t_settings) / sizeof(flash_addr[0]))) > flash_addr_end)
 		{	// no more flash space, wipe the entire page
 

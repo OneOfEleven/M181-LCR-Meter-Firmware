@@ -271,8 +271,13 @@
 
 #define PAGE_SIZE                    FLASH_PAGE_SIZE
 
-#define EEPROM_START_ADDRESS         ADDR_FLASH_PAGE_63        // STM32F103C8  64k
-//#define EEPROM_START_ADDRESS       ADDR_FLASH_PAGE_126       // STM32F103CB  128k
+#define END_ADDRESS                 (ADDR_FLASH_PAGE_63  + PAGE_SIZE)    // STM32F103C8  64k
+//#define END_ADDRESS               (ADDR_FLASH_PAGE_127 + PAGE_SIZE)    // STM32F103CB  128k
+
+#define EEPROM_START_ADDRESS         ADDR_FLASH_PAGE_62                  // STM32F103C8  64k
+//#define EEPROM_START_ADDRESS       ADDR_FLASH_PAGE_126                 // STM32F103CB  128k
+
+#define EEPROM_END_ADDRESS           END_ADDRESS
 
 // *******************************
 
