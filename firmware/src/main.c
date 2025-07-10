@@ -445,21 +445,26 @@ void generate_ref_signal(const unsigned int length)
 	}
 }
 
-void set_sine_wave_frequency(const uint32_t set_frequency)
+void set_measurement_frequency(const uint32_t Hz)
 {
-	// TODO: make this adjustment automatic by inspecting the samples sine waveform using a histogram of the samples, spikes in the histogram indicate clipping
 
-	if (set_frequency == 100)
+
+	// TODO: make this adjustment automatic by inspecting the sine wave using a histogram of the sampled samples
+	//       spikes in the histogram indicate clipping (several similar values)
+
+
+
+	if (Hz == 100)
 		set_DAC_amplitude(0.52);
 	else
-	if (set_frequency == 500)
+	if (Hz == 500)
 		set_DAC_amplitude(0.62);
 	else
 		set_DAC_amplitude(1.0);
 
-	if (set_frequency > 0)
+	if (Hz > 0)
 	{
-		const uint32_t timer_rate_Hz = (DMA_ADC_DATA_LENGTH / 2) * set_frequency;  // for one cycle
+		const uint32_t timer_rate_Hz = (DMA_ADC_DATA_LENGTH / 2) * Hz;          // for one cycle
 		const uint32_t period        = (((HAL_RCC_GetHCLKFreq() / (htim3.Init.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
 		__HAL_TIM_SET_AUTORELOAD(&htim3, period);
 	}
@@ -492,45 +497,37 @@ t_complex <float> serial_to_parallel(t_complex <float> z)
 	return t_complex <float> (_FPCLASS_PINF, _FPCLASS_PINF);
 }
 */
-
-float lcr_compute(const uint8_t mode, const uint16_t freq, const float impedance, const float phase)
+/*
+float lcr_compute(const unsigned int mode, const uint16_t freq, const float impedance, const float phase)
 {
-	// deg to rads
 	const float phase_rad = phase * DEG_TO_RAD;
-
-	// compute the reactive component (absolute value)
+	const float resistive = impedance * fabsf(cosf(phase_rad));
 	const float reactance = impedance * fabsf(sinf(phase_rad));
+
 	if (reactance < 1e-6f)
 		return 0;
 
-	// angular frequency in rad/s
-	const float omega = (float)(2.0 * M_PI) * freq;
+	const float omega = (float)(2.0 * M_PI) * freq;   // angular frequency in rad/s
 
 	switch (mode)
 	{
-		case LCR_MODE_INDUCTANCE:      // L = X / ω, convert to microHenries
-		{
-			const float inductance = reactance / omega;
-			return inductance * 1e6f;
-		}
+		case LCR_MODE_INDUCTANCE:      // L = X / ω
+			return reactance / omega;
 
-		case LCR_MODE_CAPACITANCE:     // C = 1 / (ωX), convert to nanoFarads
-		{
-			const float capacitance = 1.0f / (omega * reactance);
-			return capacitance * 1e9f;
-		}
+		case LCR_MODE_CAPACITANCE:     // C = 1 / (ωX)
+			return 1.0f / (omega * reactance);
 
 		case LCR_MODE_RESISTANCE:      // ESR: real part of the impedance
-			return impedance * fabsf(cosf(phase_rad));
+			return resistive;
 
 		case LCR_MODE_TAN_DELTA:       // Tan Delta calculation
-			return (impedance * fabsf(cosf(phase_rad))) / reactance;
+			return (impedance * resistive) / reactance;
 
 		default:
 			return 0;
 	}
 }
-
+*/
 // compute phase difference between two waveforms using complex samples (ie, from the I/Q outputs of a goertzel dft)
 //
 float phase_diff(const t_comp c1, const t_comp c2)
@@ -550,12 +547,12 @@ float phase_diff(const t_comp c1, const t_comp c2)
 	return phase_deg;
 }
 
-float phase_compute(const float in_array[], const int start_l, const int length)
+float phase_compute(const float in_array[], const unsigned int start_l, const unsigned int length)
 {
 	// multiply signal by 0° and 90° square wave references
 	float I_sum = 0;
 	float Q_sum = 0;
-	for (int i = start_l; i < length; i++)
+	for (unsigned int i = start_l; i < length; i++)
 	{
 		I_sum += in_array[i] * ref0_data[i];
 		Q_sum += in_array[i] * ref90_data[i];
@@ -572,7 +569,7 @@ float phase_compute(const float in_array[], const int start_l, const int length)
 	return phase_deg;
 }
 
-void compute_amplitude(t_system_data *sd)
+void compute_amplitude(void)
 {
 	float sum_sq_adc[8]  = {0};
 	float rms_val_adc[8] = {0};
@@ -617,10 +614,10 @@ void compute_amplitude(t_system_data *sd)
 		amp_gain_sel = 1;
 
 	// Update system_data struct with amplitude after conversion
-	sd->rms_voltage     = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 0]);
-	sd->rms_afc_volt    = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 1]);
-	sd->rms_current     = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 2]);
-	sd->rms_afc_current = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 3]);
+	system_data.rms_voltage     = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 0]);
+	system_data.rms_afc_volt    = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 1]);
+	system_data.rms_current     = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 2]);
+	system_data.rms_afc_current = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 3]);
 }
 
 // pass the new ADC samples through the goertzel dft
@@ -791,7 +788,7 @@ void combine_afc(const unsigned int vi, float *avg_mag_rms, float *avg_deg)
 	*avg_deg     = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
 }
 
-void process_data(t_system_data *sd)
+void process_data(void)
 {
 	float voltage_afc_mag_rms = 0;
 	float voltage_afc_deg     = 0;
@@ -806,15 +803,18 @@ void process_data(t_system_data *sd)
 	// *********************
 	// automatic gain selection
 
-	const float threshold = 1900;
-	volt_gain_sel = (mag_rms[2] >= threshold) ? 0 : 1;
-	amp_gain_sel  = (mag_rms[3] >= threshold) ? 0 : 1;
+	const float threshold = 50;
+	volt_gain_sel = 0;
+	amp_gain_sel  = 0;
+	volt_gain_sel = (mag_rms[(volt_gain_sel * 4) + 0] <= threshold) ? 1 : 0;
+	amp_gain_sel  = (mag_rms[(volt_gain_sel * 4) + 2] <= threshold) ? 1 : 0;
+
 
 	// amplitude after conversion
-	sd->rms_voltage     = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
-	sd->rms_afc_volt    = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
-	sd->rms_current     = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
-	sd->rms_afc_current = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
+	system_data.rms_voltage     = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
+	system_data.rms_afc_volt    = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
+	system_data.rms_current     = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
+	system_data.rms_afc_current = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
 
 	// *********************
 
@@ -824,50 +824,53 @@ void process_data(t_system_data *sd)
 
 
 
-//	compute_amplitude(sd);
+//	compute_amplitude();
 
-	sd->impedance = sd->rms_voltage / sd->rms_current;
+	system_data.impedance = system_data.rms_voltage / system_data.rms_current;
 
 	// **************************
 	// applying the correction Factor - manually
 	//
 	// TODO: automatically (calibrate) measure the opamp gain on each of the two gain paths
 
-	sd->impedance = (volt_gain_sel) ? sd->impedance /  101           : sd->impedance;
-	sd->impedance = (amp_gain_sel)  ? sd->impedance * (101 * 1.017f) : sd->impedance * 0.874f;
+	system_data.impedance = volt_gain_sel ? system_data.impedance /  101           : system_data.impedance;
+	system_data.impedance = amp_gain_sel  ? system_data.impedance * (101 * 1.017f) : system_data.impedance * 0.874f;
 
 	// **************************
 
 	phase_offset_array_index = 0;
 
-	sd->voltage_phase  =       phase_compute(adc_data[(amp_gain_sel * 4) + 0], phase_offset_array_index, DMA_ADC_DATA_LENGTH) - phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH);  // Phase calculation for voltage
-	sd->current_phase  = fabsf(phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH) - phase_compute(adc_data[(amp_gain_sel * 4) + 3], phase_offset_array_index, DMA_ADC_DATA_LENGTH)); // Phase calculation for current
-	sd->current_phase -= 180.0f;
+	system_data.voltage_phase  =       phase_compute(adc_data[(amp_gain_sel * 4) + 0], phase_offset_array_index, DMA_ADC_DATA_LENGTH) -
+	                                   phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH);  
 
-	sd->vi_phase  = fabsf(fabsf(sd->voltage_phase) - fabsf(sd->current_phase));            // Phase calculation for voltage & current
-	sd->esr       = lcr_compute(LCR_MODE_RESISTANCE, settings.set_freq, sd->impedance, sd->vi_phase);
-	sd->tan_delta = lcr_compute(LCR_MODE_TAN_DELTA,  settings.set_freq, sd->impedance, sd->vi_phase);
+	system_data.current_phase  = fabsf(phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH) -
+	                                   phase_compute(adc_data[(amp_gain_sel * 4) + 3], phase_offset_array_index, DMA_ADC_DATA_LENGTH)); 
+	system_data.current_phase -= 180.0f;
 
-	switch (settings.lcr_mode)
-	{
-		case LCR_MODE_INDUCTANCE:
-			sd->inductance  = lcr_compute(settings.lcr_mode, settings.set_freq, sd->impedance, sd->vi_phase);
-			break;
-		case LCR_MODE_CAPACITANCE:
-			sd->capacitance = lcr_compute(settings.lcr_mode, settings.set_freq, sd->impedance, sd->vi_phase);
-			break;
-		case LCR_MODE_RESISTANCE:
-			sd->resistance = sd->impedance; // lcr_compute(sd->LCR_Mode, sd->set_freq, sd->impedance, sd->VI_phase);
-			sd->esr        = 0;
-			sd->tan_delta  = 0;
-			break;
-	}
+	system_data.vi_phase       = fabsf(fabsf(system_data.voltage_phase) - fabsf(system_data.current_phase));
+
+	const float omega      = (float)(2.0 * M_PI) * settings.measuring_Hz;   // angular frequency in rad/s
+	const float phase_rad  = system_data.vi_phase * DEG_TO_RAD;
+	const float resistive  = system_data.impedance * fabsf(cosf(phase_rad));
+	const float reactance  = system_data.impedance * fabsf(sinf(phase_rad));
+//	if (reactance < 1e-6f)
+//		return 0;
+	const float inductance  = reactance / omega;                            // L = X / ω
+	const float capacitance = 1.0f / (omega * reactance);                   // C = 1 / (ωX)
+	const float esr         = resistive;
+	const float tan_delta   = (system_data.impedance * resistive) / reactance;
+
+	system_data.inductance  = inductance;
+	system_data.capacitance = capacitance;
+	system_data.resistance  = system_data.impedance;
+	system_data.esr         = esr;
+	system_data.tan_delta   = tan_delta;
 
 	// Unit conversion for capacitance, inductance, and resistance
-	sd->unit_capacitance = unit_conversion(&sd->capacitance);
-	sd->unit_inductance  = unit_conversion(&sd->inductance);
-	sd->unit_resistance  = unit_conversion(&sd->resistance);
-	sd->unit_esr         = unit_conversion(&sd->esr);
+	system_data.unit_capacitance = unit_conversion(&system_data.capacitance);
+	system_data.unit_inductance  = unit_conversion(&system_data.inductance);
+	system_data.unit_resistance  = unit_conversion(&system_data.resistance);
+	system_data.unit_esr         = unit_conversion(&system_data.esr);
 }
 
 void process_ADC(const void *buffer)
@@ -1139,13 +1142,20 @@ void draw_screen(const uint8_t full_update)
 
 				// Line 4
 
-				ssd1306_SetCursor(val41_x, line4_y);
-				ssd1306_WriteString("ER ", Font_7x10, White);
+				switch (settings.lcr_mode)
+				{
+					case LCR_MODE_INDUCTANCE:
+					case LCR_MODE_CAPACITANCE:
+						ssd1306_SetCursor(val41_x, line4_y);
+						ssd1306_WriteString("ER ", Font_7x10, White);
 
-				ssd1306_SetCursor(val43_x, line4_y);
-				ssd1306_WriteString("D ", Font_7x10, White);
+						ssd1306_SetCursor(val43_x, line4_y);
+						ssd1306_WriteString("D ", Font_7x10, White);
+						break;
 
-				break;
+					case LCR_MODE_RESISTANCE:
+						break;
+				}
 			}
 
 			case OP_MODE_OPEN_ZEROING:
@@ -1169,7 +1179,7 @@ void draw_screen(const uint8_t full_update)
 		// Line 1: Frequency display
 
 		ssd1306_SetCursor(val2_x, line1_y);
-		sprintf(buffer_display, "%0.1f", settings.set_freq * 1e-3f);  // kHz
+		sprintf(buffer_display, "%0.1f", settings.measuring_Hz * 1e-3f);  // kHz
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 		// Line 2: Mode
@@ -1278,16 +1288,26 @@ void draw_screen(const uint8_t full_update)
 					sprintf(buffer_display, "%.3f", (system_data.rms_current >= 0) ? system_data.rms_current : 0);
 					ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-					// Line 4: ESR and Tan Delta
+					switch (settings.lcr_mode)
+					{
+						case LCR_MODE_INDUCTANCE:
+						case LCR_MODE_CAPACITANCE:
+							// Line 4: ESR and Tan Delta
 
-					ssd1306_SetCursor(val42_x, line4_y);
-					print_sprint(4, system_data.esr, buffer_display);
-					ssd1306_WriteString(buffer_display, Font_7x10, White);
+							ssd1306_SetCursor(val42_x, line4_y);
+							print_sprint(4, system_data.esr, buffer_display);
+							ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-					ssd1306_SetCursor(val44_x, line4_y);
-					print_sprint(4, system_data.tan_delta, buffer_display);
-					ssd1306_WriteString(buffer_display, Font_7x10, White);
+							ssd1306_SetCursor(val44_x, line4_y);
+							print_sprint(4, system_data.tan_delta, buffer_display);
+							ssd1306_WriteString(buffer_display, Font_7x10, White);
+							break;
+
+						case LCR_MODE_RESISTANCE:
+							break;
+					}
 				}
+
 				break;
 
 			case OP_MODE_OPEN_ZEROING:
@@ -1416,7 +1436,7 @@ void SysTick_Handler(void)
 
 	{	// debounce the push buttons
 
-		static const int16_t debounce_max = 10;   // 10ms
+		const int16_t debounce_ms = 50;
 
 		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
 		{
@@ -1424,26 +1444,31 @@ void SysTick_Handler(void)
 			if (butt->gpio_port == NULL)
 				continue;
 
-			const uint32_t pressed_tick = butt->pressed_tick;
+			// update debounce counter
 			int16_t debounce = butt->debounce;
-			//debounce = (LL_GPIO_IsInputPinSet(butt->gpio_port, butt->gpio_pin) == 0) ? debounce + 1 : debounce - 1;
-			debounce = (HAL_GPIO_ReadPin(butt->gpio_port, butt->gpio_pin) == GPIO_PIN_RESET) ? debounce + 1 : debounce - 1;
-			debounce = (debounce < 0) ? 0 : (debounce > debounce_max) ? debounce_max : debounce;
+			//debounce = (LL_GPIO_IsInputPinSet(butt->gpio_port, butt->gpio_pin) ==              0) ? debounce + 1 : debounce - 1;
+			debounce   = (HAL_GPIO_ReadPin(     butt->gpio_port, butt->gpio_pin) == GPIO_PIN_RESET) ? debounce + 1 : debounce - 1;
+			debounce   = (debounce < 0) ? 0 : (debounce > debounce_ms) ? debounce_ms : debounce;
 			butt->debounce = debounce;
-			if (pressed_tick == 0 && debounce >= debounce_max)
+
+			const uint32_t pressed_tick = butt->pressed_tick;
+
+			if (pressed_tick == 0 && debounce >= debounce_ms)
 			{	// just pressed
-				butt->released     = 0;
-				butt->held_ms      = 0;
-				butt->pressed_tick = tick;
+				butt->released     = 0;                             // clear released flag
+				butt->held_ms      = 0;                             // reset held down time
+				butt->pressed_tick = tick;                          // remember the tick the button was pressed
 			}
-			if (butt->pressed_tick > 0 && debounce <= 0)
+
+			if (pressed_tick > 0 && debounce <= 0)
 			{	// just released
-				butt->held_ms      = tick - butt->pressed_tick;
-				butt->released     = 1;
-				butt->pressed_tick = 0;
+				butt->held_ms      = tick - pressed_tick;           // save the time the button was held down for
+				butt->released     = 1;                             // set released flag
+				butt->pressed_tick = 0;                             // reset pressed tick
 			}
-			if (butt->pressed_tick > 0)
-				butt->held_ms      = tick - butt->pressed_tick;
+
+			if (pressed_tick > 0)
+				butt->held_ms      = tick - pressed_tick;           // time the button has been held down for
 		}
 	}
 
@@ -1935,21 +1960,21 @@ void process_buttons(void)
 
 
 			// cycle the frequency
-			switch (settings.set_freq)
+			switch (settings.measuring_Hz)
 			{
 				case 100:
-					settings.set_freq = 500;
+					settings.measuring_Hz = 500;
 					break;
 				default:
 				case 500:
-					settings.set_freq = 1000;
+					settings.measuring_Hz = 1000;
 					break;
 				case 1000:
-					settings.set_freq = 100;
+					settings.measuring_Hz = 100;
 					break;
 			}
 
-			set_sine_wave_frequency(settings.set_freq);
+			set_measurement_frequency(settings.measuring_Hz);
 		}
 
 		draw_screen(1);
@@ -2015,7 +2040,7 @@ int main(void)
 	button[2].gpio_pin  = BUTT_RCL_Pin;
 
 	// defaults
-	settings.set_freq           = 1000;
+	settings.measuring_Hz           = 1000;
 //	settings.lcr_mode           = LCR_MODE_INDUCTANCE;
 //	settings.lcr_mode           = LCR_MODE_CAPACITANCE;
 	settings.lcr_mode           = LCR_MODE_RESISTANCE;
@@ -2044,7 +2069,7 @@ int main(void)
 	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 	set_measure_mode_pins(system_data.vi_measure_mode);
 
-	set_sine_wave_frequency(settings.set_freq);
+	set_measurement_frequency(settings.measuring_Hz);
 
 	generate_ref_signal(DMA_ADC_DATA_LENGTH);
 
@@ -2084,7 +2109,7 @@ int main(void)
 		{	// full measurement cycle is complete
 
 			// process the new sampled data
-			process_data(&system_data);
+			process_data();
 
 			// show it on screen
 			draw_screen(0);

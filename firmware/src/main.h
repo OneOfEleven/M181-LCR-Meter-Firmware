@@ -60,7 +60,7 @@
 #define GOERTZEL_FILTER_LENGTH    (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
 //#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (nice but takes more time)
 
-#define ZEROING_COUNT                10             // number of averages to use for short and zeroing
+#define ZEROING_COUNT                10             // number of averages to use for open/short zeroing
 
 #define HIGH                         GPIO_PIN_SET
 #define LOW                          GPIO_PIN_RESET
@@ -164,16 +164,18 @@ enum {
 // this array will be stored in flash (emulated EEPROM)
 #pragma pack(push, 1)
 typedef struct {
-	uint16_t     set_freq;
+	uint16_t     measuring_Hz;
 	unsigned int lcr_mode;
 	uint8_t      uart_all_print_dso;
 
+	// open zeroing results
 	struct {
 		float    mag_rms[8];
 		float    phase_deg[8];
 		uint8_t  done;
 	} open_zero;
 
+	// short zeroing results
 	struct {
 		float    mag_rms[8];
 		float    phase_deg[8];
