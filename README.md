@@ -102,9 +102,9 @@ To reduce this leakage/noise level ..
 
 <img src="firmware/docs/19kHz_leakage_reduction_2.png" alt="image" style="width:600px;height:auto;">
 
-## Beware !
+# Beware !
 
-The seller (jyetech guy) of these boards is using a fake/countfeit MCU (STM32F103C8) on this board.
+The seller (jyetech guy) of these boards is using a fake/counterfeit MCU (STM32F103C8) on this board.
 
 Also, the voltage inverter they are fitting to the board is NOT as stated on their schematic. The device they are fitting is quite different (MUCH lower switching frequency that is causing noise problems).
 
