@@ -53,13 +53,13 @@
 ENTRY(Reset_Handler)
 
 /* Highest address of the user mode stack */
-_estack = 0x20005000;		/* end of RAM */
+_estack = 0x20005000;		  /* end of RAM */
 
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size  = 512;		/* required amount of heap  */
 _Min_Stack_Size = 1024;		/* required amount of stack */
 
-_EEPROM_SIZE_  = 2K;
+_EEPROM_SIZE_  = 2K;      /* two pages */
 
 /* Specify the memory areas */
 MEMORY
@@ -128,6 +128,7 @@ SECTIONS
     KEEP (*(.preinit_array*))
     PROVIDE_HIDDEN (__preinit_array_end = .);
   } >FLASH
+ 
   .init_array :
   {
     PROVIDE_HIDDEN (__init_array_start = .);
@@ -135,6 +136,7 @@ SECTIONS
     KEEP (*(.init_array*))
     PROVIDE_HIDDEN (__init_array_end = .);
   } >FLASH
+
   .fini_array :
   {
     PROVIDE_HIDDEN (__fini_array_start = .);

@@ -274,11 +274,8 @@ void stop_ADC(void)
 const __IO uint32_t * find_last_good_settings(void)
 {	// find the last valid flash saved settings we did
 
-//	const __IO uint32_t *flash_addr_end  = (uint32_t *)EEPROM_END_ADDRESS;
-//	const __IO uint32_t *flash_addr      = (uint32_t *)EEPROM_START_ADDRESS;
-
-	const __IO uint32_t *flash_addr_end  = (uint32_t *)(_eeprom_address + _eeprom_length);
-	const __IO uint32_t *flash_addr      = (uint32_t *)_eeprom_address;
+	const __IO uint32_t *flash_addr_end  = (uint32_t *)EEPROM_END_ADDRESS;
+	const __IO uint32_t *flash_addr      = (uint32_t *)EEPROM_START_ADDRESS;
 	const __IO uint32_t *flash_addr_good = NULL;
 
 	while (1)
@@ -327,12 +324,12 @@ int read_settings(void)
 int write_settings(void)
 {	// write settings to flash
 
-	const __IO uint32_t *flash_addr_end = (uint32_t *)(_eeprom_address + _eeprom_length);
+	const __IO uint32_t *flash_addr_end = (uint32_t *)EEPROM_END_ADDRESS;
 
 	FLASH_EraseInitTypeDef erase_init = {0};
 	erase_init.TypeErase   = FLASH_TYPEERASE_PAGES;
-	erase_init.PageAddress = _eeprom_address;
-	erase_init.NbPages     = _eeprom_length / PAGE_SIZE;
+	erase_init.PageAddress = EEPROM_START_ADDRESS;
+	erase_init.NbPages     = (EEPROM_END_ADDRESS - EEPROM_START_ADDRESS) / PAGE_SIZE;
 
 	uint32_t page_error = 0;
 
@@ -352,7 +349,7 @@ int write_settings(void)
 		if ((flash_addr + (sizeof(t_settings) / sizeof(flash_addr[0]))) > flash_addr_end)
 		{	// no more flash space, wipe the entire page
 
-			flash_addr = (uint32_t *)_eeprom_address;
+			flash_addr = (uint32_t *)EEPROM_START_ADDRESS;
 
 			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
 			if (status != HAL_OK)
@@ -364,7 +361,7 @@ int write_settings(void)
 	}
 	else
 	{
-		flash_addr = (uint32_t *)_eeprom_address;
+		flash_addr = (uint32_t *)EEPROM_START_ADDRESS;
 	}
 
 	{	// see if the flash slot needs erasing
@@ -381,7 +378,7 @@ int write_settings(void)
 			// can't program flash word without first erasing it
 			// so erase the entire page
 
-			flash_addr = (uint32_t *)_eeprom_address;
+			flash_addr = (uint32_t *)EEPROM_START_ADDRESS;
 
 			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
 			if (status != HAL_OK)
