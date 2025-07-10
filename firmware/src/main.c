@@ -269,72 +269,128 @@ void stop_ADC(void)
 // ***********************************************************
 // emulated eepom in flash
 //
-// note, wear leveling currently not implemented, soon though
+// performs flash wear leveling
 
-int8_t read_settings(const uint8_t fetch)
+const __IO uint32_t * find_last_good_settings(void)
+{	// find the last valid flash saved settings
+
+	const __IO uint32_t *flash_addr_end  = (uint32_t *)(EEPROM_START_ADDRESS + PAGE_SIZE);
+	const __IO uint32_t *flash_addr      = (uint32_t *)EEPROM_START_ADDRESS;
+	const __IO uint32_t *flash_addr_good = NULL;
+
+	while (1)
+	{
+		t_settings settings;
+
+		// read from flash
+		const __IO uint32_t *addr = flash_addr;
+		uint32_t *p = (uint32_t *)&settings;
+		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
+			 *p++ = *addr++;
+
+		// validate settings
+		if (settings.marker == SETTINGS_MARKER)
+		{
+			const uint16_t crc1 = settings.crc;
+			settings.crc = 0;
+			const uint16_t crc2 = CRC16_block(0, &settings, sizeof(t_settings));
+			if (crc1 != crc2)
+				break;
+
+			// found a slot with valid settings 
+			flash_addr_good = flash_addr;
+		}
+
+		flash_addr = addr;
+		if ((flash_addr + (sizeof(t_settings) / sizeof(flash_addr[0]))) > flash_addr_end)
+			break;     // no more slots to check
+	}
+
+	return flash_addr_good;
+}
+
+int read_settings(void)
 {	// read settings from flash
 
-	t_settings _settings = {0};
+	const __IO uint32_t *flash_addr = find_last_good_settings();
+	if (flash_addr == NULL)
+		return -1;  // none found
 
-	{	// read from flash
-		const __IO uint16_t *r = (uint16_t *)EEPROM_START_ADDRESS;
-		uint16_t            *w = (uint16_t *)&_settings;
-		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint16_t))
-			 *w++ = *r++;
-	}
-
-	{	// validate eeprom settings
-
-		if (_settings.marker != SETTINGS_MARKER)
-			return -1;
-
-		const uint16_t crc1 = _settings.crc;
-		_settings.crc = 0;
-		const uint16_t crc2 = CRC16_block(0, &_settings, sizeof(t_settings));
-		if (crc1 != crc2)
-			return -2;
-	}
-
-	// copy to the main settings
-	if (fetch)
-		memcpy(&settings, &_settings, sizeof(t_settings));
+	// copy them to the main settings
+	uint32_t *p = (uint32_t *)&settings;
+	for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
+		 *p++ = *flash_addr++;
 
 	return 0;
 }
 
-int8_t write_settings(void)
+int write_settings(void)
 {	// write settings to flash
-
-	settings.marker = SETTINGS_MARKER;
-	settings.seq_num++;
-	settings.crc = 0;
-	settings.crc = CRC16_block(0, &settings, sizeof(t_settings));
 
 	FLASH_EraseInitTypeDef erase_init = {0};
 	erase_init.TypeErase   = FLASH_TYPEERASE_PAGES;
 	erase_init.PageAddress = EEPROM_START_ADDRESS;
 	erase_init.NbPages     = 1;
-	
+
 	uint32_t page_error = 0;
 
-	uint8_t empty = 1;
-
-	{	// see if the page needs erasing
-		const __IO uint32_t *flash = (uint32_t *)EEPROM_START_ADDRESS;
-		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
-			 if (*flash++ != 0xffffffff)
-			 	empty = 0;
-	}
+	// add marker and CRC to the current settings
+	settings.marker = SETTINGS_MARKER;
+	settings.crc = 0;
+	settings.crc = CRC16_block(0, &settings, sizeof(t_settings));
 
 	HAL_FLASH_Unlock();
 
-	if (!empty)
-	{	// erase the entire page
-		const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
-		if (status != HAL_OK)
+	const __IO uint32_t *flash_addr = find_last_good_settings();
+	if (flash_addr != NULL)
+	{
+		// point to next available flash slot
+		flash_addr += sizeof(t_settings) / sizeof(flash_addr[0]);
+	
+		const __IO uint32_t *flash_addr_end = (uint32_t *)(EEPROM_START_ADDRESS + PAGE_SIZE);
+
+		if ((flash_addr + (sizeof(t_settings) / sizeof(flash_addr[0]))) > flash_addr_end)
+		{	// no more flash space, wipe the entire page
+
+			flash_addr = (uint32_t *)EEPROM_START_ADDRESS;
+
+			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
+			if (status != HAL_OK)
+			{
+				HAL_FLASH_Lock();
+				return -1;
+			}
+		}
+	}
+	else
+	{
+		flash_addr = (uint32_t *)EEPROM_START_ADDRESS;
+	}
+
+	{	// see if the flash slot needs erasing
+
+		const __IO uint32_t *flash = flash_addr;
+		const uint32_t *p = (uint32_t *)&settings;
+	
+		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
 		{
-			HAL_FLASH_Lock();
-			return -1;
+			const uint32_t set_val = *p++;
+			if ((*flash++ & set_val) == set_val)
+				continue;   // OK
+
+			// can't program flash word without first erasing it
+			// so erase the entire page
+
+			flash_addr = (uint32_t *)EEPROM_START_ADDRESS;
+
+			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
+			if (status != HAL_OK)
+			{
+				HAL_FLASH_Lock();
+				return -2;
+			}
+
+			break;
 		}
 	}
 
@@ -343,7 +399,7 @@ int8_t write_settings(void)
 	{
 		const uint16_t w = ((uint16_t *)&settings)[i / sizeof(uint16_t)];
 
-		const HAL_StatusTypeDef status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, EEPROM_START_ADDRESS + i, w);
+		const HAL_StatusTypeDef status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, (uint32_t)flash_addr + i, w);
 		if (status != HAL_OK)
 		{
 			HAL_FLASHEx_Erase(&erase_init, &page_error);
@@ -352,10 +408,10 @@ int8_t write_settings(void)
 		}
 	}
 
-	{	// confirm the write is correct - read settings back
-		const __IO uint32_t *flash = (uint32_t *)EEPROM_START_ADDRESS;
+	{	// confirm the write is OK, read the settings back
+		const __IO uint32_t *flash = flash_addr;
 		const uint32_t      *set   = (uint32_t *)&settings;
-	
+
 		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
 		{
 			if (*flash++ != *set++)
@@ -366,7 +422,7 @@ int8_t write_settings(void)
 			}
 		}
 	}
-	
+
 	HAL_FLASH_Lock();
 
 	return 0;
@@ -947,10 +1003,10 @@ void process_data(void)
 	phase_offset_array_index = 0;
 
 	system_data.voltage_phase  =       phase_compute(adc_data[(amp_gain_sel * 4) + 0], phase_offset_array_index, DMA_ADC_DATA_LENGTH) -
-	                                   phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH);  
+	                                   phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH);
 
 	system_data.current_phase  = fabsf(phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH) -
-	                                   phase_compute(adc_data[(amp_gain_sel * 4) + 3], phase_offset_array_index, DMA_ADC_DATA_LENGTH)); 
+	                                   phase_compute(adc_data[(amp_gain_sel * 4) + 3], phase_offset_array_index, DMA_ADC_DATA_LENGTH));
 	system_data.current_phase -= 180.0f;
 
 	system_data.vi_phase       = fabsf(fabsf(system_data.voltage_phase) - fabsf(system_data.current_phase));
@@ -991,7 +1047,7 @@ void process_ADC(const void *buffer)
 
 	// ignore this sample block if we've completed the VI measurement scan
 	if (vi_index >= VI_MODE_DONE)
-		return;                                                             
+		return;
 
 	// use a table to set HD mode pins in a custom order to cope with a HW design floor
 	const unsigned int vi_mode = vi_measure_mode_table[vi_index];
@@ -1012,7 +1068,7 @@ void process_ADC(const void *buffer)
 	// actually, the spike only appears to occur after the GS pin (gain setting) is changed
 
 	// skip less blocks if the gain pin hasn't changed
-	const unsigned int skip_block_count = ((vi_mode >> 1) == (prev_vi_mode >> 1)) ? MODE_SWITCH_BLOCK_WAIT_SHORT : MODE_SWITCH_BLOCK_WAIT_LONG; 
+	const unsigned int skip_block_count = ((vi_mode >> 1) == (prev_vi_mode >> 1)) ? MODE_SWITCH_BLOCK_WAIT_SHORT : MODE_SWITCH_BLOCK_WAIT_LONG;
 
 	if (adc_data_avg_count >= skip_block_count)
 	{	// add the new sample block to the averaging buffer
@@ -1303,7 +1359,7 @@ void draw_screen(const uint8_t full_update)
 							sprintf(buffer_display, "L ");
 							value = system_data.inductance;
 							break;
-					
+
 						case LCR_MODE_CAPACITANCE:
 							sprintf(buffer_display, "C ");
 							value = system_data.capacitance;
@@ -1350,7 +1406,7 @@ void draw_screen(const uint8_t full_update)
 								sprintf(buffer_display, "mF");
 							else
 								sprintf(buffer_display, "F ");
-*/	
+*/
 							sprintf(buffer_display, "%2d", system_data.unit_capacitance);  // TEST
 							break;
 
@@ -1423,7 +1479,7 @@ void draw_screen(const uint8_t full_update)
 
 
 				break;
-	
+
 			case OP_MODE_SHORT_ZEROING:
 				sprintf(buffer_display, "SHORT zeroing %2u", ZEROING_COUNT - zeroing.count - 1);
 				ssd1306_SetCursor(val21_x, line2_y);
@@ -2197,7 +2253,7 @@ int main(void)
 	}
 
 	// fetch saved settings from flash
-	read_settings(1);
+	read_settings();
 
 	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 	set_measure_mode_pins(system_data.vi_measure_mode);
@@ -2329,7 +2385,7 @@ int main(void)
 					if (++zeroing.count >= ZEROING_COUNT)
 					{
 						//memset(&settings.open_zero, 0, sizeof(settings.open_zero));
-						
+
 						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
 							settings.open_zero.mag_rms[i] = zeroing.mag_sum[i] / zeroing.count;
 
@@ -2340,7 +2396,7 @@ int main(void)
 
 						// save settings to flash
 						write_settings();
-						
+
 						op_mode = OP_MODE_MEASURING;
 
 						draw_screen(1);
