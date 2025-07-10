@@ -106,7 +106,7 @@ To reduce this leakage/noise level ..
 
 The seller (jyetech guy) of these boards is using a fake/counterfeit MCU (STM32F103C8) on this board.
 
-Also, the voltage inverter they are fitting to the board is NOT as stated on their schematic. The device they are fitting is quite different (MUCH lower switching frequency that is causing noise problems).
+Also, the voltage inverter they are fitting to the board is NOT as stated on the schematic. The device they are fitting is quite different (MUCH lower switching frequency that is causing noise problems).
 
 # Wiki
 

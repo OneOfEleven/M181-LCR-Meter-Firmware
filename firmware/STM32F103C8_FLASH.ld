@@ -59,12 +59,24 @@ _estack = 0x20005000;		/* end of RAM */
 _Min_Heap_Size  = 512;		/* required amount of heap  */
 _Min_Stack_Size = 1024;		/* required amount of stack */
 
+_EEPROM_SIZE_  = 2K;
+
 /* Specify the memory areas */
 MEMORY
 {
-RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 20K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 64K
+  RAM (xrw)   : ORIGIN = 0x20000000, LENGTH = 20K
+  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K - _EEPROM_SIZE_
+  EEPROM (rw) : ORIGIN = 0x08000000 + LENGTH(FLASH), LENGTH = _EEPROM_SIZE_
 }
+
+_flash_address  = ORIGIN(FLASH);
+_flash_length   = LENGTH(FLASH);
+
+_ram_address    = ORIGIN(RAM);
+_ram_length     = LENGTH(RAM);
+
+_eeprom_address  = ORIGIN(EEPROM);
+_eeprom_length   = LENGTH(EEPROM);
 
 /* Define output sections */
 SECTIONS

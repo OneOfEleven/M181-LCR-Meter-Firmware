@@ -279,6 +279,10 @@
 
 #define EEPROM_END_ADDRESS           END_ADDRESS
 
+// defined in linker script "STM32F103C8_FLASH.ld"
+extern uint32_t _eeprom_address;
+extern uint32_t _eeprom_length;
+
 // *******************************
 
 // operating mode
