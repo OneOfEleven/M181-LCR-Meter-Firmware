@@ -22,7 +22,6 @@
 #include <math.h>
 
 #include "stm32f1xx_hal.h"
-//#include "stm32f1xx_hal_tim.h"
 
 #ifndef DEBUG
 	#define USE_IWDG                               // useful to reset the CPU if something locks up etc
@@ -52,15 +51,15 @@
 #define DMA_ADC_DATA_LENGTH          128            // 2^n
 
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
-#define MODE_SWITCH_BLOCK_WAIT_LONG  10             // number of sample blocks to wait after switching modes before saving them
+#define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
 
 #define DEFAULT_ADC_AVERAGE_COUNT    32             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
 
 //#define GOERTZEL_FILTER_LENGTH     0                          // don't Goertzel filter
-#define GOERTZEL_FILTER_LENGTH    (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
+#define GOERTZEL_FILTER_LENGTH      (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
 //#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (nice but takes more time)
 
-#define ZEROING_COUNT                10             // number of averages to use for open/short zeroing
+#define ZEROING_COUNT                10             // averaging length to use for open/short zeroing
 
 #define HIGH                         GPIO_PIN_SET
 #define LOW                          GPIO_PIN_RESET
@@ -161,27 +160,34 @@ enum {
 	VI_MODE_DONE
 };
 
-// this array will be stored in flash (emulated EEPROM)
+// this structure will be stored in flash (emulated EEPROM)
 #pragma pack(push, 1)
 typedef struct {
-	uint16_t     measuring_Hz;
-	unsigned int lcr_mode;
-	uint8_t      uart_all_print_dso;
+	uint32_t     marker;              // settings marker
+
+	uint16_t     measuring_Hz;        // the sinewave measurement frequency (100Hz, 00Hz or 1Khz)
+	uint8_t      lcr_mode;            // the mode the user is using
+	uint8_t      uart_all_print_dso;  // set to '1' if to send all sampled ADC data down the serial port
 
 	// open zeroing results
 	struct {
-		float    mag_rms[8];
-		float    phase_deg[8];
-		uint8_t  done;
+		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
+		float    phase_deg[8];        // averaged phase values for each VI mode
+		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
+		uint8_t  padding[3];
 	} open_zero;
 
 	// short zeroing results
 	struct {
-		float    mag_rms[8];
-		float    phase_deg[8];
-		uint8_t  done;
+		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
+		float    phase_deg[8];        // averaged phase values for each VI mode
+		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
+		uint8_t  padding[3];
 	} short_zero;
 
+	uint8_t      padding[2];
+
+	uint16_t     crc;                 // CRC value for the entire structure. CRC computed with this set to '0'
 } t_settings;
 #pragma pack(pop)
 

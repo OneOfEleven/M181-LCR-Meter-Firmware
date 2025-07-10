@@ -1523,7 +1523,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 }
 
 // ***********************************************************
-/*
+
 void HAL_MspInit(void)
 {
 	__HAL_RCC_AFIO_CLK_ENABLE();
@@ -1531,7 +1531,7 @@ void HAL_MspInit(void)
 
 	__HAL_AFIO_REMAP_SWJ_NOJTAG();
 }
-*/
+
 void HAL_ADC_MspInit(ADC_HandleTypeDef *hadc)
 {
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
