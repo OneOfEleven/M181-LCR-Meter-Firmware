@@ -63,6 +63,8 @@
 
 #define ZEROING_COUNT                10             // averaging length to use for open/short zeroing
 
+#define SAVE_SETTINGS_MS             5000           // ms we wait till we save new settings (helps save flash writes)
+
 #define HIGH                         GPIO_PIN_SET
 #define LOW                          GPIO_PIN_RESET
 

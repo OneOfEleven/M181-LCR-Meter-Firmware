@@ -145,8 +145,9 @@ volatile unsigned int vi_measure_index = 0;
 unsigned int          prev_vi_mode = -1;
 
 // various system settings and results
-t_settings            settings    = {0};
-t_system_data         system_data = {0};
+volatile int          save_settings_timer = -1;
+t_settings            settings            = {0};
+t_system_data         system_data         = {0};
 
 // temp buffer - used for the Goerttzel output samples
 t_comp                tmp_buf[DMA_ADC_DATA_LENGTH];
@@ -421,6 +422,8 @@ int write_settings(void)
 	}
 
 	HAL_FLASH_Lock();
+
+	save_settings_timer = -1;
 
 	return 0;
 }
@@ -1650,6 +1653,9 @@ void SysTick_Handler(void)
 		}
 	}
 
+	if (save_settings_timer > 0)
+		save_settings_timer--;
+
 	#ifdef USE_IWDG
 		if (iwdg_tick < (iwdg_tick + 1))
 			iwdg_tick++;
@@ -2154,8 +2160,8 @@ void process_buttons(void)
 
 			set_measurement_frequency(settings.measuring_Hz);
 
-			// save settings to flash
-			write_settings();
+			// save settings
+			save_settings_timer = SAVE_SETTINGS_MS;
 		}
 
 		draw_screen(1);
@@ -2178,8 +2184,8 @@ void process_buttons(void)
 				mode = LCR_MODE_INDUCTANCE;
 			settings.lcr_mode = mode;
 
-			// save settings to flash
-			write_settings();
+			// save settings
+			save_settings_timer = SAVE_SETTINGS_MS;
 		}
 
 		draw_screen(1);
@@ -2380,6 +2386,8 @@ int main(void)
 						zeroing.phase_sum[i].im += sinf(phase_rad);
 					}
 
+					save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
+
 					if (++zeroing.count >= ZEROING_COUNT)
 					{
 						//memset(&settings.open_zero, 0, sizeof(settings.open_zero));
@@ -2391,9 +2399,6 @@ int main(void)
 							settings.open_zero.phase_deg[i] = (zeroing.phase_sum[i].re != 0.0f) ? atan2f(zeroing.phase_sum[i].im, zeroing.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
 						settings.open_zero.done = 1;
-
-						// save settings to flash
-						write_settings();
 
 						op_mode = OP_MODE_MEASURING;
 
@@ -2415,6 +2420,8 @@ int main(void)
 						zeroing.phase_sum[i].im += sinf(phase_rad);
 					}
 
+					save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
+
 					if (++zeroing.count >= ZEROING_COUNT)
 					{
 						//memset(&settings.short_zero, 0, sizeof(settings.short_zero));
@@ -2426,9 +2433,6 @@ int main(void)
 							settings.short_zero.phase_deg[i] = (zeroing.phase_sum[i].re != 0.0f) ? atan2f(zeroing.phase_sum[i].im, zeroing.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
 						settings.short_zero.done = 1;
-
-						// save settings to flash
-						write_settings();
 
 						op_mode = OP_MODE_MEASURING;
 
@@ -2445,6 +2449,9 @@ int main(void)
 		else
 		if (system_data.vi_measure_mode != prev_vi_measure_mode && draw_screen_count > 0)
 			draw_screen(0);
+
+		if (save_settings_timer == 0)
+			write_settings();             // save settings to flash
 
 		#ifdef USE_IWDG
 			service_IWDG(0);
