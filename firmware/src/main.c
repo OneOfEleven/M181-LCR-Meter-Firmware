@@ -103,12 +103,12 @@ uint8_t               sine_table[DMA_ADC_DATA_LENGTH / 2] = {0};  // matched to 
 
 unsigned int          op_mode = OP_MODE_MEASURING;
 
-// for the zeroing modes
+// for the calibration modes
 struct {
 	unsigned int      count;
 	float             mag_sum[8];
 	t_comp            phase_sum[8];
-} zeroing = {0};
+} calibrate = {0};
 
 unsigned int          volt_gain_sel = 0;
 unsigned int          amp_gain_sel  = 0;
@@ -1320,13 +1320,13 @@ void draw_screen(const uint8_t full_update)
 				}
 			}
 
-			case OP_MODE_OPEN_ZEROING:
+			case OP_MODE_OPEN_PROBE_CALIBRATION:
 			{
 
 				break;
 			}
 
-			case OP_MODE_SHORT_ZEROING:
+			case OP_MODE_SHORTED_PROBE_CALIBRATION:
 			{
 
 				break;
@@ -1473,16 +1473,16 @@ void draw_screen(const uint8_t full_update)
 
 				break;
 
-			case OP_MODE_OPEN_ZEROING:
-				sprintf(buffer_display, "OPEN zeroing %2u", ZEROING_COUNT - zeroing.count - 1);
+			case OP_MODE_OPEN_PROBE_CALIBRATION:
+				sprintf(buffer_display, "OPEN probe cal %2u", CALIBRATE_COUNT - calibrate.count - 1);
 				ssd1306_SetCursor(val21_x, line2_y);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 
 				break;
 
-			case OP_MODE_SHORT_ZEROING:
-				sprintf(buffer_display, "SHORT zeroing %2u", ZEROING_COUNT - zeroing.count - 1);
+			case OP_MODE_SHORTED_PROBE_CALIBRATION:
+				sprintf(buffer_display, "SHORT probe cal %2u", CALIBRATE_COUNT - calibrate.count - 1);
 				ssd1306_SetCursor(val21_x, line2_y);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
@@ -2106,8 +2106,8 @@ void process_buttons(void)
 
 		if (button[0].held_ms >= 800)
 		{
-			memset(&zeroing, 0, sizeof(zeroing));
-			op_mode = OP_MODE_OPEN_ZEROING;
+			memset(&calibrate, 0, sizeof(calibrate));
+			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
 		}
 		else
 		{
@@ -2133,8 +2133,8 @@ void process_buttons(void)
 		{
 //			reboot();
 
-			memset(&zeroing, 0, sizeof(zeroing));
-			op_mode = OP_MODE_SHORT_ZEROING;
+			memset(&calibrate, 0, sizeof(calibrate));
+			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
 		}
 		else
 		{
@@ -2361,7 +2361,7 @@ int main(void)
 							while (HAL_BUSY == HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet)) && (HAL_GetTick() - tick) < 200)
 								__WFI();    // wait until next interrupt occurs
 						#else
-							// don't hang around waiting for the send to start
+							// don't hang around here waiting, if the UART/DMA is still busy then forget sending it on this run
 							HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet));
 						#endif
 					#endif
@@ -2371,34 +2371,34 @@ int main(void)
 			switch (op_mode)
 			{
 				default:
-				case OP_MODE_MEASURING:
+				case OP_MODE_MEASURING:                // normal measurement mode
 					break;
 
-				case OP_MODE_OPEN_ZEROING:
+				case OP_MODE_OPEN_PROBE_CALIBRATION:   // doing an OPEN probe calibration
 				{
-					for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
-						zeroing.mag_sum[i] += mag_rms[i];
+					for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
+						calibrate.mag_sum[i] += mag_rms[i];
 
-					for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.phase_sum); i++)
+					for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 					{
 						const float phase_rad = phase_deg[i] * DEG_TO_RAD;
-						zeroing.phase_sum[i].re += cosf(phase_rad);
-						zeroing.phase_sum[i].im += sinf(phase_rad);
+						calibrate.phase_sum[i].re += cosf(phase_rad);
+						calibrate.phase_sum[i].im += sinf(phase_rad);
 					}
 
 					save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
 
-					if (++zeroing.count >= ZEROING_COUNT)
+					if (++calibrate.count >= CALIBRATE_COUNT)
 					{
-						//memset(&settings.open_zero, 0, sizeof(settings.open_zero));
+						//memset(&settings.open_probe_calibration, 0, sizeof(settings.open_probe_calibration));
 
-						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
-							settings.open_zero.mag_rms[i] = zeroing.mag_sum[i] / zeroing.count;
+						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
+							settings.open_probe_calibration.mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
 
-						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.phase_sum); i++)
-							settings.open_zero.phase_deg[i] = (zeroing.phase_sum[i].re != 0.0f) ? atan2f(zeroing.phase_sum[i].im, zeroing.phase_sum[i].re) * RAD_TO_DEG : NAN;
+						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
+							settings.open_probe_calibration.phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
-						settings.open_zero.done = 1;
+						settings.open_probe_calibration.done = 1;
 
 						op_mode = OP_MODE_MEASURING;
 
@@ -2408,31 +2408,31 @@ int main(void)
 					break;
 				}
 
-				case OP_MODE_SHORT_ZEROING:
+				case OP_MODE_SHORTED_PROBE_CALIBRATION:   // doing a SHORTED probe calibration
 				{
-					for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
-						zeroing.mag_sum[i] += mag_rms[i];
+					for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
+						calibrate.mag_sum[i] += mag_rms[i];
 
-					for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.phase_sum); i++)
+					for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 					{
 						const float phase_rad = phase_deg[i] * DEG_TO_RAD;
-						zeroing.phase_sum[i].re += cosf(phase_rad);
-						zeroing.phase_sum[i].im += sinf(phase_rad);
+						calibrate.phase_sum[i].re += cosf(phase_rad);
+						calibrate.phase_sum[i].im += sinf(phase_rad);
 					}
 
 					save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
 
-					if (++zeroing.count >= ZEROING_COUNT)
+					if (++calibrate.count >= CALIBRATE_COUNT)
 					{
-						//memset(&settings.short_zero, 0, sizeof(settings.short_zero));
+						//memset(&settings.shorted_probe_calibration, 0, sizeof(settings.short_probe_calibratiomn);
 
-						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.mag_sum); i++)
-							settings.short_zero.mag_rms[i] = zeroing.mag_sum[i] / zeroing.count;
+						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
+							settings.shorted_probe_calibration.mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
 
-						for (unsigned int i = 0; i < ARRAY_SIZE(zeroing.phase_sum); i++)
-							settings.short_zero.phase_deg[i] = (zeroing.phase_sum[i].re != 0.0f) ? atan2f(zeroing.phase_sum[i].im, zeroing.phase_sum[i].re) * RAD_TO_DEG : NAN;
+						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
+							settings.shorted_probe_calibration.phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
-						settings.short_zero.done = 1;
+						settings.shorted_probe_calibration.done = 1;
 
 						op_mode = OP_MODE_MEASURING;
 
@@ -2451,7 +2451,10 @@ int main(void)
 			draw_screen(0);
 
 		if (save_settings_timer == 0)
+		{
 			write_settings();             // save settings to flash
+			save_settings_timer = -1;     // don't try saving again, until the next time
+		}
 
 		#ifdef USE_IWDG
 			service_IWDG(0);

@@ -61,7 +61,7 @@
 #define GOERTZEL_FILTER_LENGTH      (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
 //#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (nice but takes more time)
 
-#define ZEROING_COUNT                10             // averaging length to use for open/short zeroing
+#define CALIBRATE_COUNT              10             // averaging length to use for open/short calibrate
 
 #define SAVE_SETTINGS_MS             5000           // ms we wait till we save new settings (helps save flash writes)
 
@@ -290,8 +290,8 @@
 // operating mode
 enum {
 	OP_MODE_MEASURING = 0,
-	OP_MODE_OPEN_ZEROING,
-	OP_MODE_SHORT_ZEROING
+	OP_MODE_OPEN_PROBE_CALIBRATION,
+	OP_MODE_SHORTED_PROBE_CALIBRATION
 };
 
 // LCR mode
@@ -329,7 +329,7 @@ typedef struct {
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
 		uint8_t  padding[3];
-	} open_zero;
+	} open_probe_calibration;
 
 	// short zeroing results
 	struct {
@@ -337,7 +337,7 @@ typedef struct {
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
 		uint8_t  padding[3];
-	} short_zero;
+	} shorted_probe_calibration;
 
 	uint8_t      padding[2];
 
