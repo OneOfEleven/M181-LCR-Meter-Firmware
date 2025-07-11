@@ -107,6 +107,8 @@ The seller (jyetech guy) of these boards is using a fake/counterfeit MCU (STM32F
 
 Also, the voltage inverter they are fitting to the board is NOT as stated on the schematic. The device they are fitting is quite different (MUCH lower switching frequency that is causing noise problems).
 
+So if you use the STM32CubeIDE to compile and program the MCU, don't be suprised if it refuses to flash program the MCU - can't blame ST for adding that protection !
+
 # Wiki
 
  **Further details by Jaishankar M [Wiki page](https://docs.jaidb.in/m181_lcr/Home/)**
