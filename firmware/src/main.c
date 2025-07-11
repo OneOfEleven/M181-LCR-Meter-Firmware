@@ -99,14 +99,17 @@ char                  buffer_display[20] = {0};
 t_button              button[3] = {0};
 
 const uint16_t        DAC_resolution                      = 256;  // 8-bit
-float                 sine_wave_amplitude                 = 1.0;  // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
 volatile unsigned int sine_table_index                    = 0;    //
 uint8_t               sine_table[DMA_ADC_DATA_LENGTH / 2] = {0};  // matched to the ADC sampling
+
+uint16_t              measurement_Hz        = 1000;
+float                 measurement_amplitude = 1.0;                // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
 
 unsigned int          op_mode = OP_MODE_MEASURING;
 
 // for the calibration modes
 struct {
+	uint16_t          Hz;
 	int               count;
 	float             mag_sum[8];
 	t_comp            phase_sum[8];
@@ -238,20 +241,6 @@ void reboot(void)
 	}
 #endif
 
-void set_DAC_amplitude(const float amplitude)
-{	// fill the look-up buffer with one complete sine cycle
-	//
-	// 'amplitude' .. -1.0 to +1.0 (negative inverts the phase)
-
-	sine_wave_amplitude = (amplitude < -1.0f) ? -1.0f : (amplitude > 1.0f) ? 1.0f : amplitude;
-
-	const float scale      = (DAC_resolution - 1) * sine_wave_amplitude * 0.5f;
-	const float phase_step = (float)(2.0 * M_PI) / ARRAY_SIZE(sine_table);
-
-	for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
-		sine_table[i] = (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
-}
-
 void start_ADC(void)
 {
 	// non-stop ADC double buffered sampling
@@ -262,7 +251,8 @@ void start_ADC(void)
 		HAL_ADC_Start_DMA(&hadc1, (uint32_t *)raw_adc_dma_data, DMA_ADC_DATA_LENGTH * 2);
 	#endif
 
-	sine_table_index = ARRAY_SIZE(sine_table) * 0.285; // align the sinewave (@1kHz)
+//	sine_table_index = ARRAY_SIZE(sine_table) * 0.285; // align the sinewave (@1kHz)
+	sine_table_index = ARRAY_SIZE(sine_table) * 0.42; // align the sinewave (@1kHz)
 
 	HAL_TIM_Base_Start_IT(&htim3);
 }
@@ -451,7 +441,7 @@ int write_settings(void)
 			if (status != HAL_OK)
 			{	// hmmmm
 				HAL_FLASH_Lock();
-				return -4;
+				return -3;
 			}
 
 			flash_addr = (uint32_t *)EEPROM_START_ADDRESS;   // flash address to write too
@@ -479,7 +469,7 @@ int write_settings(void)
 
 		HAL_FLASH_Lock();
 
-		return -6;
+		return -4;
 	}
 
 	{	// confirm the new flash write went OK by reading back and checking for data match
@@ -500,7 +490,7 @@ int write_settings(void)
 
 			HAL_FLASH_Lock();
 
-			return -8;              // freedom !
+			return -5;              // freedom !
 		}
 	}
 
@@ -694,24 +684,36 @@ void generate_ref_signal(const unsigned int length)
 
 void set_measurement_frequency(const uint32_t Hz)
 {
-
-
-	// TODO: make this adjustment automatic by inspecting the sine wave using a histogram of the sampled samples
+	// TODO: make the amplitude adjustment automatic by inspecting the sine wave using a histogram of the sampled samples
 	//       spikes in the histogram indicate clipping (several similar values)
 
-
-
 	if (Hz == 100)
-		set_DAC_amplitude(0.52);
+	{
+		measurement_Hz        = 100;
+		measurement_amplitude = 0.52;
+	}
 	else
 	if (Hz == 500)
-		set_DAC_amplitude(0.62);
-	else
-		set_DAC_amplitude(1.0);
-
-	if (Hz > 0)
 	{
-		const uint32_t timer_rate_Hz = (DMA_ADC_DATA_LENGTH / 2) * Hz;          // for one cycle
+		measurement_Hz        = 500;
+		measurement_amplitude = 0.62;
+	}
+	else
+	{	// default to 1kHz
+		measurement_Hz        = 1000;
+		measurement_amplitude = 1.0;
+	}
+
+	{	// fill the sine wave look-up table with one complete sine cycle
+		const float scale      = (DAC_resolution - 1) * measurement_amplitude * 0.5f;
+		const float phase_step = (float)(2.0 * M_PI) / ARRAY_SIZE(sine_table);
+		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
+			sine_table[i] = (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
+	}
+	
+	if (measurement_Hz > 0)
+	{	// set the timer rate
+		const uint32_t timer_rate_Hz = (DMA_ADC_DATA_LENGTH / 2) * measurement_Hz;
 		const uint32_t period        = (((HAL_RCC_GetHCLKFreq() / (htim3.Init.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
 		__HAL_TIM_SET_AUTORELOAD(&htim3, period);
 	}
@@ -1098,7 +1100,7 @@ void process_data(void)
 
 	system_data.vi_phase       = fabsf(fabsf(system_data.voltage_phase) - fabsf(system_data.current_phase));
 
-	const float omega      = (float)(2.0 * M_PI) * settings.measuring_Hz;   // angular frequency in rad/s
+	const float omega      = (float)(2.0 * M_PI) * measurement_Hz;          // angular frequency in rad/s
 	const float phase_rad  = system_data.vi_phase * DEG_TO_RAD;
 	const float resistive  = system_data.impedance * fabsf(cosf(phase_rad));
 	const float reactance  = system_data.impedance * fabsf(sinf(phase_rad));
@@ -1441,7 +1443,7 @@ void draw_screen(const uint8_t full_update)
 		// Line 1: Frequency display
 
 		ssd1306_SetCursor(val2_x, line1_y);
-		sprintf(buffer_display, "%0.1f", settings.measuring_Hz * 1e-3f);  // kHz
+		sprintf(buffer_display, "%0.1f", measurement_Hz * 1e-3f);  // kHz
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 		// Line 2: Mode
@@ -1574,18 +1576,24 @@ void draw_screen(const uint8_t full_update)
 				break;
 
 			case OP_MODE_OPEN_PROBE_CALIBRATION:
-				sprintf(buffer_display, "OPEN cal %2d", CALIBRATE_COUNT - calibrate.count - 1);
+				sprintf(buffer_display, " OPEN cal %d  ", CALIBRATE_COUNT - calibrate.count - 1);
 				ssd1306_SetCursor(val21_x, line2_y);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
+				sprintf(buffer_display, " %u Hz    ", calibrate.Hz);
+				ssd1306_SetCursor(val21_x, line2_y + 14);
+				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 				break;
 
 			case OP_MODE_SHORTED_PROBE_CALIBRATION:
-				sprintf(buffer_display, "SHORTED cal %2d", CALIBRATE_COUNT - calibrate.count - 1);
+				sprintf(buffer_display, " SHORTED cal %d  ", CALIBRATE_COUNT - calibrate.count - 1);
 				ssd1306_SetCursor(val21_x, line2_y);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
+				sprintf(buffer_display, " %u Hz    ", calibrate.Hz);
+				ssd1306_SetCursor(val21_x, line2_y + 14);
+				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 				break;
 		}
@@ -2136,22 +2144,16 @@ void TIMER3_init(void)
 	htim3.Init.Prescaler         = 0;
 	htim3.Init.Period            = (((HAL_RCC_GetHCLKFreq() / (htim3.Init.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
 	if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-	{
 		Error_Handler();
-	}
 
 	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
 	if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
-	{
 		Error_Handler();
-	}
 
 	sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
 	sMasterConfig.MasterSlaveMode     = TIM_MASTERSLAVEMODE_DISABLE;
 	if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-	{
 		Error_Handler();
-	}
 }
 
 void GPIO_init(void)
@@ -2242,6 +2244,8 @@ void process_buttons(void)
 		if (button[0].held_ms >= 800)
 		{
 			memset(&calibrate, 0, sizeof(calibrate));
+			calibrate.Hz = 100;
+
 			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
 		}
 		else
@@ -2269,6 +2273,8 @@ void process_buttons(void)
 //			reboot();
 
 			memset(&calibrate, 0, sizeof(calibrate));
+			calibrate.Hz = 100;
+
 			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
 		}
 		else
@@ -2279,21 +2285,21 @@ void process_buttons(void)
 
 
 			// cycle the frequency
-			switch (settings.measuring_Hz)
+			switch (settings.measurement_Hz)
 			{
 				case 100:
-					settings.measuring_Hz = 500;
+					settings.measurement_Hz = 500;
 					break;
 				default:
 				case 500:
-					settings.measuring_Hz = 1000;
+					settings.measurement_Hz = 1000;
 					break;
 				case 1000:
-					settings.measuring_Hz = 100;
+					settings.measurement_Hz = 100;
 					break;
 			}
 
-			set_measurement_frequency(settings.measuring_Hz);
+			set_measurement_frequency(settings.measurement_Hz);
 
 			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
@@ -2365,7 +2371,7 @@ int main(void)
 	button[2].gpio_pin  = BUTT_RCL_Pin;
 
 	// defaults
-	settings.measuring_Hz           = 1000;
+	settings.measurement_Hz     = 1000;
 //	settings.lcr_mode           = LCR_MODE_INDUCTANCE;
 //	settings.lcr_mode           = LCR_MODE_CAPACITANCE;
 	settings.lcr_mode           = LCR_MODE_RESISTANCE;
@@ -2397,7 +2403,7 @@ int main(void)
 	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 	set_measure_mode_pins(system_data.vi_measure_mode);
 
-	set_measurement_frequency(settings.measuring_Hz);
+	set_measurement_frequency(settings.measurement_Hz);
 
 	generate_ref_signal(DMA_ADC_DATA_LENGTH);
 
@@ -2525,17 +2531,31 @@ int main(void)
 
 					if (++calibrate.count >= CALIBRATE_COUNT)
 					{
-						//memset(&settings.open_probe_calibration, 0, sizeof(settings.open_probe_calibration));
+
+						const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
 						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
-							settings.open_probe_calibration.mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
+							settings.open_probe_calibration[index].mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
 
 						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
-							settings.open_probe_calibration.phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
+							settings.open_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
-						settings.open_probe_calibration.done = 1;
+						settings.open_probe_calibration[index].done = 1;
 
-						op_mode = OP_MODE_MEASURING;
+						if (index == 0)
+						{	// do the same again but at the next measurement frequency
+				
+							memset(&calibrate, 0, sizeof(calibrate));
+							calibrate.Hz = 1000;
+						}
+						else
+						{	// done
+		
+							// restore original measurement frequency
+							set_measurement_frequency(settings.measurement_Hz);
+
+							op_mode = OP_MODE_MEASURING;
+						}
 
 						draw_screen(1);
 					}
@@ -2559,17 +2579,30 @@ int main(void)
 
 					if (++calibrate.count >= CALIBRATE_COUNT)
 					{
-						//memset(&settings.shorted_probe_calibration, 0, sizeof(settings.short_probe_calibratiomn);
+						const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
 						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
-							settings.shorted_probe_calibration.mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
+							settings.shorted_probe_calibration[index].mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
 
 						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
-							settings.shorted_probe_calibration.phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
+							settings.shorted_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
-						settings.shorted_probe_calibration.done = 1;
+						settings.shorted_probe_calibration[index].done = 1;
 
-						op_mode = OP_MODE_MEASURING;
+						if (index == 0)
+						{	// do the same again but at the next measurement frequency
+				
+							memset(&calibrate, 0, sizeof(calibrate));
+							calibrate.Hz = 1000;
+						}
+						else
+						{	// done
+		
+							// restore original measurement frequency
+							set_measurement_frequency(settings.measurement_Hz);
+
+							op_mode = OP_MODE_MEASURING;
+						}
 
 						draw_screen(1);
 					}

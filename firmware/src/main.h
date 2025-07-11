@@ -321,25 +321,23 @@ enum {
 typedef struct {
 	uint32_t     marker;              // settings marker
 
-	uint16_t     measuring_Hz;        // the sinewave measurement frequency (100Hz, 00Hz or 1Khz)
+	uint16_t     measurement_Hz;      // the sinewave measurement frequency (100Hz, 00Hz or 1Khz)
 	uint8_t      lcr_mode;            // the mode the user is using
 	uint8_t      uart_all_print_dso;  // set to '1' if to send all sampled ADC data down the serial port
 
-	// open zeroing results
 	struct {
 		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
 		uint8_t  padding[3];
-	} open_probe_calibration;
+	} open_probe_calibration[2];      // 100Hz and 1kHz results
 
-	// short zeroing results
 	struct {
 		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
 		uint8_t  padding[3];
-	} shorted_probe_calibration;
+	} shorted_probe_calibration[2];   // 100Hz and 1kHz results
 
 	uint8_t      padding[2];
 
