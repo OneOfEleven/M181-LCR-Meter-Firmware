@@ -368,6 +368,24 @@ int write_settings(void)
 	if (flash_addr != NULL)
 	{	// found them
 
+		{	// check to see if the settings we are going to save are any different to the previous ones
+			// if they are identical then no point re-saving the exact same data
+
+			const __IO uint32_t *flash = flash_addr;               // flash address we want to write too
+			const uint32_t      *p     = (uint32_t *)&settings;    // address of data we want to write into flash
+			uint8_t              same  = 1;                        // 0 = different data
+
+			for (unsigned int i = 0; i < sizeof(t_settings) && same; i++)
+				if (*flash++ != *p++)
+					same = 0;        // data is different - continue to save it
+
+			if (same)
+			{	// data is same as previous - exit with OK
+				HAL_FLASH_Lock();
+				return 0;
+			}
+		}
+
 		// point to the next flash slot - to save into
 		flash_addr += sizeof(t_settings) / sizeof(flash_addr[0]);
 
@@ -1137,7 +1155,8 @@ void process_ADC(const void *buffer)
 	// actually, the spike only appears to occur after the GS pin (gain setting) is changed
 
 	// skip less blocks if the gain pin hasn't changed
-	const unsigned int skip_block_count = ((vi_mode >> 1) == (prev_vi_mode >> 1)) ? MODE_SWITCH_BLOCK_WAIT_SHORT : MODE_SWITCH_BLOCK_WAIT_LONG;
+//	const unsigned int skip_block_count = ((vi_mode >> 1) == (prev_vi_mode >> 1)) ? MODE_SWITCH_BLOCK_WAIT_SHORT : MODE_SWITCH_BLOCK_WAIT_LONG;
+	const unsigned int skip_block_count = MODE_SWITCH_BLOCK_WAIT_LONG;
 
 	if (adc_data_avg_count >= skip_block_count)
 	{	// add the new sample block to the averaging buffer

@@ -1464,7 +1464,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 		const float x_scale = (float)(x_size - left_margin - right_margin) / (values - 1);
 		const float y_scale = (float)((y_size / 2) - 10) / peak_value;
 
-		const float dash_pattern[] = {3.0f, 3.0f};
+		const float dash_pattern[] = {5, 5};
 
 		std::vector <Gdiplus::PointF> gdi_points(values);
 		std::vector <Gdiplus::PointF> gdi_points_normalize(values);

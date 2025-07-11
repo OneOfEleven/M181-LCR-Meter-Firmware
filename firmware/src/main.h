@@ -60,8 +60,8 @@
 #define DEFAULT_ADC_AVERAGE_COUNT    32             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
 
 //#define GOERTZEL_FILTER_LENGTH     0                          // don't Goertzel filter
-#define GOERTZEL_FILTER_LENGTH      (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
-//#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (nice but takes more time)
+//#define GOERTZEL_FILTER_LENGTH      (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
+#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (nice but takes more time)
 
 #define CALIBRATE_COUNT              10             // averaging length to use for open/short calibrate
 
