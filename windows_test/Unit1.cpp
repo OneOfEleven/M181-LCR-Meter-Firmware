@@ -1464,6 +1464,8 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 		const float x_scale = (float)(x_size - left_margin - right_margin) / (values - 1);
 		const float y_scale = (float)((y_size / 2) - 10) / peak_value;
 
+		const float dash_pattern[] = {3.0f, 3.0f};
+
 		std::vector <Gdiplus::PointF> gdi_points(values);
 		std::vector <Gdiplus::PointF> gdi_points_normalize(values);
 
@@ -1523,12 +1525,16 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				{
 					Gdiplus::Pen pen(Gdiplus::Color((unsigned int)alpha, 255, 255, 255), 1);    // ARGB
 					pen.SetAlignment(Gdiplus::PenAlignmentCenter);
+					//pen.SetDashStyle(Gdiplus::DashStyleDash);
+					pen.SetDashPattern(dash_pattern, ARRAY_SIZE(dash_pattern));
 					g.DrawLines(&pen, &gdi_points_normalize[0], gdi_points_normalize.size());
 				}
 				else
 				{
-					Gdiplus::Pen pen(Gdiplus::Color((unsigned int)alpha, 255, 2255, 80), 1);    // ARGB
+					Gdiplus::Pen pen(Gdiplus::Color((unsigned int)alpha, 255, 255, 80), 1);    // ARGB
 					pen.SetAlignment(Gdiplus::PenAlignmentCenter);
+					//pen.SetDashStyle(Gdiplus::DashStyleDash);
+					pen.SetDashPattern(dash_pattern, ARRAY_SIZE(dash_pattern));
 					g.DrawLines(&pen, &gdi_points_normalize[0], gdi_points_normalize.size());
 				}
 			}
