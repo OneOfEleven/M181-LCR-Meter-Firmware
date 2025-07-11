@@ -321,7 +321,7 @@ enum {
 typedef struct {
 	uint32_t     marker;              // settings marker
 
-	uint16_t     measurement_Hz;      // the sinewave measurement frequency (100Hz, 00Hz or 1Khz)
+	uint16_t     measurement_Hz;      // the sine wave measurement frequency
 	uint8_t      lcr_mode;            // the mode the user is using
 	uint8_t      uart_all_print_dso;  // set to '1' if to send all sampled ADC data down the serial port
 

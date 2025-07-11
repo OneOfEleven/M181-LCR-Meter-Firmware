@@ -275,6 +275,34 @@ void stop_ADC(void)
 // includes wear leveling by saving each successive settings block to a different flash address, the previous saves are left alone.
 // once the allocated eeprom flash pages become full, they are all erased in one go ready for more saves to occur.
 
+void clear_settings(void)
+{	// erase all saved settings in eeprom
+
+	FLASH_EraseInitTypeDef erase_init = {0};
+	erase_init.TypeErase   = FLASH_TYPEERASE_PAGES;
+	erase_init.PageAddress = EEPROM_START_ADDRESS;
+	erase_init.NbPages     = (EEPROM_END_ADDRESS - EEPROM_START_ADDRESS) / PAGE_SIZE;
+	uint32_t page_error    = 0;
+
+	// unlock the flash
+	if (HAL_OK != HAL_FLASH_Unlock())
+	{
+		//HAL_FLASH_Lock();
+		return;
+	}
+
+	// erase all allocated eeprom flash pages
+	const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
+	if (status != HAL_OK)
+	{	// erase error
+		HAL_FLASH_Lock();
+		return;
+	}
+
+	// re-lock the flash
+	HAL_FLASH_Lock();
+}
+
 const __IO uint32_t * find_last_good_settings(void)
 {	// find the last valid flash saved settings we did
 
@@ -693,10 +721,10 @@ void set_measurement_frequency(const uint32_t Hz)
 		measurement_amplitude = 0.52;
 	}
 	else
-	if (Hz == 500)
+	if (Hz == 300)
 	{
-		measurement_Hz        = 500;
-		measurement_amplitude = 0.62;
+		measurement_Hz        = 300;
+		measurement_amplitude = 0.58;
 	}
 	else
 	{	// default to 1kHz
@@ -1325,7 +1353,7 @@ void draw_screen(const uint8_t full_update)
 	const uint8_t line1_y = 0;
 	const uint8_t val1_x  = offset_x;
 	const uint8_t val2_x  = 36;
-	const uint8_t val3_x  = 59;
+//	const uint8_t val3_x  = 59;
 	const uint8_t val4_x  = 92;
 
 	#ifdef DRAW_LINES
@@ -1367,8 +1395,8 @@ void draw_screen(const uint8_t full_update)
 		ssd1306_SetCursor(val1_x, line1_y);
 		ssd1306_WriteString("SER", Font_7x10, White);
 
-		ssd1306_SetCursor(val3_x, line1_y);
-		ssd1306_WriteString("kHz", Font_7x10, White);
+		//ssd1306_SetCursor(val3_x, line1_y);
+		//ssd1306_WriteString("kHz", Font_7x10, White);
 
 		ssd1306_SetCursor(val4_x, line1_y);
 		sprintf(buffer_display, "v%.2f", FW_VERSION);
@@ -1443,7 +1471,10 @@ void draw_screen(const uint8_t full_update)
 		// Line 1: Frequency display
 
 		ssd1306_SetCursor(val2_x, line1_y);
-		sprintf(buffer_display, "%0.1f", measurement_Hz * 1e-3f);  // kHz
+		if (measurement_Hz < 1000)
+			sprintf(buffer_display, "%3u Hz", measurement_Hz);
+		else
+			sprintf(buffer_display, "%2u kHz", measurement_Hz / 1000);
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 		// Line 2: Mode
@@ -1580,7 +1611,10 @@ void draw_screen(const uint8_t full_update)
 				ssd1306_SetCursor(val21_x, line2_y);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-				sprintf(buffer_display, " %u Hz    ", calibrate.Hz);
+				if (calibrate.Hz < 1000)
+					sprintf(buffer_display, " %u Hz    ", calibrate.Hz);
+				else
+					sprintf(buffer_display, " %u kHz    ", calibrate.Hz / 1000);
 				ssd1306_SetCursor(val21_x, line2_y + 14);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
@@ -1591,7 +1625,10 @@ void draw_screen(const uint8_t full_update)
 				ssd1306_SetCursor(val21_x, line2_y);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-				sprintf(buffer_display, " %u Hz    ", calibrate.Hz);
+				if (calibrate.Hz < 1000)
+					sprintf(buffer_display, " %u Hz    ", calibrate.Hz);
+				else
+					sprintf(buffer_display, " %u kHz    ", calibrate.Hz / 1000);
 				ssd1306_SetCursor(val21_x, line2_y + 14);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
@@ -2236,6 +2273,17 @@ void process_buttons(void)
 	}
 */
 
+	// both HOLD and S/P buttons held down then released
+	if (button[0].pressed_tick > 0 && button[1].pressed_tick > 0)
+	{
+		if (button[0].held_ms >= 800 && button[1].held_ms >= 800)
+		{	// clear all saved settings, inc open/short calibrations. then reboot with defaults
+			clear_settings();
+			reboot();
+		}
+		return;
+	}
+
 	if (button[0].released)
 	{	// HOLD button
 		button[0].released     = 0;
@@ -2270,8 +2318,6 @@ void process_buttons(void)
 
 		if (button[1].held_ms >= 800)
 		{
-//			reboot();
-
 			memset(&calibrate, 0, sizeof(calibrate));
 			calibrate.Hz = 100;
 
@@ -2288,10 +2334,10 @@ void process_buttons(void)
 			switch (settings.measurement_Hz)
 			{
 				case 100:
-					settings.measurement_Hz = 500;
+					settings.measurement_Hz = 300;
 					break;
 				default:
-				case 500:
+				case 300:
 					settings.measurement_Hz = 1000;
 					break;
 				case 1000:
@@ -2411,6 +2457,31 @@ int main(void)
 	bootup_screen();
 
 	printf("\r\nrebooted m181 LCR Meter v%.2f\r\n", FW_VERSION);
+
+	{	// wait till all buttons have been released for at least 500ms
+		uint32_t tick = HAL_GetTick();
+		do {
+			__WFI();
+
+			for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
+				if (button[i].debounce > 0)
+					tick = HAL_GetTick();
+
+			#ifdef USE_IWDG
+				// feed the dog
+				service_IWDG(0);
+			#endif
+		} while ((HAL_GetTick() - tick) < 500);
+
+		// clear button pressed info
+		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
+		{
+			button[i].debounce     = 0;
+			button[i].pressed_tick = 0;
+			button[i].released     = 0;
+			button[i].held_ms      = 0;
+		}
+	}
 
 	// start sampling
 	start_ADC();
