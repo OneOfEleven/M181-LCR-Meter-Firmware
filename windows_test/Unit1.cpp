@@ -1444,7 +1444,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 	const int text_height = m_bitmap_main->Canvas->TextHeight("|Hq");
 
 	const int top_margin   = 5 + text_height + 5;
-	const int bot_margin   = 10;
+	const int bot_margin   = 30;
 	const int left_margin  = m_bitmap_main->Canvas->TextWidth("------------");
 	const int right_margin = 10;
 
@@ -1455,7 +1455,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 		const float peak_value = 2500;
 
 		const int x_size = m_bitmap_main->Width / 2;
-		const int y_size = (m_bitmap_main->Height - top_margin - bot_margin) / (waveforms / 2);
+		const int y_size = (m_bitmap_main->Height - top_margin - bot_margin) / (waveforms / 4);
 
 		const float x_scale = (float)(x_size - left_margin - right_margin) / (values - 1);
 		const float y_scale = (float)((y_size / 2) - 10) / peak_value;
@@ -1466,7 +1466,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 		for (unsigned int i = 0; i < waveforms; i++)
 		{
 			const int x = x_size * (i / 4);
-			const int cy = top_margin + (y_size / 2) + (y_size * (i % 4));
+			const int cy = top_margin + (y_size / 2) + (y_size * ((i / 2) % 2));
 
 			float min = m_values[i][0];
 			float max = m_values[i][0];
@@ -1490,6 +1490,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 			m_bitmap_main->Canvas->Pen->Width = 1;
 
+			if ((i & 1) == 0)
 			{	// waveform background area
 				const int x1 = x + left_margin;
 				const int y1 = cy - (int)(peak_value * y_scale) - 4;
@@ -1501,6 +1502,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				m_bitmap_main->Canvas->FillRect(TRect(x1, y1, x2, y2));
 			}
 
+  			if ((i & 1) == 0)
 			{	// center line
 				Gdiplus::Pen pen(Gdiplus::Color(255, 100, 100, 100), 1);  // ARGB
 				pen.SetAlignment(Gdiplus::PenAlignmentCenter);
@@ -1510,17 +1512,36 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 			if (NormalizedSpeedButton->Down)
 			{	// normalized waveform (max amplitude)
-				Gdiplus::Pen pen(Gdiplus::Color(255, 80, 100, 80), 1);    // ARGB
-				pen.SetAlignment(Gdiplus::PenAlignmentCenter);
-				g.DrawLines(&pen, &gdi_points_normalize[0], gdi_points_normalize.size());
+				if ((i & 1) == 0)
+				{
+					Gdiplus::Pen pen(Gdiplus::Color(16, 255, 255, 255), 1);    // ARGB
+					pen.SetAlignment(Gdiplus::PenAlignmentCenter);
+					g.DrawLines(&pen, &gdi_points_normalize[0], gdi_points_normalize.size());
+				}
+				else
+				{
+					Gdiplus::Pen pen(Gdiplus::Color(16, 255, 2255, 80), 1);    // ARGB
+					pen.SetAlignment(Gdiplus::PenAlignmentCenter);
+					g.DrawLines(&pen, &gdi_points_normalize[0], gdi_points_normalize.size());
+				}
 			}
 
 			{	// waveform
-				Gdiplus::Pen pen(Gdiplus::Color(255, 255, 255, 255), 1);  // ARGB
-				pen.SetAlignment(Gdiplus::PenAlignmentCenter);
-				g.DrawLines(&pen, &gdi_points[0], gdi_points.size());
+				if ((i & 1) == 0)
+				{
+					Gdiplus::Pen pen(Gdiplus::Color(255, 255, 255, 255), 1);  // ARGB
+					pen.SetAlignment(Gdiplus::PenAlignmentCenter);
+					g.DrawLines(&pen, &gdi_points[0], gdi_points.size());
+				}
+				else
+				{
+					Gdiplus::Pen pen(Gdiplus::Color(255, 255, 255, 80), 1);  // ARGB
+					pen.SetAlignment(Gdiplus::PenAlignmentCenter);
+					g.DrawLines(&pen, &gdi_points[0], gdi_points.size());
+				}
 			}
 
+			if ((i & 1) == 0)
 			{	// waveform number
 				s.printf(" %u ", i);
 				m_bitmap_main->Canvas->Font->Color = clWhite;
@@ -1528,7 +1549,8 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				m_bitmap_main->Canvas->Brush->Style = bsClear;
 				m_bitmap_main->Canvas->TextOut(x, cy - (text_height / 2), s);
 			}
-
+/*
+			if ((i & 1) == 0)
 			{	// min/max text
 				m_bitmap_main->Canvas->Font->Color = clYellow;
 				m_bitmap_main->Canvas->Brush->Style = bsClear;
@@ -1539,37 +1561,45 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				s.printf(" %-0.1f ", min);
 				m_bitmap_main->Canvas->TextOut(x + left_margin - m_bitmap_main->Canvas->TextWidth(s), cy + (y_size / 2) - text_height, s);
 			}
-
+*/
 			{	// phase and magnitude text
-				const int tx = x + left_margin + 10;
-				const int ty = cy - (y_size / 2) + 10;
+				const int tx  = x + left_margin + 10;
+				const int ty  = (i & 1) ? cy + (y_size / 2) - 10 - (text_height * 5) : cy - (y_size / 2) + 10;
 				const int ty1 = ty + (text_height * 0);
 				const int ty2 = ty + (text_height * 1);
 				const int ty3 = ty + (text_height * 2);
 				const int ty4 = ty + (text_height * 3);
+				const int ty5 = ty + (text_height * 4);
 
 				Gdiplus::SolidBrush brush(Gdiplus::Color(160, 0, 0, 0));	// ARGB
 
-				//m_bitmap_main->Canvas->Font->Color  = clYellow;
-				m_bitmap_main->Canvas->Font->Color = clWhite;
+				m_bitmap_main->Canvas->Font->Color = ((i & 1) == 0) ? clWhite : clYellow;
+
 				m_bitmap_main->Canvas->Brush->Style = bsClear;
 				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
 
-				s.printf("   avg %0.3f ", m_waveform_info[i].average);
+				if ((i & 1) == 0)
+					s = "   ADC ";
+				else
+					s = "   AFC ";
 				g.FillRectangle(&brush, tx, ty1, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty1, s);
 
-				s.printf("   mag %0.3f peak ", m_waveform_info[i].magnitude_rms * sqrt(2));
+				s.printf("   avg %0.3f ", m_waveform_info[i].average);
 				g.FillRectangle(&brush, tx, ty2, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty2, s);
 
-				s.printf("   mag %0.3f rms ", m_waveform_info[i].magnitude_rms);
+				s.printf("   mag %0.3f peak ", m_waveform_info[i].magnitude_rms * sqrt(2));
 				g.FillRectangle(&brush, tx, ty3, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty3, s);
 
-				s.printf(" phase %+0.3f deg ", m_waveform_info[i].phase_deg);
+				s.printf("   mag %0.3f rms ", m_waveform_info[i].magnitude_rms);
 				g.FillRectangle(&brush, tx, ty4, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty4, s);
+
+				s.printf(" phase %+0.3f deg ", m_waveform_info[i].phase_deg);
+				g.FillRectangle(&brush, tx, ty5, m_bitmap_main->Canvas->TextWidth(s), text_height);
+				m_bitmap_main->Canvas->TextOut(tx, ty5, s);
 			}
 		}
 

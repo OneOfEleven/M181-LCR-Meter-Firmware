@@ -298,7 +298,7 @@ const __IO uint32_t * find_last_good_settings(void)
 			settings.crc = 0;
 			const uint16_t crc2 = CRC16_block(0, &settings, sizeof(t_settings));
 			if (crc1 == crc2)
-				flash_addr_good = flash_addr;       // marker and CRC appear to be OK (valid settings), remember the blocks flash address 
+				flash_addr_good = flash_addr;       // marker and CRC appear to be OK (valid settings), remember the blocks flash address
 		}
 
 		// point to the next block
@@ -351,19 +351,19 @@ int write_settings(void)
 
 		// point to the next flash slot - to save into
 		flash_addr += sizeof(t_settings) / sizeof(flash_addr[0]);
-	
+
 		if ((flash_addr + (sizeof(t_settings) / sizeof(flash_addr[0]))) > flash_addr_end)
 		{	// no more flash space left to save into, start again by first erasing ALL allocated eeprom flash pages
 
 			// can't erase flash pages without first unlocking the flash (write protection)
-			if (HAL_OK != HAL_FLASH_Unlock())    
+			if (HAL_OK != HAL_FLASH_Unlock())
 				return -1;        // unlock error :(
 
 			// erase all allocated eeprom flash pages
-			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error); 
+			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
 
 			// re-lock the flash (write protection)
-			HAL_FLASH_Lock();                    
+			HAL_FLASH_Lock();
 
 			if (status != HAL_OK)
 				return -2;        // erase error
@@ -372,7 +372,7 @@ int write_settings(void)
 		}
 	}
 	else
-	{	// start saving at the beginning of allocated eeprom flash 
+	{	// start saving at the beginning of allocated eeprom flash
 		flash_addr = (uint32_t *)EEPROM_START_ADDRESS;
 	}
 
@@ -410,10 +410,10 @@ int write_settings(void)
 
 			// no more flash space left to save into, start again by erasing all allocated eeprom flash pages
 
-			if (HAL_OK != HAL_FLASH_Unlock())    
+			if (HAL_OK != HAL_FLASH_Unlock())
 				return -3;        // :(
-			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error); 
-			HAL_FLASH_Lock();                    
+			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
+			HAL_FLASH_Lock();
 			if (status != HAL_OK)
 				return -4;        // hmmmm
 
@@ -443,7 +443,7 @@ int write_settings(void)
 		if ((uint32_t)flash_addr == EEPROM_START_ADDRESS)
 		{	// erase this allocated flash page, then give up
 			erase_init.NbPages = 1;
-			HAL_FLASHEx_Erase(&erase_init, &page_error);     
+			HAL_FLASHEx_Erase(&erase_init, &page_error);
 		}
 
 		HAL_FLASH_Lock();
@@ -454,7 +454,7 @@ int write_settings(void)
 	HAL_FLASH_Lock();
 
 	{	// confirm the new flash write went OK by reading back and checking for data match
-	
+
 		const uint32_t      *set   = (uint32_t *)&settings;   // point to our system settings
 		const __IO uint32_t *flash = flash_addr;              // flash address we wrote them too
 
