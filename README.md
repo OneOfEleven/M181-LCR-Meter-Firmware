@@ -18,7 +18,6 @@
 - [ ] Correct the current waveform crop issue in auto gain selection.
 - [ ] Add option for Parallel calculation ($C_p$,$L_p$)
 - [ ] Update a couple of HW component values to add 10kHz option (see LTspice sims)
-- [ ] Use a block of flash to save settings/calibrations (emulated EEPROM)
 
 # System Overview ..
 
