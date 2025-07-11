@@ -1449,7 +1449,8 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 	const int top_margin   = 5 + text_height + 5;
 	const int bot_margin   = 30;
-	const int left_margin  = m_bitmap_main->Canvas->TextWidth("------------");
+//	const int left_margin  = m_bitmap_main->Canvas->TextWidth("------------");
+	const int left_margin  = m_bitmap_main->Canvas->TextWidth("-------");
 	const int right_margin = 10;
 
 	{
@@ -1556,11 +1557,19 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 			if ((i & 1) == 0)
 			{	// waveform number
-				s.printf(" %u ", i);
+				switch (i)
+				{
+					case 0: s = " V-LO "; break;
+					case 2: s = " I-LO "; break;
+					case 4: s = " V-HI "; break;
+					case 6: s = " I-HI "; break;
+				}
+				//s.printf(" %u ", i);
 				m_bitmap_main->Canvas->Font->Color = clWhite;
 				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
 				m_bitmap_main->Canvas->Brush->Style = bsClear;
-				m_bitmap_main->Canvas->TextOut(x, cy - (text_height / 2), s);
+				//m_bitmap_main->Canvas->TextOut(x, cy - (text_height / 2), s);
+				m_bitmap_main->Canvas->TextOut(x + left_margin - m_bitmap_main->Canvas->TextWidth(s), cy - (text_height / 2), s);
 			}
 /*
 			if ((i & 1) == 0)
