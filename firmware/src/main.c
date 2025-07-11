@@ -879,8 +879,8 @@ void process_Goertzel(void)
 			uint8_t filter = 1;
 		#endif
 
-		if (!settings.uart_all_print_dso)
-			filter = 0;      // no need to fully filter if not sending the waveforms down the serial port
+		//if (!settings.uart_all_print_dso)
+		//	filter = 0;    // TEST
 
 		if (!filter)
 		{	// don't filter the waveform, do these ..
