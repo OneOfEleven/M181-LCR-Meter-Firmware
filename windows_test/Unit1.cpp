@@ -785,6 +785,8 @@ void __fastcall TForm1::loadSettings()
 	SerialSpeedComboBox->ItemIndex = i;
 #endif
 
+	NormaliseTrackBar->Position = ini->ReadInteger("Misc", "Normalised", NormaliseTrackBar->Position);
+	
 	delete ini;
 }
 
@@ -821,6 +823,8 @@ void __fastcall TForm1::saveSettings()
 
 	ini->WriteString("SerialPort", "Name",  SerialPortComboBox->Text);
 	ini->WriteInteger("SerialPort", "Speed", (int)SerialSpeedComboBox->Items->Objects[SerialSpeedComboBox->ItemIndex]);
+
+	ini->WriteInteger("Misc", "Normalised", NormaliseTrackBar->Position);
 
 	delete ini;
 }
@@ -1510,17 +1514,20 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				g.DrawLine(&pen, x + left_margin, cy, x + x_size - right_margin, cy);
 			}
 
-			if (NormalizedSpeedButton->Down)
+			if (NormaliseTrackBar->Position > 0)
 			{	// normalized waveform (max amplitude)
+				float alpha = (float)NormaliseTrackBar->Position / NormaliseTrackBar->Max;  // 0 to 1.0
+				alpha = alpha * alpha * alpha * 255;  // 0 to 255
+
 				if ((i & 1) == 0)
 				{
-					Gdiplus::Pen pen(Gdiplus::Color(16, 255, 255, 255), 1);    // ARGB
+					Gdiplus::Pen pen(Gdiplus::Color((unsigned int)alpha, 255, 255, 255), 1);    // ARGB
 					pen.SetAlignment(Gdiplus::PenAlignmentCenter);
 					g.DrawLines(&pen, &gdi_points_normalize[0], gdi_points_normalize.size());
 				}
 				else
 				{
-					Gdiplus::Pen pen(Gdiplus::Color(16, 255, 2255, 80), 1);    // ARGB
+					Gdiplus::Pen pen(Gdiplus::Color((unsigned int)alpha, 255, 2255, 80), 1);    // ARGB
 					pen.SetAlignment(Gdiplus::PenAlignmentCenter);
 					g.DrawLines(&pen, &gdi_points_normalize[0], gdi_points_normalize.size());
 				}
@@ -1709,7 +1716,7 @@ void __fastcall TForm1::CaptureButtonClick(TObject *Sender)
 	delete bm;
 }
 
-void __fastcall TForm1::NormalizedSpeedButtonClick(TObject *Sender)
+void __fastcall TForm1::NormaliseTrackBarChange(TObject *Sender)
 {
 	PaintBox1->Invalidate();
 }

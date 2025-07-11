@@ -183,7 +183,7 @@ __published:
 	TPaintBox *PaintBox1;
 	TSpeedButton *PauseSpeedButton;
 	TButton *CaptureButton;
-	TSpeedButton *NormalizedSpeedButton;
+	TTrackBar *NormaliseTrackBar;
 	void __fastcall FormCreate(TObject *Sender);
 	void __fastcall FormDestroy(TObject *Sender);
 	void __fastcall FormClose(TObject *Sender, TCloseAction &Action);
@@ -197,7 +197,7 @@ __published:
 	void __fastcall PaintBox1Paint(TObject *Sender);
 	void __fastcall ConsoleWindowSpeedButtonClick(TObject *Sender);
 	void __fastcall CaptureButtonClick(TObject *Sender);
-	void __fastcall NormalizedSpeedButtonClick(TObject *Sender);
+	void __fastcall NormaliseTrackBarChange(TObject *Sender);
 
 private:
 
