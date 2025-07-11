@@ -1142,10 +1142,22 @@ void process_ADC(const void *buffer)
 
 	if (adc_data_avg_count >= skip_block_count)
 	{	// add the new sample block to the averaging buffer
-		for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+
+		if (vi_mode & 1u)
+		{	// invert the current (I) ADC waveform to counter-act the inverting OP-AMP
+			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			{
+				adc_data_avg[i].adc -= adc_buffer[i].adc - 2048;
+				adc_data_avg[i].afc += adc_buffer[i].afc - 2048;
+			}
+		}
+		else
 		{
-			adc_data_avg[i].adc += adc_buffer[i].adc - 2048;
-			adc_data_avg[i].afc += adc_buffer[i].afc - 2048;
+			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			{
+				adc_data_avg[i].adc += adc_buffer[i].adc - 2048;
+				adc_data_avg[i].afc += adc_buffer[i].afc - 2048;
+			}
 		}
 	}
 
