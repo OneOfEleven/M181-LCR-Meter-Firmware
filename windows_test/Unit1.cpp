@@ -1519,7 +1519,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 			if (NormaliseTrackBar->Position > 0)
 			{	// normalized waveform (max amplitude)
 				float alpha = (float)NormaliseTrackBar->Position / NormaliseTrackBar->Max;  // 0 to 1.0
-				alpha = alpha * alpha * alpha * 255;  // 0 to 255
+				alpha = alpha * alpha * 255;  // 0 to 255
 
 				if ((i & 1) == 0)
 				{
