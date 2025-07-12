@@ -147,12 +147,13 @@ float                 phase_deg[8] = {0};
 // because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins)
 const unsigned int    vi_measure_mode_table[] = {0, 1, 3, 2};
 volatile unsigned int vi_measure_index = 0;
-unsigned int          prev_vi_mode = -1;
+unsigned int          prev_vi_mode     = -1;
 
-// various system settings and results
-volatile int          save_settings_timer = -1;
+// system settings
+volatile int          save_settings_timer = -1;  // reduce flash writes (reduces wear on the flash)
 t_settings            settings            = {0};
-t_system_data         system_data         = {0};
+
+t_system_data         system_data = {0};
 
 // temp buffer - used for the Goerttzel output samples
 t_comp                tmp_buf[DMA_ADC_DATA_LENGTH];
@@ -307,7 +308,7 @@ int clear_settings(void)
 	return 0;
 }
 
-const uint32_t find_last_good_settings(void)
+uint32_t find_last_good_settings(void)
 {	// find the last valid flash saved settings we did
 	//
 	// do this by sequencially scanning through the allocated eeprom flash pages looking
@@ -336,11 +337,21 @@ const uint32_t find_last_good_settings(void)
 			settings.crc = 0;
 			const uint16_t crc2 = CRC16_block(0, &settings, sizeof(t_settings));
 			if (crc1 == crc2)
+			{
 				flash_addr_good = flash_addr;   // marker and CRC appear good, remember where it's located in flash
+				flash_addr     += block_size;   // point to the next possible slot/block
+			}
+			else
+			{
+				//flash_addr     += block_size; // point to the next possible slot/block
+				flash_addr += sizeof(uint32_t); // scan the flash area 32-bit word by 32-bit word
+			}	
 		}
-
-		// point to the next possible slot/block
-		flash_addr += block_size;
+		else
+		{
+			//flash_addr     += block_size;     // point to the next possible slot/block
+			flash_addr += sizeof(uint32_t);     // scan the flash area 32-bit word by 32-bit word
+		}
 	}
 
 	// return the flash address of the last saved error-free block of settings we found
@@ -368,7 +379,7 @@ int write_settings(void)
 
 	// best to keep block size to a multiple of 32-bits
 	const uint32_t block_size = ((sizeof(t_settings) + sizeof(uint32_t) - 1) / sizeof(uint32_t)) * sizeof(uint32_t);
-
+ 
 	// use this if flash page erase is required
 	FLASH_EraseInitTypeDef erase_init = {0};
 	erase_init.TypeErase   = FLASH_TYPEERASE_PAGES;
@@ -376,12 +387,11 @@ int write_settings(void)
 	erase_init.NbPages     = (EEPROM_END_ADDRESS - EEPROM_START_ADDRESS) / PAGE_SIZE;
 	uint32_t page_error    = 0;
 
-	// add marker and CRC to the current system settings (so we can scan and find them again in flash)
+	// add marker and CRC to the current system settings (so we can find them again in flash)
 	settings.marker = SETTINGS_MARKER;
-	settings.crc = 0;
-	settings.crc = CRC16_block(0, &settings, sizeof(t_settings));
+	settings.crc    = 0;
+	settings.crc    = CRC16_block(0, &settings, sizeof(t_settings));
 
-	// can't erase flash pages without first unlocking the flash (write protection)
 	if (HAL_OK != HAL_FLASH_Unlock())
 	{	// unlock error :(
 		//HAL_FLASH_Lock();
@@ -393,12 +403,11 @@ int write_settings(void)
 	if (flash_addr > 0)
 	{	// found them
 
-		{	// check to see if the settings we are going to save are any different to the previous ones
-			if (memcmp((void *)flash_addr, &settings, sizeof(t_settings)) == 0)
-			{	// previous saved settings are identical to current, no need to save again
-				HAL_FLASH_Lock();
-				return 0;
-			}
+		// check to see if the settings we are going to save are any different to the previous ones
+		if (memcmp((void *)flash_addr, &settings, sizeof(t_settings)) == 0)
+		{	// previous saved settings are identical to current, no need to save again
+			HAL_FLASH_Lock();
+			return 0;
 		}
 
 		// point to the next possibly available flash slot/block
@@ -411,7 +420,6 @@ int write_settings(void)
 			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
 			if (status != HAL_OK)
 			{	// error
-				// re-lock the flash (write protection)
 				HAL_FLASH_Lock();
 				return -2;
 			}
@@ -424,7 +432,7 @@ int write_settings(void)
 		flash_addr = EEPROM_START_ADDRESS;
 	}
 
-	{	// see if the flash slot is empty (or not)
+	{	// see if the chosen flash slot is empty (or not)
 		//
 		// we can't write to it if it's not suitably empty
 		// the flash bits can be set to '0' without erasing the flash page
@@ -438,7 +446,7 @@ int write_settings(void)
 		{
 			#if 0
 				const uint16_t set_val = *set++;
-				if ((*addr++ & set_val) == set_val)          // check the word bits that matter
+				if ((*addr++ & set_val) == set_val)           // check the bits that matter
 			#else
 				if (*addr++ == 0xffff)                        // check all word bits
 			#endif
@@ -447,9 +455,9 @@ int write_settings(void)
 				continue;
 			}
 
-			// can't program this particular flash word without first erasing it.
+			// can't program this particular flash word without first erasing it
 			//
-			// just move too and check the next possible slot to save into
+			// check the next possible available flash location
 
 			flash_addr += block_size;
 
@@ -458,7 +466,7 @@ int write_settings(void)
 			i     = 0;
 
 			if ((flash_addr + block_size) <= EEPROM_END_ADDRESS)
-				continue;                     // go back and check the new slot
+				continue;                     // check the new slot
 
 			// no more flash space left to save into, start again
 
@@ -475,38 +483,36 @@ int write_settings(void)
 		}
 	}
 
-	// write the new settings into flash
+	{	// write the new settings into flash
 
-	for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint16_t))
-	{
-		const uint16_t w = ((uint16_t *)&settings)[i / sizeof(uint16_t)];   // data word to write too flash
+		const uint16_t *set = (uint16_t *)&settings; // data we want to save to flash
 
-		// write the word into flash
-		const HAL_StatusTypeDef status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, flash_addr + i, w);
-		if (status == HAL_OK)
-			continue;           // it worked !
+		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint16_t))
+		{
+			// write the word into flash
+			const HAL_StatusTypeDef status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, flash_addr + i, *set++);
+			if (status == HAL_OK)
+				continue;           // it worked !
 
-		// no it didunt :(
+			// no it didunt :(
 
-		// erase all allocated flash pages, then give up
-		HAL_FLASHEx_Erase(&erase_init, &page_error);
-
-		HAL_FLASH_Lock();
-
-		return -4;
-	}
-
-	{	// confirm the new flash write is OK
-		if (memcmp((void *)flash_addr, &settings, sizeof(t_settings)) != 0)
-		{	// error
-			//
-			// erase all alocated flash pages, then go do something else
+			// erase all allocated flash pages, then give up
 			HAL_FLASHEx_Erase(&erase_init, &page_error);
 			HAL_FLASH_Lock();
-			return -5;
+			return -4;
 		}
 	}
 
+	// ensure the new flash write is OK
+	if (memcmp((void *)flash_addr, &settings, sizeof(t_settings)) != 0)
+	{	// error
+		//
+		// erase all allocated eeprom flash pages, then go do something else
+		HAL_FLASHEx_Erase(&erase_init, &page_error);
+		HAL_FLASH_Lock();
+		return -5;
+	}
+	
 	HAL_FLASH_Lock();
 
 	// settings saved seem OK !
@@ -792,6 +798,7 @@ float lcr_compute(const unsigned int mode, const uint16_t freq, const float impe
 */
 // compute phase difference between two waveforms using complex samples (ie, from the I/Q outputs of a goertzel dft)
 //
+/*
 float phase_diff(const t_comp c1, const t_comp c2)
 {
 	t_comp d;
@@ -808,7 +815,54 @@ float phase_diff(const t_comp c1, const t_comp c2)
 
 	return phase_deg;
 }
+*/
+#if 1
+	float phase_diff(const float phase_deg_1, const float phase_deg_2)
+	{
+		t_comp ph1;
+		t_comp ph2;
+		t_comp d;
 
+		{
+			const float phase_rad = phase_deg_1 * DEG_TO_RAD;
+			ph1.re = cosf(phase_rad);
+			ph1.im = sinf(phase_rad);
+		}
+
+		{
+			const float phase_rad = phase_deg_2 * DEG_TO_RAD;
+			ph2.re = cosf(phase_rad);
+			ph2.im = sinf(phase_rad);
+		}
+
+		// conj multiply
+		d.re = (ph1.re * ph2.re) + (ph1.im * ph2.im);
+		d.im = (ph1.re * ph2.im) - (ph1.im * ph2.re);
+
+		// phase
+		const float phase_deg = (d.re != 0) ? fmodf((atan2f(d.im, d.re) * RAD_TO_DEG) + 270, 360) : NAN;
+
+		return phase_deg;
+	}
+#else
+	float phase_diff(float phase_deg_1, float phase_deg_2)
+	{
+		while (phase_deg_1 < 0) phase_deg_1 += 360.0f;
+		while (phase_deg_2 < 0) phase_deg_2 += 360.0f;
+
+		// return shortest angle difference - clockwise or anti-clockwise
+		#if 1
+			float deg = (phase_deg_1 - phase_deg_2) + 360.0f + 180.0f;
+			while (deg >= 360.0f) deg -= 360.0f;
+			//while (deg <    0.0f) deg += 360.0f;
+			return deg - 180.0f;
+		#else
+			return fmodf((phase_deg_1 - phase_deg_2) + 360.0f + 180.0f, 360.0f) - 180.0f;
+		#endif
+	}
+#endif
+
+/*
 float phase_compute(const float in_array[], const unsigned int start_l, const unsigned int length)
 {
 	// multiply signal by 0° and 90° square wave references
@@ -830,7 +884,8 @@ float phase_compute(const float in_array[], const unsigned int start_l, const un
 
 	return phase_deg;
 }
-
+*/
+/*
 void compute_amplitude(void)
 {
 	float sum_sq_adc[8]  = {0};
@@ -881,7 +936,7 @@ void compute_amplitude(void)
 	system_data.rms_current     = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 2]);
 	system_data.rms_afc_current = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 3]);
 }
-
+*/
 // pass the new ADC samples through the goertzel dft
 //
 // goertzel output samples are 100% free of any DC offset, also very much cleaned of any out-of-band noise (crucial for following measurements)
@@ -1060,48 +1115,46 @@ void combine_afc(const unsigned int vi, float *avg_mag_rms, float *avg_deg)
 
 void process_data(void)
 {
-	float voltage_afc_mag_rms = 0;
-	float voltage_afc_deg     = 0;
-	float current_afc_mag_rms = 0;
-	float current_afc_deg     = 0;
+//	float voltage_afc_mag_rms = 0;
+//	float voltage_afc_deg     = 0;
+//	float current_afc_mag_rms = 0;
+//	float current_afc_deg     = 0;
 
+//	compute_amplitude();
 	process_Goertzel();
 
-	combine_afc(0, &voltage_afc_mag_rms, &voltage_afc_deg);
-	combine_afc(1, &current_afc_mag_rms, &current_afc_deg);
+//	combine_afc(0, &voltage_afc_mag_rms, &voltage_afc_deg);
+//	combine_afc(1, &current_afc_mag_rms, &current_afc_deg);
 
 	// *********************
 	// automatic gain selection
 
-	const float threshold = 50;
+//	const float threshold = 50;
 	volt_gain_sel = 0;
 	amp_gain_sel  = 0;
-	volt_gain_sel = (mag_rms[(volt_gain_sel * 4) + 0] <= threshold) ? 1 : 0;
-	amp_gain_sel  = (mag_rms[(volt_gain_sel * 4) + 2] <= threshold) ? 1 : 0;
+//	volt_gain_sel = (mag_rms[(volt_gain_sel * 4) + 0] <= threshold) ? 1 : 0;
+//	amp_gain_sel  = (mag_rms[(volt_gain_sel * 4) + 2] <= threshold) ? 1 : 0;
 
-
-	// amplitude after conversion
+	// waveform amplitudes
 	system_data.rms_voltage     = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
 	system_data.rms_afc_volt    = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
 	system_data.rms_current     = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
 	system_data.rms_afc_current = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
 
 	// *********************
-
-//	compute_amplitude();
+	// compute the impedance of the DUT
 
 	system_data.impedance = system_data.rms_voltage / system_data.rms_current;
 
-	// **************************
-	// applying the correction Factor - manually
+	// applying the correction Factor
 	//
 	// TODO: automatically (calibrate) measure the opamp gain on each of the two gain paths
 
-	system_data.impedance = volt_gain_sel ? system_data.impedance /  101           : system_data.impedance;
-	system_data.impedance = amp_gain_sel  ? system_data.impedance * (101 * 1.017f) : system_data.impedance * 0.874f;
+//	system_data.impedance = volt_gain_sel ? system_data.impedance / 101 : system_data.impedance;
+//	system_data.impedance = amp_gain_sel  ? system_data.impedance * 101 : system_data.impedance;
 
 	// **************************
-
+/*
 	phase_offset_array_index = 0;
 
 	system_data.voltage_phase  =       phase_compute(adc_data[(amp_gain_sel * 4) + 0], phase_offset_array_index, DMA_ADC_DATA_LENGTH) -
@@ -1109,16 +1162,22 @@ void process_data(void)
 
 	system_data.current_phase  = fabsf(phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH) -
 	                                   phase_compute(adc_data[(amp_gain_sel * 4) + 3], phase_offset_array_index, DMA_ADC_DATA_LENGTH));
-	system_data.current_phase -= 180.0f;
+//	system_data.current_phase -= 180.0f;
+*/
 
-	system_data.vi_phase       = fabsf(fabsf(system_data.voltage_phase) - fabsf(system_data.current_phase));
+	system_data.voltage_phase = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);
+	system_data.current_phase = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);
+
+	system_data.vi_phase = fabsf(fabsf(system_data.voltage_phase) - fabsf(system_data.current_phase));
+
+	// **************************
 
 	const float omega      = (float)(2.0 * M_PI) * measurement_Hz;          // angular frequency in rad/s
+
 	const float phase_rad  = system_data.vi_phase * DEG_TO_RAD;
 	const float resistive  = system_data.impedance * fabsf(cosf(phase_rad));
 	const float reactance  = system_data.impedance * fabsf(sinf(phase_rad));
-//	if (reactance < 1e-6f)
-//		return 0;
+
 	const float inductance  = reactance / omega;                            // L = X / ω
 	const float capacitance = 1.0f / (omega * reactance);                   // C = 1 / (ωX)
 	const float esr         = resistive;

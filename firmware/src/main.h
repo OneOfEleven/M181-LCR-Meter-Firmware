@@ -61,11 +61,11 @@
 
 //#define GOERTZEL_FILTER_LENGTH     0                          // don't Goertzel filter
 //#define GOERTZEL_FILTER_LENGTH      (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
-#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (nice but takes more time)
+#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (takes slightly longer)
 
-#define CALIBRATE_COUNT              10             // averaging length to use for open/short calibrate
+#define CALIBRATE_COUNT              10             // number of results to average when doing the open/short calibration
 
-#define SAVE_SETTINGS_MS             5000           // ms we wait till we save new settings (helps save flash writes)
+#define SAVE_SETTINGS_MS             5000           // ms we wait till we save new settings (helps reduce number of flash writes)
 
 #define HIGH                         GPIO_PIN_SET
 #define LOW                          GPIO_PIN_RESET
@@ -278,8 +278,9 @@
 #define END_ADDRESS                 (ADDR_FLASH_PAGE_63  + PAGE_SIZE)    // STM32F103C8  64k
 //#define END_ADDRESS               (ADDR_FLASH_PAGE_127 + PAGE_SIZE)    // STM32F103CB  128k
 
-#define EEPROM_START_ADDRESS         ADDR_FLASH_PAGE_62                  // STM32F103C8  64k
-//#define EEPROM_START_ADDRESS       ADDR_FLASH_PAGE_126                 // STM32F103CB  128k
+// 4k seems OK to snipe
+#define EEPROM_START_ADDRESS         ADDR_FLASH_PAGE_60                  // STM32F103C8  64k
+//#define EEPROM_START_ADDRESS       ADDR_FLASH_PAGE_124                 // STM32F103CB  128k
 
 #define EEPROM_END_ADDRESS           END_ADDRESS
 
@@ -315,8 +316,6 @@ enum {
 
 // this structure will be stored in flash (emulated EEPROM)
 //
-// MUST keep this to a multiple of 32-bits in size
-//
 #pragma pack(push, 1)
 typedef struct {
 	uint32_t     marker;              // settings marker
@@ -329,17 +328,17 @@ typedef struct {
 		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];
+		uint8_t  padding[3];          // pad to 32-bit alignment
 	} open_probe_calibration[2];      // 100Hz and 1kHz results
 
 	struct {
 		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];
+		uint8_t  padding[3];          // pad to 32-bit alignment
 	} shorted_probe_calibration[2];   // 100Hz and 1kHz results
 
-	uint8_t      padding[2];
+	uint8_t      padding[2];          // pad to 32-bit struct size
 
 	uint16_t     crc;                 // CRC value for the entire structure. CRC computed with this set to '0'
 } t_settings;
