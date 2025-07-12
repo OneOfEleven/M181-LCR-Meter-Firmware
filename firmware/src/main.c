@@ -1241,28 +1241,28 @@ void process_ADC(const void *buffer)
 // Font_11x18 .. big
 // Font_7x10  .. small general
 
-void print_sprint(const unsigned int digit, const float value, char *output_char)
+void print_sprint(const unsigned int digit, const float value, char *output_char, const unsigned int out_max_size)
 {
     if (digit == 4)
     {
         if (value < 10)
-            sprintf(output_char, "%4.3f", value); // 1.234
+            snprintf(output_char, out_max_size, "%4.3f", value); // 1.234
         else
 		if (value < 100)
-            sprintf(output_char, "%4.2f", value); // 12.34
+            snprintf(output_char, out_max_size, "%4.2f", value); // 12.34
         else
 		if (value < 1000)
-            sprintf(output_char, "%4.1f", value); // 123.4
+            snprintf(output_char, out_max_size, "%4.1f", value); // 123.4
         else
-            sprintf(output_char, "%4.0f", value); // 1234 (no dp)
+            snprintf(output_char, out_max_size, "%4.0f", value); // 1234 (no dp)
     }
     else
 	if (digit == 2)
     {
         if (value < 10)
-            sprintf(output_char, "%2.1f", value); // 1.2
+            snprintf(output_char, out_max_size, "%2.1f", value); // 1.2
         else
-            sprintf(output_char, "%2.0f", value); // 12 (no dp)
+            snprintf(output_char, out_max_size, "%2.0f", value); // 12 (no dp)
     }
 }
 
@@ -1357,8 +1357,8 @@ void draw_screen(const uint8_t full_update)
 	#else
 		const uint8_t line3_y = 10 + line2_y + 1 + line_spacing_y;  // no horizontal lines
 	#endif
-	uint8_t       val31_x = offset_x;
-	const uint8_t val33_x = 62;
+//	uint8_t       val31_x = offset_x;
+//	const uint8_t val33_x = 62;
 	const uint8_t val35_x = SSD1306_WIDTH - 8;
 
 	const uint8_t line4_y = line3_y + line_spacing_y;
@@ -1535,11 +1535,11 @@ void draw_screen(const uint8_t full_update)
 					}
 
 					ssd1306_SetCursor(val22_x, line2_y);
-					print_sprint(4, value, buffer_display);
+					print_sprint(4, value, buffer_display, sizeof(buffer_display));
 					ssd1306_WriteString(buffer_display, Font_11x18, White);
 
 					ssd1306_SetCursor(val24_x, line2_y + 4);
-					print_sprint(4, system_data.vi_phase_deg, buffer_display);
+					print_sprint(4, system_data.vi_phase_deg, buffer_display, sizeof(buffer_display));
 					ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 					# if 0
@@ -1575,7 +1575,8 @@ void draw_screen(const uint8_t full_update)
 						ssd1306_WriteString("Q  ", Font_7x10, White);
 
 						ssd1306_SetCursor(val42_x, line3_y);
-						snprintf(buffer_display, sizeof(buffer_display), "%0.3f", value);
+						print_sprint(4, value, buffer_display, sizeof(buffer_display));
+						//snprintf(buffer_display, sizeof(buffer_display), "%0.3f", value);
 						ssd1306_WriteString(buffer_display, Font_7x10, White);
 					}
 					#endif
@@ -1590,14 +1591,14 @@ void draw_screen(const uint8_t full_update)
 							ssd1306_WriteString("ER ", Font_7x10, White);
 
 							ssd1306_SetCursor(val42_x, line4_y);
-							print_sprint(4, system_data.esr, buffer_display);
+							print_sprint(4, system_data.esr, buffer_display, sizeof(buffer_display));
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 							ssd1306_SetCursor(val43_x, line4_y);
 							ssd1306_WriteString("D  ", Font_7x10, White);
 
 							ssd1306_SetCursor(val44_x, line4_y);
-							print_sprint(4, system_data.tan_delta, buffer_display);
+							print_sprint(4, system_data.tan_delta, buffer_display, sizeof(buffer_display));
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 							break;
