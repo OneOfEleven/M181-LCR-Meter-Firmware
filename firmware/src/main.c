@@ -252,7 +252,6 @@ void start_ADC(void)
 	#endif
 
 //	sine_table_index = ARRAY_SIZE(sine_table) * 0.285; // align the sinewave (@1kHz)
-	sine_table_index = ARRAY_SIZE(sine_table) * 0.42; // align the sinewave (@1kHz)
 
 	HAL_TIM_Base_Start_IT(&htim3);
 }
@@ -270,97 +269,105 @@ void stop_ADC(void)
 }
 
 // ***********************************************************
-// emulated eepom in flash
+// emulated eeprom in flash
 //
 // includes wear leveling by saving each successive settings block to a different flash address, the previous saves are left alone.
 // once the allocated eeprom flash pages become full, they are all erased in one go ready for more saves to occur.
 
-void clear_settings(void)
+int clear_settings(void)
 {	// erase all saved settings in eeprom
+
+	// contain the faulty flash address if a problem occurs whilst the page(s) are being erased
+	uint32_t page_error = 0;
 
 	FLASH_EraseInitTypeDef erase_init = {0};
 	erase_init.TypeErase   = FLASH_TYPEERASE_PAGES;
 	erase_init.PageAddress = EEPROM_START_ADDRESS;
 	erase_init.NbPages     = (EEPROM_END_ADDRESS - EEPROM_START_ADDRESS) / PAGE_SIZE;
-	uint32_t page_error    = 0;
 
 	// unlock the flash
 	if (HAL_OK != HAL_FLASH_Unlock())
-	{
+	{	// error
 		//HAL_FLASH_Lock();
-		return;
+		return -1;
 	}
 
 	// erase all allocated eeprom flash pages
 	const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
 	if (status != HAL_OK)
-	{	// erase error
+	{	// error
 		HAL_FLASH_Lock();
-		return;
+		return -2;
 	}
 
 	// re-lock the flash
 	HAL_FLASH_Lock();
+
+	// all seems OK
+	return 0;
 }
 
-const __IO uint32_t * find_last_good_settings(void)
+const uint32_t find_last_good_settings(void)
 {	// find the last valid flash saved settings we did
+	//
+	// do this by sequencially scanning through the allocated eeprom flash pages looking
+	// for the last error-free slot/block of settings we saved
 
-	const __IO uint32_t *flash_addr_end  = (uint32_t *)EEPROM_END_ADDRESS;
-	const __IO uint32_t *flash_addr      = (uint32_t *)EEPROM_START_ADDRESS;  // location of where the settings block are stored in flash
-	const __IO uint32_t *flash_addr_good = NULL;                              // flash address of last good block of settings found
+	// best to keep block size to a multiple of 32-bits
+	const uint32_t block_size = ((sizeof(t_settings) + sizeof(uint32_t) - 1) / sizeof(uint32_t)) * sizeof(uint32_t);
 
-	while (1)
+	uint32_t flash_addr      = EEPROM_START_ADDRESS;  // start of allocated eeprom flash area
+	uint32_t flash_addr_good = 0;                     // flash address of last good slot/block of settings we find
+
+	while ((flash_addr + sizeof(t_settings)) <= EEPROM_END_ADDRESS)
 	{
 		t_settings settings;
 
-		// read a settings block from flash
-		const __IO uint32_t *addr = flash_addr;
-		uint32_t *p = (uint32_t *)&settings;
-		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
-			 *p++ = *addr++;
+		// copy a block from flash to ram
+		memcpy(&settings, (void *)flash_addr, sizeof(t_settings));
 
-		// validate those settings
+		// validate those settings by checking for a the correct start marker and correct CRC
+		//
 		// if good, then remember it's flash address
+		//
 		if (settings.marker == SETTINGS_MARKER)
 		{
 			const uint16_t crc1 = settings.crc;
 			settings.crc = 0;
 			const uint16_t crc2 = CRC16_block(0, &settings, sizeof(t_settings));
 			if (crc1 == crc2)
-				flash_addr_good = flash_addr;       // marker and CRC appear to be OK (valid settings), remember the blocks flash address
+				flash_addr_good = flash_addr;   // marker and CRC appear good, remember where it's located in flash
 		}
 
-		// point to the next block
-		flash_addr = addr;
-		if ((flash_addr + (sizeof(t_settings) / sizeof(flash_addr[0]))) > flash_addr_end)
-			break;     // no more slots to check, we've reached the end of the allocated eeprom flash pages
+		// point to the next possible slot/block
+		flash_addr += block_size;
 	}
 
-	// return the flash address of the last saved block of error-free settings
+	// return the flash address of the last saved error-free block of settings we found
+	// if none found then return NULL
 	return flash_addr_good;
 }
 
 int read_settings(void)
 {	// read settings from flash
 
-	// fetch the flash address of last saved settings
-	const __IO uint32_t *flash_addr = find_last_good_settings();
-	if (flash_addr == NULL)
-		return -1;           // none found - nothing to load
+	// fetch the flash address of last known saved settings
+	const uint32_t flash_addr = find_last_good_settings();
+	if (flash_addr == 0)
+		return -1;           // no valid settings found
 
-	// copy them into the system settings
-	uint32_t *p = (uint32_t *)&settings;
-	for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
-		 *p++ = *flash_addr++;
+	// found some, copy them into our system settings
+	memcpy(&settings, (void *)flash_addr, sizeof(t_settings));
 
+	// all seems OK
 	return 0;
 }
 
 int write_settings(void)
 {	// write settings to flash
 
-	const __IO uint32_t *flash_addr_end = (uint32_t *)EEPROM_END_ADDRESS;
+	// best to keep block size to a multiple of 32-bits
+	const uint32_t block_size = ((sizeof(t_settings) + sizeof(uint32_t) - 1) / sizeof(uint32_t)) * sizeof(uint32_t);
 
 	// use this if flash page erase is required
 	FLASH_EraseInitTypeDef erase_init = {0};
@@ -382,49 +389,39 @@ int write_settings(void)
 	}
 
 	// find where we last saved the previous settings
-	const __IO uint32_t *flash_addr = find_last_good_settings();
-	if (flash_addr != NULL)
+	uint32_t flash_addr = find_last_good_settings();
+	if (flash_addr > 0)
 	{	// found them
 
 		{	// check to see if the settings we are going to save are any different to the previous ones
-			// if they are identical then no point re-saving the exact same data
-
-			const __IO uint32_t *flash = flash_addr;               // flash address we want to write too
-			const uint32_t      *p     = (uint32_t *)&settings;    // address of data we want to write into flash
-			uint8_t              same  = 1;                        // 0 = different data
-
-			for (unsigned int i = 0; i < sizeof(t_settings) && same; i++)
-				if (*flash++ != *p++)
-					same = 0;        // data is different - continue to save it
-
-			if (same)
-			{	// data is same as previous - exit with OK
+			if (memcmp((void *)flash_addr, &settings, sizeof(t_settings)) == 0)
+			{	// previous saved settings are identical to current, no need to save again
 				HAL_FLASH_Lock();
 				return 0;
 			}
 		}
 
-		// point to the next flash slot - to save into
-		flash_addr += sizeof(t_settings) / sizeof(flash_addr[0]);
+		// point to the next possibly available flash slot/block
+		flash_addr += block_size;
 
-		if ((flash_addr + (sizeof(t_settings) / sizeof(flash_addr[0]))) > flash_addr_end)
-		{	// no more flash space left to save into, start again by first erasing ALL allocated eeprom flash pages
+		if ((flash_addr + block_size) > EEPROM_END_ADDRESS)
+		{	// no more allocated eeprom flash space left to save into, start again
 
 			// erase all allocated eeprom flash pages
 			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
 			if (status != HAL_OK)
-			{	// erase error
+			{	// error
 				// re-lock the flash (write protection)
 				HAL_FLASH_Lock();
 				return -2;
 			}
 
-			flash_addr = (uint32_t *)EEPROM_START_ADDRESS;   // start writing at the beginning again
+			flash_addr = EEPROM_START_ADDRESS;   // start from the beginning
 		}
 	}
 	else
-	{	// start saving at the beginning of allocated eeprom flash
-		flash_addr = (uint32_t *)EEPROM_START_ADDRESS;
+	{	// start saving at the beginning of allocated eeprom flash area
+		flash_addr = EEPROM_START_ADDRESS;
 	}
 
 	{	// see if the flash slot is empty (or not)
@@ -433,20 +430,20 @@ int write_settings(void)
 		// the flash bits can be set to '0' without erasing the flash page
 		// but can't be set to '1' without first doing a full page flash erase - beware, I think some STM32's are the opposite (if you re-use this code)
 
-		const __IO uint32_t *flash = flash_addr;               // flash address we want to write too
-		//const uint32_t      *p     = (uint32_t *)&settings;    // address of data we want to write into flash
-		unsigned int         i     = 0;
+		const __IO uint16_t *addr = (uint16_t *)flash_addr;   // flash address we want to write too
+		//const uint16_t    *set  = (uint16_t *)&settings;    // address of settings
+		unsigned int         i    = 0;
 
 		while (i < sizeof(t_settings))
 		{
 			#if 0
-				const uint32_t set_val = *p++;
-				if ((*flash++ & set_val) == set_val)           // check the word bits that matter
+				const uint16_t set_val = *set++;
+				if ((*addr++ & set_val) == set_val)          // check the word bits that matter
 			#else
-				if (*flash++ == 0xffff)                        // check all word bits
+				if (*addr++ == 0xffff)                        // check all word bits
 			#endif
 			{	// this flash word seems good for writing too
-				i += sizeof(uint32_t);
+				i += sizeof(uint16_t);
 				continue;
 			}
 
@@ -454,17 +451,18 @@ int write_settings(void)
 			//
 			// just move too and check the next possible slot to save into
 
-			flash_addr += sizeof(t_settings) / sizeof(flash_addr[0]);
+			flash_addr += block_size;
 
-			flash = flash_addr;               // flash address
-			//p     = (uint32_t *)&settings;    // system settings address
+			addr  = (uint16_t *)flash_addr;   // flash address
+			//set = (uint16_t *)&settings;    // system settings address
 			i     = 0;
 
-			if ((flash_addr + (sizeof(t_settings) / sizeof(flash_addr[0]))) <= flash_addr_end)
-				continue;                     // go back and check the slot
+			if ((flash_addr + block_size) <= EEPROM_END_ADDRESS)
+				continue;                     // go back and check the new slot
 
-			// no more flash space left to save into, start again by erasing all allocated eeprom flash pages
+			// no more flash space left to save into, start again
 
+			// erase all allocated eeprom flash pages
 			const HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase_init, &page_error);
 			if (status != HAL_OK)
 			{	// hmmmm
@@ -472,21 +470,19 @@ int write_settings(void)
 				return -3;
 			}
 
-			flash_addr = (uint32_t *)EEPROM_START_ADDRESS;   // flash address to write too
+			flash_addr = EEPROM_START_ADDRESS;   // flash address to write too
 			break;
 		}
 	}
 
 	// write the new settings into flash
-	//
-	// the flash address to write too is contained in 'flash_addr'
 
 	for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint16_t))
 	{
 		const uint16_t w = ((uint16_t *)&settings)[i / sizeof(uint16_t)];   // data word to write too flash
 
 		// write the word into flash
-		const HAL_StatusTypeDef status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, (uint32_t)flash_addr + i, w);
+		const HAL_StatusTypeDef status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, flash_addr + i, w);
 		if (status == HAL_OK)
 			continue;           // it worked !
 
@@ -500,31 +496,20 @@ int write_settings(void)
 		return -4;
 	}
 
-	{	// confirm the new flash write went OK by reading back and checking for data match
-
-		const uint32_t      *set   = (uint32_t *)&settings;   // point to our system settings
-		const __IO uint32_t *flash = flash_addr;              // flash address we wrote them too
-
-		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint32_t))
-		{
-			if (*flash++ == *set++)
-				continue;           // seems good !
-
-			// no it ain't :(
+	{	// confirm the new flash write is OK
+		if (memcmp((void *)flash_addr, &settings, sizeof(t_settings)) != 0)
+		{	// error
 			//
 			// erase all alocated flash pages, then go do something else
-
 			HAL_FLASHEx_Erase(&erase_init, &page_error);
-
 			HAL_FLASH_Lock();
-
-			return -5;              // freedom !
+			return -5;
 		}
 	}
 
 	HAL_FLASH_Lock();
 
-	// settings saved OK !
+	// settings saved seem OK !
 
 	save_settings_timer = -1;
 
@@ -1762,7 +1747,7 @@ void SysTick_Handler(void)
 
 	{	// debounce the push buttons
 
-		const int16_t debounce_ms = 50;
+		const int16_t debounce_ms = 30;
 
 		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
 		{
@@ -2263,21 +2248,11 @@ void GPIO_init(void)
 
 void process_buttons(void)
 {
-/*
-	const uint32_t tick = HAL_GetTick();
-
-	if (button[1].pressed_tick > 0 && (tick - button[1].pressed_tick) >= 500)
-	{	// don't wait for button release
-		reboot();
-		return;
-	}
-*/
-
 	// both HOLD and S/P buttons held down then released
-	if (button[0].pressed_tick > 0 && button[1].pressed_tick > 0)
+	if (button[0].pressed_tick > 0 && button[1].pressed_tick > 0 && button[2].pressed_tick == 0)
 	{
 		if (button[0].held_ms >= 800 && button[1].held_ms >= 800)
-		{	// clear all saved settings, inc open/short calibrations. then reboot with defaults
+		{	// clear all saved settings (inc open/short calibrations), then reboot
 			clear_settings();
 			reboot();
 		}
