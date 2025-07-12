@@ -94,7 +94,7 @@ struct {
 #endif
 
 uint32_t              draw_screen_count  = 0;
-char                  buffer_display[20] = {0};
+char                  buffer_display[26] = {0};
 
 t_button              button[3] = {0};
 
@@ -308,6 +308,8 @@ int clear_settings(void)
 	return 0;
 }
 
+static t_settings temp_settings;
+
 uint32_t find_last_good_settings(void)
 {	// find the last valid flash saved settings we did
 	//
@@ -322,20 +324,18 @@ uint32_t find_last_good_settings(void)
 
 	while ((flash_addr + sizeof(t_settings)) <= EEPROM_END_ADDRESS)
 	{
-		t_settings settings;
-
 		// copy a block from flash to ram
-		memcpy(&settings, (void *)flash_addr, sizeof(t_settings));
+		memcpy(&temp_settings, (void *)flash_addr, sizeof(t_settings));
 
 		// validate those settings by checking for a the correct start marker and correct CRC
 		//
 		// if good, then remember it's flash address
 		//
-		if (settings.marker == SETTINGS_MARKER)
+		if (temp_settings.marker == SETTINGS_MARKER)
 		{
-			const uint16_t crc1 = settings.crc;
-			settings.crc = 0;
-			const uint16_t crc2 = CRC16_block(0, &settings, sizeof(t_settings));
+			const uint16_t crc1 = temp_settings.crc;
+			temp_settings.crc = 0;
+			const uint16_t crc2 = CRC16_block(0, &temp_settings, sizeof(t_settings));
 			if (crc1 == crc2)
 			{
 				flash_addr_good = flash_addr;   // marker and CRC appear good, remember where it's located in flash
@@ -961,11 +961,35 @@ void combine_afc(const unsigned int vi, float *avg_rms, float *avg_deg)
 	*avg_deg = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
 }
 
+void combine_afc_all(float *avg_rms, float *avg_deg)
+{	// combine AFC mag/phase results (the AFC sample blocks are all the same so use the average)
+
+	unsigned int sum_count = 0;
+	float        sum_rms   = 0;
+	t_comp       sum_phase = {0, 0};
+
+	for (unsigned int i = 1; i < 8; i += 2)
+	{
+		const unsigned int buf_index = i;
+
+		sum_rms += mag_rms[buf_index];
+
+		const float phase_rad = phase_deg[buf_index] * DEG_TO_RAD;
+		sum_phase.re += cosf(phase_rad);
+		sum_phase.im += sinf(phase_rad);
+
+		sum_count++;
+	}
+
+	*avg_rms = sum_rms / sum_count;
+	*avg_deg = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
+}
+
 void process_data(void)
 {
 	process_Goertzel();
 
-	#if 1
+	#if 0
 	{	// average the AFC results together - should we or shouldn't we ??
 
 		float lo_gain_afc_rms;
@@ -985,6 +1009,23 @@ void process_data(void)
 		mag_rms[7]   = hi_gain_afc_rms;
 		phase_deg[5] = hi_gain_afc_deg;
 		phase_deg[7] = hi_gain_afc_deg;
+	}
+	#elif 1
+	{
+		float afc_rms;
+		float afc_deg;
+
+		combine_afc_all(&afc_rms, &afc_deg);
+
+		mag_rms[1]   = afc_rms;
+		mag_rms[3]   = afc_rms;
+		mag_rms[5]   = afc_rms;
+		mag_rms[7]   = afc_rms;
+
+		phase_deg[1] = afc_deg;
+		phase_deg[3] = afc_deg;
+		phase_deg[5] = afc_deg;
+		phase_deg[7] = afc_deg;
 	}
 	#endif
 
@@ -1036,10 +1077,10 @@ void process_data(void)
 	
 	system_data.impedance         = system_data.rms_voltage_adc / system_data.rms_current_adc;
 	//
-	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);
-	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);
+	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
+	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);   // phase difference between ADC and AFC waves
 	//
-	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);
+	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);             // phase difference between voltage and current waves
 
 	// **************************
 
@@ -1073,6 +1114,8 @@ void process_data(void)
 void process_ADC(const void *buffer)
 {
 	// process the new ADC 12-bit samples
+
+//	HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, HIGH);   // TEST
 
 	// point to the new block of ADC samples
 	const t_adc_dma_data_16 *adc_buffer = (t_adc_dma_data_16 *)buffer;
@@ -1134,6 +1177,8 @@ void process_ADC(const void *buffer)
 
 		adc_buffer_max[vi_mode] = adc_max;
 	}
+
+//	HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);           // TEST
 
 	if (++adc_buffer_sum_count < (skip_block_count + adc_average_count))
 		return;
@@ -1206,6 +1251,7 @@ void print_sprint(const unsigned int digit, const float value, char *output_char
             sprintf(output_char, "%2.0f", value); // 12 (no dp)
     }
 }
+
 void print_custom_symbol(const unsigned int startX, const unsigned int startY, const uint16_t symbol[], const unsigned int symbolWidth, const unsigned int symbolHeight)
 {
     // For each row of the symbol...
@@ -1325,7 +1371,7 @@ void draw_screen(const uint8_t full_update)
 		//ssd1306_WriteString("kHz", Font_7x10, White);
 
 		ssd1306_SetCursor(val4_x, line1_y);
-		sprintf(buffer_display, "v%.2f", FW_VERSION);
+		snprintf(buffer_display, sizeof(buffer_display), "v%.2f", FW_VERSION);
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 		// Line 2
@@ -1398,9 +1444,9 @@ void draw_screen(const uint8_t full_update)
 
 		ssd1306_SetCursor(val2_x, line1_y);
 		if (measurement_Hz < 1000)
-			sprintf(buffer_display, "%3u Hz", measurement_Hz);
+			snprintf(buffer_display, sizeof(buffer_display), "%3u Hz", measurement_Hz);
 		else
-			sprintf(buffer_display, "%2u kHz", measurement_Hz / 1000);
+			snprintf(buffer_display, sizeof(buffer_display), "%2u kHz", measurement_Hz / 1000);
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 		// Line 2: Mode
@@ -1415,17 +1461,17 @@ void draw_screen(const uint8_t full_update)
 					switch (settings.lcr_mode)
 					{
 						case LCR_MODE_INDUCTANCE:
-							sprintf(buffer_display, "L ");
+							snprintf(buffer_display, sizeof(buffer_display), "L ");
 							value = system_data.inductance;
 							break;
 
 						case LCR_MODE_CAPACITANCE:
-							sprintf(buffer_display, "C ");
+							snprintf(buffer_display, sizeof(buffer_display), "C ");
 							value = system_data.capacitance;
 							break;
 
 						case LCR_MODE_RESISTANCE:
-							sprintf(buffer_display, "R ");
+							snprintf(buffer_display, sizeof(buffer_display), "R ");
 							value = system_data.resistance;
 							break;
 					}
@@ -1438,54 +1484,54 @@ void draw_screen(const uint8_t full_update)
 					{
 						case LCR_MODE_INDUCTANCE:
 /*							if (system_data.unit_inductance <= -3)
-								sprintf(buffer_display, "nH");
+								snprintf(buffer_display, sizeof(buffer_display), "nH");
 							else
 							if (system_data.unit_inductance == -2)
-								sprintf(buffer_display, "uH");
+								snprintf(buffer_display, sizeof(buffer_display), "uH");
 							else
 							if (system_data.unit_inductance == -1)
-								sprintf(buffer_display, "mH");
+								snprintf(buffer_display, sizeof(buffer_display), "mH");
 							else
-								sprintf(buffer_display, "H ");
+								snprintf(buffer_display, sizeof(buffer_display), "H ");
 */
 							sprintf(buffer_display, "%2d", system_data.unit_inductance);  // TEST
 							break;
 
 						case LCR_MODE_CAPACITANCE:
 /*							if (system_data.unit_capacitance <= -4)
-								sprintf(buffer_display, "pF");
+								snprintf(buffer_display, sizeof(buffer_display), "pF");
 							else
 							if (system_data.unit_capacitance == -3)
-								sprintf(buffer_display, "nF");
+								snprintf(buffer_display, sizeof(buffer_display), "nF");
 							else
 							if (system_data.unit_capacitance == -2)
-								sprintf(buffer_display, "uF");
+								snprintf(buffer_display, sizeof(buffer_display), "uF");
 							else
 							if (system_data.unit_capacitance == -1)
-								sprintf(buffer_display, "mF");
+								snprintf(buffer_display, sizeof(buffer_display), "mF");
 							else
-								sprintf(buffer_display, "F ");
+								snprintf(buffer_display, sizeof(buffer_display), "F ");
 */
-							sprintf(buffer_display, "%2d", system_data.unit_capacitance);  // TEST
+							snprintf(buffer_display, sizeof(buffer_display), "%2d", system_data.unit_capacitance);  // TEST
 							break;
 
 						case LCR_MODE_RESISTANCE:
 /*							if (system_data.unit_resistance <= -1)
-								sprintf(buffer_display, "m");
+								snprintf(buffer_display, sizeof(buffer_display), "m");
 							else
 							if (system_data.unit_resistance == 0)
-								sprintf(buffer_display, " ");
+								snprintf(buffer_display, sizeof(buffer_display), " ");
 							else
 							if (system_data.unit_resistance == 1)
-								sprintf(buffer_display, "k");
+								snprintf(buffer_display, sizeof(buffer_display), "k");
 							else
 							if (system_data.unit_resistance == 2)
-								sprintf(buffer_display, "M");
+								snprintf(buffer_display, sizeof(buffer_display), "M");
 							else
-								sprintf(buffer_display, "G");
+								snprintf(buffer_display, sizeof(buffer_display), "G");
 							print_custom_symbol(val23_x + 7, line2_y + 4, omega_7x10, 7, 10);
 */
-							sprintf(buffer_display, "%2d", system_data.unit_resistance);  // TEST
+							snprintf(buffer_display, sizeof(buffer_display), "%2d", system_data.unit_resistance);  // TEST
 							break;
 					}
 					ssd1306_SetCursor(val23_x, line2_y + 4);
@@ -1502,11 +1548,11 @@ void draw_screen(const uint8_t full_update)
 					// Line 3: Voltage and Current reading
 
 					ssd1306_SetCursor(val32_x, line3_y);
-					sprintf(buffer_display, "%.3f", (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0);
+					snprintf(buffer_display, sizeof(buffer_display), "%.3f", (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0);
 					ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 					ssd1306_SetCursor(val34_x, line3_y);
-					sprintf(buffer_display, "%.3f", (system_data.rms_current_afc >= 0) ? system_data.rms_current_afc : 0);
+					snprintf(buffer_display, sizeof(buffer_display), "%.3f", (system_data.rms_current_afc >= 0) ? system_data.rms_current_afc : 0);
 					ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 					switch (settings.lcr_mode)
@@ -1533,28 +1579,28 @@ void draw_screen(const uint8_t full_update)
 				break;
 
 			case OP_MODE_OPEN_PROBE_CALIBRATION:
-				sprintf(buffer_display, " OPEN cal %d  ", CALIBRATE_COUNT - calibrate.count - 1);
+				snprintf(buffer_display, sizeof(buffer_display), " OPEN cal %-2d   ", CALIBRATE_COUNT - calibrate.count - 1);
 				ssd1306_SetCursor(val21_x, line2_y);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 				if (calibrate.Hz < 1000)
-					sprintf(buffer_display, " %u Hz    ", calibrate.Hz);
+					snprintf(buffer_display, sizeof(buffer_display), " %u Hz    ", calibrate.Hz);
 				else
-					sprintf(buffer_display, " %u kHz    ", calibrate.Hz / 1000);
+					snprintf(buffer_display, sizeof(buffer_display), " %u kHz    ", calibrate.Hz / 1000);
 				ssd1306_SetCursor(val21_x, line2_y + 14);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 				break;
 
 			case OP_MODE_SHORTED_PROBE_CALIBRATION:
-				sprintf(buffer_display, " SHORTED cal %d  ", CALIBRATE_COUNT - calibrate.count - 1);
+				snprintf(buffer_display, sizeof(buffer_display), " SHORTED cal %-2d", CALIBRATE_COUNT - calibrate.count - 1);
 				ssd1306_SetCursor(val21_x, line2_y);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 				if (calibrate.Hz < 1000)
-					sprintf(buffer_display, " %u Hz    ", calibrate.Hz);
+					snprintf(buffer_display, sizeof(buffer_display), " %u Hz    ", calibrate.Hz);
 				else
-					sprintf(buffer_display, " %u kHz    ", calibrate.Hz / 1000);
+					snprintf(buffer_display, sizeof(buffer_display), " %u kHz    ", calibrate.Hz / 1000);
 				ssd1306_SetCursor(val21_x, line2_y + 14);
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 
@@ -1564,14 +1610,14 @@ void draw_screen(const uint8_t full_update)
 		// Line 4: UART Mode
 
 		ssd1306_SetCursor(val45_x, line4_y);
-		sprintf(buffer_display, settings.uart_all_print_dso ? "U" : " ");       // ON/OFF
+		snprintf(buffer_display, sizeof(buffer_display), settings.uart_all_print_dso ? "U" : " ");       // ON/OFF
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 	}
 
 	// Line 3: status
 
 	ssd1306_SetCursor(val35_x, line3_y);
-	sprintf(buffer_display, "%u", system_data.vi_measure_mode);
+	snprintf(buffer_display, sizeof(buffer_display), "%u", system_data.vi_measure_mode);
 	ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 	ssd1306_UpdateScreen();
@@ -2338,7 +2384,13 @@ void process_uart_send(void)
 						*pd = __builtin_bswap32(*pd);
 				#endif
 
-				tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
+				//HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);
+
+				#if 0
+					tx_packet.crc = 0;    // TEST
+				#else
+					tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
+				#endif
 
 				#ifdef UART_BIG_ENDIAN
 					// make the packet CRC little endian

@@ -23,7 +23,7 @@
 #include "stm32f1xx_hal.h"
 
 #ifndef DEBUG
-	#define USE_IWDG                               // useful to reset the CPU if something locks up etc
+//	#define USE_IWDG                               // useful to reset the CPU if something locks up etc
 #endif
 
 #define FW_VERSION                   0.25
@@ -58,11 +58,11 @@
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
 #define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
 
-#define DEFAULT_ADC_AVERAGE_COUNT    32             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
+#define DEFAULT_ADC_AVERAGE_COUNT    32             // 32  must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
 
-//#define GOERTZEL_FILTER_LENGTH     0                      // don't Goertzel filter
+#define GOERTZEL_FILTER_LENGTH     0                      // don't Goertzel filter
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 2)  // one sine cycle filter length, less filtering, but quicker than full filtering
-#define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH        // max length filtering (takes slightly longer)
+//#define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH        // max length filtering (takes slightly longer)
 
 #define CALIBRATE_COUNT              10             // number of results to average when doing the open/short calibration
 
