@@ -933,22 +933,22 @@ void process_Goertzel(void)
 	adc_dc_offset_count++;
 }
 
-void combine_afc(const unsigned int vi, float *avg_mag_rms, float *avg_deg)
+void combine_afc(const unsigned int vi, float *avg_rms, float *avg_deg)
 {	// combine AFC mag/phase results (the AFC sample blocks are all the same so use the average)
 	//
 	// voltage results .. vi = 0
 	// current results .. vi = 1
 
-	unsigned int sum_count    = 0;
-	float        sum_mag_rms  = 0;
-	t_comp       sum_phase    = {0, 0};
+	unsigned int sum_count = 0;
+	float        sum_rms   = 0;
+	t_comp       sum_phase = {0, 0};
 
 	// scan over each AFC results
 	for (unsigned int i = 1; i < 4; i += 2)
 	{
 		const unsigned int buf_index = ((vi & 1u) * 4) + i;
 
-		sum_mag_rms += mag_rms[buf_index];
+		sum_rms += mag_rms[buf_index];
 
 		const float phase_rad = phase_deg[buf_index] * DEG_TO_RAD;
 		sum_phase.re += cosf(phase_rad);
@@ -957,22 +957,36 @@ void combine_afc(const unsigned int vi, float *avg_mag_rms, float *avg_deg)
 		sum_count++;
 	}
 
-	*avg_mag_rms = sum_mag_rms / sum_count;
-	*avg_deg     = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
+	*avg_rms = sum_rms / sum_count;
+	*avg_deg = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
 }
 
 void process_data(void)
 {
-//	float voltage_afc_mag_rms = 0;
-//	float voltage_afc_deg     = 0;
-//	float current_afc_mag_rms = 0;
-//	float current_afc_deg     = 0;
-
-//	compute_amplitude();
 	process_Goertzel();
 
-//	combine_afc(0, &voltage_afc_mag_rms, &voltage_afc_deg);
-//	combine_afc(1, &current_afc_mag_rms, &current_afc_deg);
+	#if 1
+	{	// average the AFC results together - should we or shouldn't we ??
+
+		float lo_gain_afc_rms;
+		float lo_gain_afc_deg;
+		float hi_gain_afc_rms;
+		float hi_gain_afc_deg;
+
+		combine_afc(0, &lo_gain_afc_rms, &lo_gain_afc_deg);
+		combine_afc(1, &hi_gain_afc_rms, &hi_gain_afc_deg);
+
+		mag_rms[1]   = lo_gain_afc_rms;
+		mag_rms[3]   = lo_gain_afc_rms;
+		phase_deg[1] = lo_gain_afc_deg;
+		phase_deg[3] = lo_gain_afc_deg;
+
+		mag_rms[5]   = hi_gain_afc_rms;
+		mag_rms[7]   = hi_gain_afc_rms;
+		phase_deg[5] = hi_gain_afc_deg;
+		phase_deg[7] = hi_gain_afc_deg;
+	}
+	#endif
 
 	// *********************
 
@@ -1001,10 +1015,12 @@ void process_data(void)
 	}
 
 	// waveform amplitudes
+	//
 	system_data.rms_voltage_adc = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
 	system_data.rms_voltage_afc = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
-	system_data.rms_current_adc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
-	system_data.rms_current_afc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
+	//
+	system_data.rms_current_adc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]) * (1.0f / SERIES_RESISTOR);
+	system_data.rms_current_afc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]) * (1.0f / SERIES_RESISTOR);
 
 	// TODO: calibrate the 'high_gain' value by computing the actual gain from the calibration results
 
@@ -1017,10 +1033,12 @@ void process_data(void)
 		system_data.rms_current_adc *= i_scale;
 		system_data.rms_current_afc *= i_scale;
 	}
-
+	
 	system_data.impedance         = system_data.rms_voltage_adc / system_data.rms_current_adc;
+	//
 	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);
 	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);
+	//
 	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);
 
 	// **************************

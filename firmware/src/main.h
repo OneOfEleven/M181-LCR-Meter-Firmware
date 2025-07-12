@@ -18,7 +18,6 @@
 #endif
 
 #include <stdint.h>
-//#include <stdbool.h>
 #include <math.h>
 
 #include "stm32f1xx_hal.h"
@@ -53,6 +52,8 @@
 #define ADC_DATA_LENGTH              128            // 2^n
 
 #define DUAL_ADC_MODE                               // comment out to use single ADC dual channel mode
+
+#define SERIES_RESISTOR              1000           // series impedance of the DUT feed voltage
 
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
 #define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
