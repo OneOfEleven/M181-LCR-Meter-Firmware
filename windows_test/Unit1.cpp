@@ -36,6 +36,57 @@ TForm1 *Form1 = NULL;
 
 // **************************************************************
 
+#if 1
+	float phase_diff(const float phase_deg_1, const float phase_deg_2)
+	{
+		float ph1_re;
+		float ph1_im;
+		float ph2_re;
+		float ph2_im;
+		float d_re;
+		float d_im;
+
+		{
+			const float phase_rad = phase_deg_1 * DEG_TO_RAD;
+			ph1_re = cos(phase_rad);
+			ph1_im = sin(phase_rad);
+		}
+
+		{
+			const float phase_rad = phase_deg_2 * DEG_TO_RAD;
+			ph2_re = cos(phase_rad);
+			ph2_im = sin(phase_rad);
+		}
+
+		// conj multiply
+		d_re = (ph1_re * ph2_re) + (ph1_im * ph2_im);
+		d_im = (ph1_re * ph2_im) - (ph1_im * ph2_re);
+
+		// phase
+		const float phase_deg = (d_re != 0) ? atan2(d_im, d_re) * RAD_TO_DEG : _FPCLASS_QNAN;
+
+		return phase_deg;
+	}
+#else
+	float phase_diff(float phase_deg_1, float phase_deg_2)
+	{
+		while (phase_deg_1 < 0) phase_deg_1 += 360.0f;
+		while (phase_deg_2 < 0) phase_deg_2 += 360.0f;
+
+		// return shortest angle difference - clockwise or anti-clockwise
+		#if 1
+			float deg = (phase_deg_1 - phase_deg_2) + 360.0f + 180.0f;
+			while (deg >= 360.0f) deg -= 360.0f;
+			//while (deg <    0.0f) deg += 360.0f;
+			return deg - 180.0f;
+		#else
+			return fmodf((phase_deg_1 - phase_deg_2) + 360.0f + 180.0f, 360.0f) - 180.0f;
+		#endif
+	}
+#endif
+
+// **************************************************************
+
 void __fastcall goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 {
 	float m1 = 0;
@@ -1449,8 +1500,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 	const int top_margin   = 5 + text_height + 5;
 	const int bot_margin   = 30;
-//	const int left_margin  = m_bitmap_main->Canvas->TextWidth("------------");
-	const int left_margin  = m_bitmap_main->Canvas->TextWidth("-------");
+	const int left_margin  = m_bitmap_main->Canvas->TextWidth("------------");
 	const int right_margin = 10;
 
 	{
@@ -1564,13 +1614,26 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 					case 4: s = " V-HI "; break;
 					case 6: s = " I-HI "; break;
 				}
-				//s.printf(" %u ", i);
 				m_bitmap_main->Canvas->Font->Color = clWhite;
 				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
 				m_bitmap_main->Canvas->Brush->Style = bsClear;
 				//m_bitmap_main->Canvas->TextOut(x, cy - (text_height / 2), s);
 				m_bitmap_main->Canvas->TextOut(x + left_margin - m_bitmap_main->Canvas->TextWidth(s), cy - (text_height / 2), s);
 			}
+
+			if ((i & 1) == 0)
+			{	// phase difference
+
+				const float pd = phase_diff(m_waveform_info[i + 0].phase_deg, m_waveform_info[i + 1].phase_deg);
+				s.printf(" %0.3f\xb0 ", pd);
+
+				m_bitmap_main->Canvas->Font->Color = clWhite;
+				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
+				m_bitmap_main->Canvas->Brush->Style = bsClear;
+				//m_bitmap_main->Canvas->TextOut(x, cy - (text_height / 2), s);
+				m_bitmap_main->Canvas->TextOut(x + left_margin - m_bitmap_main->Canvas->TextWidth(s), cy + (text_height / 2), s);
+			}
+
 /*
 			if ((i & 1) == 0)
 			{	// min/max text
@@ -1619,7 +1682,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				g.FillRectangle(&brush, tx, ty4, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty4, s);
 
-				s.printf(" phase %+0.3f deg ", m_waveform_info[i].phase_deg);
+				s.printf(" phase %+0.3f\xb0 ", m_waveform_info[i].phase_deg);
 				g.FillRectangle(&brush, tx, ty5, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty5, s);
 			}

@@ -118,11 +118,6 @@ struct {
 unsigned int          volt_gain_sel = 0;
 unsigned int          amp_gain_sel  = 0;
 
-int8_t                ref0_data[DMA_ADC_DATA_LENGTH]  = {0};
-int8_t                ref90_data[DMA_ADC_DATA_LENGTH] = {0};
-
-int16_t               phase_offset_array_index = 0;
-
 // raw ADC sample buffer
 t_adc_dma_data_16     raw_adc_dma_data[2][DMA_ADC_DATA_LENGTH];      // *2 for double buffering (ADC/DMA is continuously running)
 
@@ -611,31 +606,31 @@ int unit_conversion(float *value)
 	if (*value < 1e-12f)
 	{	// femto
 		*value *= 1e15f;
-		return -5;
+		return -15;
 	}
 
 	if (*value < 1e-9f)
 	{	// pico
 		*value *= 1e12f;
-		return -4;
+		return -12;
 	}
 
 	if (*value < 1e-6f)
 	{	// nano
 		*value *= 1e9f;
-		return -3;
+		return -9;
 	}
 
 	if (*value < 1e-3f)
 	{	// micro
 		*value *= 1e6f;
-		return -2;
+		return -6;
 	}
 
 	if (*value < 1e0f)
 	{	// milli
 		*value *= 1e3f;
-		return -1;
+		return -3;
 	}
 
 	if (*value < 1e3f)
@@ -646,59 +641,18 @@ int unit_conversion(float *value)
 	if (*value < 1e6f)
 	{	// kilo
 		*value *= 1e-3f;
-		return 1;
+		return 3;
 	}
 
 	if (*value < 1e9f)
 	{	// Mega
 		*value *= 1e-6f;
-		return 2;
+		return 6;
 	}
 
 	// Giga
 	*value *= 1e-9f;
-	return 3;
-}
-
-void generate_ref_signal(const unsigned int length)
-{
-	// Assume two complete cycles, each divided into 4 quadrants
-	// Total quadrants = 8; each quadrant length:
-
-	const unsigned int per_len_quadrant = length / 8;
-
-	for (unsigned int i = 0; i < 8; i++)
-	{
-		// Use (i % 4) to cycle through quadrants for one complete cycle
-		const unsigned int quadrant    = i % 4;
-		const unsigned int start_index = i * per_len_quadrant;
-
-		for (unsigned int j = 0; j < per_len_quadrant; j++)
-		{
-			switch (quadrant)
-			{
-				case 0: //   0°  -90°: ref0 = +1, ref90 = +1
-					ref0_data[ start_index + j] =  1;
-					ref90_data[start_index + j] =  1;
-					break;
-
-				case 1: //  90° -180°: ref0 = +1, ref90 = -1
-					ref0_data[ start_index + j] =  1;
-					ref90_data[start_index + j] = -1;
-					break;
-
-				case 2: // 180° -270°: ref0 = -1, ref90 = -1
-					ref0_data[ start_index + j] = -1;
-					ref90_data[start_index + j] = -1;
-					break;
-
-				case 3: // 270° -360°: ref0 = -1, ref90 = +1
-					ref0_data[ start_index + j] = -1;
-					ref90_data[start_index + j] =  1;
-					break;
-			}
-		}
-	}
+	return 9;
 }
 
 void set_measurement_frequency(const uint32_t Hz)
@@ -765,53 +719,15 @@ t_complex <float> serial_to_parallel(t_complex <float> z)
 	return t_complex <float> (_FPCLASS_PINF, _FPCLASS_PINF);
 }
 */
-/*
-float lcr_compute(const unsigned int mode, const uint16_t freq, const float impedance, const float phase)
-{
-	const float phase_rad = phase * DEG_TO_RAD;
-	const float resistive = impedance * fabsf(cosf(phase_rad));
-	const float reactance = impedance * fabsf(sinf(phase_rad));
 
-	if (reactance < 1e-6f)
-		return 0;
-
-	const float omega = (float)(2.0 * M_PI) * freq;   // angular frequency in rad/s
-
-	switch (mode)
-	{
-		case LCR_MODE_INDUCTANCE:      // L = X / ω
-			return reactance / omega;
-
-		case LCR_MODE_CAPACITANCE:     // C = 1 / (ωX)
-			return 1.0f / (omega * reactance);
-
-		case LCR_MODE_RESISTANCE:      // ESR: real part of the impedance
-			return resistive;
-
-		case LCR_MODE_TAN_DELTA:       // Tan Delta calculation
-			return resistive / reactance;
-
-		default:
-			return 0;
-	}
-}
-*/
-// compute phase difference between two waveforms using complex samples (ie, from the I/Q outputs of a goertzel dft)
-//
 /*
 float phase_diff(const t_comp c1, const t_comp c2)
 {
-	t_comp d;
-
-//	const t_comp c1 = goertzel_block(&adc_buffer_1, num_samples);		// waveform 1
-//	const t_comp c2 = goertzel_block(&adc_buffer_2, num_samples);		// waveform 2
-
-	// multiply
-	d.re = (c1.re * c2.re) + (c1.im * c2.im);
-	d.im = (c1.re * c2.im) - (c1.im * c2.re);
+	// conj multiply
+	const t_comp d = {(c1.re * c2.re) + (c1.im * c2.im), (c1.re * c2.im) - (c1.im * c2.re)};
 
 	// phase
-	const float phase_deg = (d.re != 0.0f) ? fmodf((atan2f(d.im, d.re) * RAD_TO_DEG) + 270, 360) : NAN;
+	const float phase_deg = (d.re != 0.0f) ? atan2f(d.im, d.re) * RAD_TO_DEG : NAN;
 
 	return phase_deg;
 }
@@ -840,7 +756,7 @@ float phase_diff(const t_comp c1, const t_comp c2)
 		d.im = (ph1.re * ph2.im) - (ph1.im * ph2.re);
 
 		// phase
-		const float phase_deg = (d.re != 0) ? fmodf((atan2f(d.im, d.re) * RAD_TO_DEG) + 270, 360) : NAN;
+		const float phase_deg = (d.re != 0) ? atan2f(d.im, d.re) * RAD_TO_DEG : NAN;
 
 		return phase_deg;
 	}
@@ -862,81 +778,6 @@ float phase_diff(const t_comp c1, const t_comp c2)
 	}
 #endif
 
-/*
-float phase_compute(const float in_array[], const unsigned int start_l, const unsigned int length)
-{
-	// multiply signal by 0° and 90° square wave references
-	float I_sum = 0;
-	float Q_sum = 0;
-	for (unsigned int i = start_l; i < length; i++)
-	{
-		I_sum += in_array[i] * ref0_data[i];
-		Q_sum += in_array[i] * ref90_data[i];
-	}
-
-	// normalize by sample count and scale for square-wave demodulation (2 / pi)
-	const float scale = (float)(M_PI / 2.0) / (length - start_l);
-	const float I_avg = I_sum * scale;
-	const float Q_avg = Q_sum * scale;
-
-	// compute phase angle
-	const float phase_deg = (I_avg != 0.0f) ? atan2f(Q_avg, I_avg) * RAD_TO_DEG : NAN;
-
-	return phase_deg;
-}
-*/
-/*
-void compute_amplitude(void)
-{
-	float sum_sq_adc[8]  = {0};
-	float rms_val_adc[8] = {0};
-	//float amp_val_adc[8] = {0};
-
-	const unsigned int n = DMA_ADC_DATA_LENGTH;
-
-	const float avg_scale = 1.0f / n;
-//	const float sqrt2     = sqrtf(2.0f);
-
-	// accumulate squared deviations
-	for (unsigned int row = 0; row < 8; row++)
-	{
-		for (unsigned int col = 0; col < n; col++)
-		{
-			float val_sq = 0;
-			if ((row % 2) == 0)
-				val_sq = adc_data[row][col];              // ERROR ?????
-			else
-				val_sq = adc_data[row][col];              // ERROR ?????
-
-			sum_sq_adc[row] += val_sq * val_sq;
-		}
-
-		// compute RMS
-		rms_val_adc[row] = sqrtf(sum_sq_adc[row] * avg_scale);
-
-		// peak amplitude = RMS * sqrtf(2)
-		//amp_val_adc[row] = rms_val_adc[row] * sqrt2;
-	}
-
-	// Automatic Gain Selection
-	// 1. Set Default as Gain A
-	volt_gain_sel = 0;
-	amp_gain_sel  = 0;
-
-	// 2. Check the gain value
-	const float threshold = 50;
-	if (rms_val_adc[(volt_gain_sel * 4) + 0] < threshold)
-		volt_gain_sel = 1;
-	if (rms_val_adc[(amp_gain_sel  * 4) + 2] < threshold)
-		amp_gain_sel = 1;
-
-	// Update system_data struct with amplitude after conversion
-	system_data.rms_voltage     = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 0]);
-	system_data.rms_afc_volt    = adc_to_volts(rms_val_adc[(volt_gain_sel * 4) + 1]);
-	system_data.rms_current     = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 2]);
-	system_data.rms_afc_current = adc_to_volts(rms_val_adc[(amp_gain_sel  * 4) + 3]);
-}
-*/
 // pass the new ADC samples through the goertzel dft
 //
 // goertzel output samples are 100% free of any DC offset, also very much cleaned of any out-of-band noise (crucial for following measurements)
@@ -1129,6 +970,9 @@ void process_data(void)
 	// *********************
 	// automatic gain selection
 
+	// ignore the gain - for now
+	// stay with just LOW gain mode until we have the rest of the computation 100% working
+
 //	const float threshold = 50;
 	volt_gain_sel = 0;
 	amp_gain_sel  = 0;
@@ -1154,21 +998,11 @@ void process_data(void)
 //	system_data.impedance = amp_gain_sel  ? system_data.impedance * 101 : system_data.impedance;
 
 	// **************************
-/*
-	phase_offset_array_index = 0;
-
-	system_data.voltage_phase  =       phase_compute(adc_data[(amp_gain_sel * 4) + 0], phase_offset_array_index, DMA_ADC_DATA_LENGTH) -
-	                                   phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH);
-
-	system_data.current_phase  = fabsf(phase_compute(adc_data[(amp_gain_sel * 4) + 2], phase_offset_array_index, DMA_ADC_DATA_LENGTH) -
-	                                   phase_compute(adc_data[(amp_gain_sel * 4) + 3], phase_offset_array_index, DMA_ADC_DATA_LENGTH));
-//	system_data.current_phase -= 180.0f;
-*/
 
 	system_data.voltage_phase = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);
 	system_data.current_phase = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);
 
-	system_data.vi_phase = fabsf(fabsf(system_data.voltage_phase) - fabsf(system_data.current_phase));
+	system_data.vi_phase = phase_diff(system_data.voltage_phase, system_data.current_phase);
 
 	// **************************
 
@@ -2484,8 +2318,6 @@ int main(void)
 	set_measure_mode_pins(system_data.vi_measure_mode);
 
 	set_measurement_frequency(settings.measurement_Hz);
-
-	generate_ref_signal(DMA_ADC_DATA_LENGTH);
 
 	screen_init();
 	bootup_screen();
