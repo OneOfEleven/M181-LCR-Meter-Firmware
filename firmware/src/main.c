@@ -57,8 +57,8 @@ typedef struct {
 		uint8_t  crc_b[sizeof(uint16_t)];
 	};
 	union {
-		float   data[DMA_ADC_DATA_LENGTH * 8];
-		uint8_t data_b[sizeof(float) * DMA_ADC_DATA_LENGTH * 8];
+		float   data[ADC_DATA_LENGTH * 8];
+		uint8_t data_b[sizeof(float) * ADC_DATA_LENGTH * 8];
 	};
 } t_packet;
 #pragma pack(pop)
@@ -100,7 +100,7 @@ t_button              button[3] = {0};
 
 const uint16_t        DAC_resolution                      = 256;  // 8-bit
 volatile unsigned int sine_table_index                    = 0;    //
-uint8_t               sine_table[DMA_ADC_DATA_LENGTH / 2] = {0};  // matched to the ADC sampling
+uint8_t               sine_table[ADC_DATA_LENGTH / 2] = {0};  // matched to the ADC sampling
 
 uint16_t              measurement_Hz        = 1000;
 float                 measurement_amplitude = 1.0;                // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
@@ -118,21 +118,21 @@ struct {
 unsigned int          volt_gain_sel = 0;
 unsigned int          amp_gain_sel  = 0;
 
-// raw ADC sample buffer
-t_adc_dma_data_16     raw_adc_dma_data[2][DMA_ADC_DATA_LENGTH];      // *2 for double buffering (ADC/DMA is continuously running)
+// ADC DMA sample buffer
+t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];      // *2 for DMA double buffering (ADC/DMA is continuously running)
 
 // ADC sample block averaging buffer
 // we take several sample blocks and average them together to reduce noise/increase dynamic range
-unsigned int          adc_average_count                 = DEFAULT_ADC_AVERAGE_COUNT;
-t_adc_dma_data_32     adc_data_avg[DMA_ADC_DATA_LENGTH] = {0};
-unsigned int          adc_data_avg_count                = 0;
+unsigned int          adc_average_count               = DEFAULT_ADC_AVERAGE_COUNT;  // number of blocks to average together
+t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};                        // summing buffer
+unsigned int          adc_buffer_sum_count            = 0;                          // number of sums so far done
 
-// ADC rolling average
-t_comp                adc_avg[8]    = {0};
-uint32_t              adc_avg_count = 0;
+// ADC rolling average (DC offset)
+t_comp                adc_dc_offset[8]    = {0};
+uint32_t              adc_dc_offset_count = 0;
 
 #pragma pack(push, 1)
-float                 adc_data[8][DMA_ADC_DATA_LENGTH] = {0};
+float                 adc_data[8][ADC_DATA_LENGTH] = {0};
 #pragma pack(pop)
 
 float                 mag_rms[8]   = {0};
@@ -151,7 +151,7 @@ t_settings            settings            = {0};
 t_system_data         system_data = {0};
 
 // temp buffer - used for the Goerttzel output samples
-t_comp                tmp_buf[DMA_ADC_DATA_LENGTH];
+t_comp                tmp_buf[ADC_DATA_LENGTH];
 
 // for TX'ing binary packets vis the serial port
 t_packet              tx_packet;
@@ -242,9 +242,9 @@ void start_ADC(void)
 	// non-stop ADC double buffered sampling
 	#ifdef DUAL_ADC_MODE
 		HAL_ADC_Start(&hadc2);
-		HAL_ADCEx_MultiModeStart_DMA(&hadc1, (uint32_t *)raw_adc_dma_data, DMA_ADC_DATA_LENGTH * 2);
+		HAL_ADCEx_MultiModeStart_DMA(&hadc1, (uint32_t *)adc_dma_buffer, ADC_DATA_LENGTH * 2);
 	#else
-		HAL_ADC_Start_DMA(&hadc1, (uint32_t *)raw_adc_dma_data, DMA_ADC_DATA_LENGTH * 2);
+		HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_dma_buffer, ADC_DATA_LENGTH * 2);
 	#endif
 
 //	sine_table_index = ARRAY_SIZE(sine_table) * 0.285; // align the sinewave (@1kHz)
@@ -686,7 +686,7 @@ void set_measurement_frequency(const uint32_t Hz)
 	
 	if (measurement_Hz > 0)
 	{	// set the timer rate
-		const uint32_t timer_rate_Hz = (DMA_ADC_DATA_LENGTH / 2) * measurement_Hz;
+		const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * measurement_Hz;
 		const uint32_t period        = (((HAL_RCC_GetHCLKFreq() / (htim3.Init.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
 		__HAL_TIM_SET_AUTORELOAD(&htim3, period);
 	}
@@ -797,7 +797,9 @@ void process_Goertzel(void)
 	//
 	// STM32F103CBT6 drop-in replacements .. STM32F303CBT6, STM32L412CBT6, STM32L431CCT6 and STM32L433CBT6
 
-	const float avg_coeff = (adc_avg_count >= 5) ? 0.5 : 0.9;
+	// start with a fast convergence filter (LPF)
+	// then after we've done a few sample blocks, switch to using to a slower convergence filter from then on
+	const float dc_offset_coeff = (adc_dc_offset_count >= 5) ? 0.5 : 0.9;
 
 	for (unsigned int buf_index = 0; buf_index < ARRAY_SIZE(adc_data); buf_index++)
 	{
@@ -822,34 +824,34 @@ void process_Goertzel(void)
 
 				// compute the average (DC offset)
 				register float sum = 0;
-				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
+				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 					sum += buf[k];
-				sum *= 1.0f / DMA_ADC_DATA_LENGTH;
+				sum *= 1.0f / ADC_DATA_LENGTH;
 
 				#if 1
 				{	// update a rolling average value (not really needed but hey ho)
-					adc_avg[buf_index].re = ((1.0f - avg_coeff) * adc_avg[buf_index].re) + (avg_coeff * sum);
-					sum = adc_avg[buf_index].re;
+					adc_dc_offset[buf_index].re = ((1.0f - dc_offset_coeff) * adc_dc_offset[buf_index].re) + (dc_offset_coeff * sum);
+					sum = adc_dc_offset[buf_index].re;
 				}
 				#endif
 
 				// remove DC offset using computed average (DC offset)
-				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
+				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 					buf[k] -= sum;
 			}
 
 			{	// compute waveform RMS magnitude
 
 				register float sum = 0;
-				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
+				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 					sum += SQR(buf[k]);
-				sum *= 1.0f / DMA_ADC_DATA_LENGTH;
+				sum *= 1.0f / ADC_DATA_LENGTH;
 
 				mag_rms[buf_index] = sqrtf(sum);
 			}
 
 			{	// compute waveform phase
-				goertzel_block(buf, DMA_ADC_DATA_LENGTH, &goertzel);
+				goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
 				phase_deg[buf_index] = (goertzel.re != 0.0f) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 		}
@@ -859,39 +861,39 @@ void process_Goertzel(void)
 			const unsigned int filter_len = GOERTZEL_FILTER_LENGTH;
 
 			{	// compute waveform phase
-				goertzel_block(adc_data[buf_index], DMA_ADC_DATA_LENGTH, &goertzel);
+				goertzel_block(adc_data[buf_index], ADC_DATA_LENGTH, &goertzel);
 				phase_deg[buf_index] = (goertzel.re != 0.0f) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 
 			register t_comp *buf = tmp_buf;            // point to Goertzel dft output samples
 
-			goertzel_wrap(adc_data[buf_index], buf, DMA_ADC_DATA_LENGTH, filter_len, &goertzel);
+			goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, filter_len, &goertzel);
 
-			if (filter_len != (DMA_ADC_DATA_LENGTH / 2) && filter_len != DMA_ADC_DATA_LENGTH)
+			if (filter_len != (ADC_DATA_LENGTH / 2) && filter_len != ADC_DATA_LENGTH)
 			{	// need to remove DC offset because the Goertzel filter is not a multiple number of sine cycles in length
 
 				// compute the average (DC offset)
 				register t_comp sum = {0, 0};
-				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
+				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
 					register const t_comp samp = buf[k];
 					sum.re += samp.re;
 					sum.im += samp.im;
 				}
-				sum.re *= 1.0f / DMA_ADC_DATA_LENGTH;
-				sum.im *= 1.0f / DMA_ADC_DATA_LENGTH;
+				sum.re *= 1.0f / ADC_DATA_LENGTH;
+				sum.im *= 1.0f / ADC_DATA_LENGTH;
 
 				#if 1
 				{	// update a rolling average value (not really needed but hey ho)
-					adc_avg[buf_index].re = ((1.0f - avg_coeff) * adc_avg[buf_index].re) + (avg_coeff * sum.re);
-					adc_avg[buf_index].im = ((1.0f - avg_coeff) * adc_avg[buf_index].im) + (avg_coeff * sum.im);
-					sum.re = adc_avg[buf_index].re;
-					sum.im = adc_avg[buf_index].im;
+					adc_dc_offset[buf_index].re = ((1.0f - dc_offset_coeff) * adc_dc_offset[buf_index].re) + (dc_offset_coeff * sum.re);
+					adc_dc_offset[buf_index].im = ((1.0f - dc_offset_coeff) * adc_dc_offset[buf_index].im) + (dc_offset_coeff * sum.im);
+					sum.re = adc_dc_offset[buf_index].re;
+					sum.im = adc_dc_offset[buf_index].im;
 				}
 				#endif
 
 				// remove DC offset using computed average (DC offset)
-				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
+				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
 					buf[k].re -= sum.re;
 					buf[k].im -= sum.im;
@@ -903,7 +905,7 @@ void process_Goertzel(void)
 				register float *buf_out = adc_data[buf_index];
 
 				register float sum = 0;
-				for (unsigned int k = 0; k < DMA_ADC_DATA_LENGTH; k++)
+				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
 					register const t_comp samp = buf[k];
 
@@ -915,7 +917,7 @@ void process_Goertzel(void)
 						buf_out[k] = samp.re;      // for now, just keep the real (0 deg) output (imag/90-deg is dropped :( )
 					#endif
 				}
-				sum *= 1.0f / DMA_ADC_DATA_LENGTH;
+				sum *= 1.0f / ADC_DATA_LENGTH;
 
 				// save the RMS magnitude
 				mag_rms[buf_index] = sqrtf(sum);
@@ -923,7 +925,7 @@ void process_Goertzel(void)
 		}
 	}
 
-	adc_avg_count++;
+	adc_dc_offset_count++;
 }
 
 void combine_afc(const unsigned int vi, float *avg_mag_rms, float *avg_deg)
@@ -1049,7 +1051,7 @@ void process_ADC(const void *buffer)
 
 	const unsigned int buf_index = vi_mode * 2;
 
-	if (vi_index == 0 && adc_data_avg_count == 0)
+	if (vi_index == 0 && adc_buffer_sum_count == 0)
 	{	// the first sample block after setting the HW mode pins
 
 		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
@@ -1066,28 +1068,28 @@ void process_ADC(const void *buffer)
 //	const unsigned int skip_block_count = ((vi_mode >> 1) == (prev_vi_mode >> 1)) ? MODE_SWITCH_BLOCK_WAIT_SHORT : MODE_SWITCH_BLOCK_WAIT_LONG;
 	const unsigned int skip_block_count = MODE_SWITCH_BLOCK_WAIT_LONG;
 
-	if (adc_data_avg_count >= skip_block_count)
+	if (adc_buffer_sum_count >= skip_block_count)
 	{	// add the new sample block to the averaging buffer
 
 		if (vi_mode & 1u)
 		{	// invert the current (I) ADC waveform to counter-act the inverting OP-AMP
-			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
-				adc_data_avg[i].adc -= adc_buffer[i].adc - 2048;
-				adc_data_avg[i].afc += adc_buffer[i].afc - 2048;
+				adc_buffer_sum[i].adc -= adc_buffer[i].adc - 2048;
+				adc_buffer_sum[i].afc += adc_buffer[i].afc - 2048;
 			}
 		}
 		else
 		{
-			for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
-				adc_data_avg[i].adc += adc_buffer[i].adc - 2048;
-				adc_data_avg[i].afc += adc_buffer[i].afc - 2048;
+				adc_buffer_sum[i].adc += adc_buffer[i].adc - 2048;
+				adc_buffer_sum[i].afc += adc_buffer[i].afc - 2048;
 			}
 		}
 	}
 
-	if (++adc_data_avg_count < (skip_block_count + adc_average_count))
+	if (++adc_buffer_sum_count < (skip_block_count + adc_average_count))
 		return;
 
 	// next measurement mode
@@ -1097,22 +1099,22 @@ void process_ADC(const void *buffer)
 	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
 
 	{	// fetch/scale the averaged ADC samples
-		register const float scale = 1.0f / (adc_data_avg_count - skip_block_count);
+		register const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
 
 		// buffers to save the new data into
 		register float *buf_adc = adc_data[buf_index + 0];
 		register float *buf_afc = adc_data[buf_index + 1];
 
-		for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
+		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
-			buf_adc[i] = adc_data_avg[i].adc * scale;        // averaged sample (saved as float)
-			buf_afc[i] = adc_data_avg[i].afc * scale;        //    "      "
+			buf_adc[i] = adc_buffer_sum[i].adc * scale;        // averaged sample (saved as float)
+			buf_afc[i] = adc_buffer_sum[i].afc * scale;        //    "      "
 		}
 	}
 
 	// reset averaging buffer ready for the next measurement run
-	memset(adc_data_avg, 0, sizeof(adc_data_avg));
-	adc_data_avg_count = 0;
+	memset(adc_buffer_sum, 0, sizeof(adc_buffer_sum));
+	adc_buffer_sum_count = 0;
 
 	// remember current VI mode
 	prev_vi_mode = vi_mode;
@@ -1720,13 +1722,13 @@ void USART1_IRQHandler(void)
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	if (hadc->Instance == ADC1)
-		process_ADC(&raw_adc_dma_data[0]);  // lower half of ADC buffer
+		process_ADC(&adc_dma_buffer[0]);  // lower half of ADC buffer
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
 	if (hadc->Instance == ADC1)
-		process_ADC(&raw_adc_dma_data[1]);  // upper half of ADC buffer
+		process_ADC(&adc_dma_buffer[1]);  // upper half of ADC buffer
 }
 
 // ***********************************************************
@@ -2050,7 +2052,7 @@ void TIMER3_init(void)
 //	uint32_t latency;
 //	HAL_RCC_GetClockConfig(&rcc_clk, &latency);
 
-	const uint32_t timer_rate_Hz = (DMA_ADC_DATA_LENGTH / 2) * 1000;      // 1kHz
+	const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * 1000;      // 1kHz
 
 	htim3.Instance               = TIM3;
 	htim3.Init.CounterMode       = TIM_COUNTERMODE_UP;
@@ -2247,6 +2249,174 @@ void process_buttons(void)
 	}
 }
 
+void process_uart_send(void)
+{
+	if (settings.uart_all_print_dso)
+	{
+		const HAL_UART_StateTypeDef state = HAL_UART_GetState(&huart1);
+		if (state == HAL_UART_STATE_READY)
+		{	// the UART is available to use
+			//
+			// send the sampled data down the serial link
+
+			#ifdef MATLAB_SERIAL
+				// send as ASCII
+
+				const unsigned int cols = 8;
+				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+				{
+					printf("%3u,", 1 + i);
+					for (unsigned int col = 0; col < (cols - 1); col++)
+						printf("%0.1f,", adc_data[col][i]);
+					printf("%0.1f\r\n", adc_data[col - 1][i]);
+				}
+			#else
+				// send as binary packet
+
+				// STM32's are little endian (data is LS-Byte 1st)
+				// the receiving end needs to take that into account when processing the rx'ed data
+				// your receiving app can use htons(), htonl(), ntohs(), ntohl() to swap endianness (if need be)
+
+				// create TX packet
+				tx_packet.marker = PACKET_MARKER;                                         // packet start marker
+				memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
+
+				#ifdef UART_BIG_ENDIAN
+					// make the packet values BIG endian
+					// though the receivng end (your PC etc) is the one that needs to be dealing with this, not us
+
+					tx_packet.marker = __builtin_bswap32(tx_packet.marker);
+
+					uint32_t *pd = (uint32_t *)tx_packet.data;
+					for (unsigned int i = 0; i < (sizeof(adc_data) / sizeof(uint32_t)); i++, pd++)
+						*pd = __builtin_bswap32(*pd);
+				#endif
+
+				tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
+
+				#ifdef UART_BIG_ENDIAN
+					// make the packet CRC little endian
+					tx_packet.crc = __builtin_bswap16(tx_packet.crc);
+				#endif
+
+				#if 0
+					// start sending the packet (wait here for upto 200ms until it does start)
+					const uint32_t tick = HAL_GetTick();
+					while (HAL_BUSY == HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet)) && (HAL_GetTick() - tick) < 200)
+						__WFI();    // wait until next interrupt occurs
+				#else
+					// don't hang around here waiting, if the UART/DMA is still busy then forget sending it on this run
+					HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet));
+				#endif
+			#endif
+		}
+	}
+}
+
+void process_op_mode(void)
+{
+	switch (op_mode)
+	{
+		default:
+		case OP_MODE_MEASURING:                // normal measurement mode
+			break;
+
+		case OP_MODE_OPEN_PROBE_CALIBRATION:   // doing an OPEN probe calibration
+		{
+			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
+				calibrate.mag_sum[i] += mag_rms[i];
+
+			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
+			{
+				const float phase_rad = phase_deg[i] * DEG_TO_RAD;
+				calibrate.phase_sum[i].re += cosf(phase_rad);
+				calibrate.phase_sum[i].im += sinf(phase_rad);
+			}
+
+			save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
+
+			if (++calibrate.count >= CALIBRATE_COUNT)
+			{
+				const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+
+				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
+					settings.open_probe_calibration[index].mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
+
+				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
+					settings.open_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
+
+				settings.open_probe_calibration[index].done = 1;
+
+				if (index == 0)
+				{	// do the same again but at the next measurement frequency
+		
+					memset(&calibrate, 0, sizeof(calibrate));
+					calibrate.Hz = 1000;
+				}
+				else
+				{	// done
+		
+					// restore original measurement frequency
+					set_measurement_frequency(settings.measurement_Hz);
+
+					op_mode = OP_MODE_MEASURING;
+				}
+
+				draw_screen(1);
+			}
+
+			break;
+		}
+
+		case OP_MODE_SHORTED_PROBE_CALIBRATION:   // doing a SHORTED probe calibration
+		{
+			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
+				calibrate.mag_sum[i] += mag_rms[i];
+
+			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
+			{
+				const float phase_rad = phase_deg[i] * DEG_TO_RAD;
+				calibrate.phase_sum[i].re += cosf(phase_rad);
+				calibrate.phase_sum[i].im += sinf(phase_rad);
+			}
+
+			save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
+
+			if (++calibrate.count >= CALIBRATE_COUNT)
+			{
+				const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+
+				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
+					settings.shorted_probe_calibration[index].mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
+
+				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
+					settings.shorted_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
+
+				settings.shorted_probe_calibration[index].done = 1;
+
+				if (index == 0)
+				{	// do the same again but at the next measurement frequency
+				
+					memset(&calibrate, 0, sizeof(calibrate));
+					calibrate.Hz = 1000;
+				}
+				else
+				{	// done
+		
+					// restore original measurement frequency
+					set_measurement_frequency(settings.measurement_Hz);
+
+					op_mode = OP_MODE_MEASURING;
+				}
+
+				draw_screen(1);
+			}
+
+			break;
+		}
+	}
+}
+
 // ***********************************************************
 
 int main(void)
@@ -2307,7 +2477,7 @@ int main(void)
 	ADC_init();
 
 	{	// setup the goertzel filter
-		const float normalized_freq = 2.0f / DMA_ADC_DATA_LENGTH;  // 2 cycles spanning the sample buffer
+		const float normalized_freq = 2.0f / ADC_DATA_LENGTH;  // 2 cycles spanning the sample buffer
 		goertzel_init(&goertzel, normalized_freq);
 	}
 
@@ -2378,189 +2548,23 @@ int main(void)
 
 		if (vi_measure_index >= VI_MODE_DONE)
 		{	// full measurement cycle is complete
-
-			// process the new sampled data
 			process_data();
-
-			// show it on screen
 			draw_screen(0);
+			process_uart_send();
+			process_op_mode();
 
-			if (settings.uart_all_print_dso)
-			{
-				const HAL_UART_StateTypeDef state = HAL_UART_GetState(&huart1);
-				if (state == HAL_UART_STATE_READY)
-				{	// the UART is available to use
-					//
-					// send the sampled data down the serial link
-
-					#ifdef MATLAB_SERIAL
-						// send as ASCII
-
-						const unsigned int cols = 8;
-						for (unsigned int i = 0; i < DMA_ADC_DATA_LENGTH; i++)
-						{
-							printf("%3u,", 1 + i);
-							for (unsigned int col = 0; col < (cols - 1); col++)
-								printf("%0.1f,", adc_data[col][i]);
-							printf("%0.1f\r\n", adc_data[col - 1][i]);
-						}
-					#else
-						// send as binary packet
-
-						// STM32's are little endian (data is LS-Byte 1st)
-						// the receiving end needs to take that into account when processing the rx'ed data
-						// your receiving app can use htons(), htonl(), ntohs(), ntohl() to swap endianness (if need be)
-
-						// create TX packet
-						tx_packet.marker = PACKET_MARKER;                                         // packet start marker
-						memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
-
-						#ifdef UART_BIG_ENDIAN
-							// make the packet values BIG endian
-							// though the receivng end (your PC etc) is the one that needs to be dealing with this, not us
-
-							tx_packet.marker = __builtin_bswap32(tx_packet.marker);
-
-							uint32_t *pd = (uint32_t *)tx_packet.data;
-							for (unsigned int i = 0; i < (sizeof(adc_data) / sizeof(uint32_t)); i++, pd++)
-								*pd = __builtin_bswap32(*pd);
-						#endif
-
-						tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
-
-						#ifdef UART_BIG_ENDIAN
-							// make the packet CRC little endian
-							tx_packet.crc = __builtin_bswap16(tx_packet.crc);
-						#endif
-
-						#if 0
-							// start sending the packet (wait here for upto 200ms until it does start)
-							const uint32_t tick = HAL_GetTick();
-							while (HAL_BUSY == HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet)) && (HAL_GetTick() - tick) < 200)
-								__WFI();    // wait until next interrupt occurs
-						#else
-							// don't hang around here waiting, if the UART/DMA is still busy then forget sending it on this run
-							HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet));
-						#endif
-					#endif
-				}
-			}
-
-			switch (op_mode)
-			{
-				default:
-				case OP_MODE_MEASURING:                // normal measurement mode
-					break;
-
-				case OP_MODE_OPEN_PROBE_CALIBRATION:   // doing an OPEN probe calibration
-				{
-					for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
-						calibrate.mag_sum[i] += mag_rms[i];
-
-					for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
-					{
-						const float phase_rad = phase_deg[i] * DEG_TO_RAD;
-						calibrate.phase_sum[i].re += cosf(phase_rad);
-						calibrate.phase_sum[i].im += sinf(phase_rad);
-					}
-
-					save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
-
-					if (++calibrate.count >= CALIBRATE_COUNT)
-					{
-
-						const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
-
-						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
-							settings.open_probe_calibration[index].mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
-
-						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
-							settings.open_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
-
-						settings.open_probe_calibration[index].done = 1;
-
-						if (index == 0)
-						{	// do the same again but at the next measurement frequency
-				
-							memset(&calibrate, 0, sizeof(calibrate));
-							calibrate.Hz = 1000;
-						}
-						else
-						{	// done
-		
-							// restore original measurement frequency
-							set_measurement_frequency(settings.measurement_Hz);
-
-							op_mode = OP_MODE_MEASURING;
-						}
-
-						draw_screen(1);
-					}
-
-					break;
-				}
-
-				case OP_MODE_SHORTED_PROBE_CALIBRATION:   // doing a SHORTED probe calibration
-				{
-					for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
-						calibrate.mag_sum[i] += mag_rms[i];
-
-					for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
-					{
-						const float phase_rad = phase_deg[i] * DEG_TO_RAD;
-						calibrate.phase_sum[i].re += cosf(phase_rad);
-						calibrate.phase_sum[i].im += sinf(phase_rad);
-					}
-
-					save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
-
-					if (++calibrate.count >= CALIBRATE_COUNT)
-					{
-						const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
-
-						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
-							settings.shorted_probe_calibration[index].mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
-
-						for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
-							settings.shorted_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
-
-						settings.shorted_probe_calibration[index].done = 1;
-
-						if (index == 0)
-						{	// do the same again but at the next measurement frequency
-				
-							memset(&calibrate, 0, sizeof(calibrate));
-							calibrate.Hz = 1000;
-						}
-						else
-						{	// done
-		
-							// restore original measurement frequency
-							set_measurement_frequency(settings.measurement_Hz);
-
-							op_mode = OP_MODE_MEASURING;
-						}
-
-						draw_screen(1);
-					}
-
-					break;
-				}
-			}
-
-			// start next data capture
-			vi_measure_index = 0;
+			vi_measure_index = 0;         // start next data capture
 		}
 		else
 		if (system_data.vi_measure_mode != prev_vi_measure_mode && draw_screen_count > 0)
 			draw_screen(0);
 
+		// save settings to flash if it's time too
 		if (save_settings_timer == 0)
 		{
 			if (write_settings() < 0)     // save settings to flash
 				write_settings();         // failed, have a 2nd go
-
-			save_settings_timer = -1;     // don't try saving again, until the next time
+			save_settings_timer = -1;     // don't try saving again (until the next time)
 		}
 
 		#ifdef USE_IWDG

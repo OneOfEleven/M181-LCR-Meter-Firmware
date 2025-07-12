@@ -38,11 +38,11 @@
 
 //#define MATLAB_SERIAL                             // use this to send UART data as ascii text (rather than binary packets)
 
-//#define UART_BAUDRATE                115200
-//#define UART_BAUDRATE                230400
-//#define UART_BAUDRATE                460800
+//#define UART_BAUDRATE              115200
+//#define UART_BAUDRATE              230400
+//#define UART_BAUDRATE              460800
 #define UART_BAUDRATE                921600
-//#define UART_BAUDRATE                1843200      // max rate the CH340N can do
+//#define UART_BAUDRATE              1843200      // max rate the CH340N can do
 
 //#define UART_BIG_ENDIAN                           // use this if you want your uart data sent in big endian order
 
@@ -50,7 +50,7 @@
 
 #define SETTINGS_MARKER              0x19961962     // 32-bit marker to indicate 'start of settings'
 
-#define DMA_ADC_DATA_LENGTH          128            // 2^n
+#define ADC_DATA_LENGTH              128            // 2^n
 
 #define DUAL_ADC_MODE                               // comment out to use single ADC dual channel mode
 
@@ -59,9 +59,9 @@
 
 #define DEFAULT_ADC_AVERAGE_COUNT    32             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
 
-//#define GOERTZEL_FILTER_LENGTH     0                          // don't Goertzel filter
-//#define GOERTZEL_FILTER_LENGTH      (DMA_ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
-#define GOERTZEL_FILTER_LENGTH     DMA_ADC_DATA_LENGTH        // max length filtering (takes slightly longer)
+//#define GOERTZEL_FILTER_LENGTH     0                      // don't Goertzel filter
+//#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 2)  // one sine cycle filter length, less filtering, but quicker than full filtering
+#define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH        // max length filtering (takes slightly longer)
 
 #define CALIBRATE_COUNT              10             // number of results to average when doing the open/short calibration
 
