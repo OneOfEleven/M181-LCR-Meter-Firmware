@@ -371,7 +371,9 @@ typedef struct {
 
 	float        esr;
 	float        tan_delta;
-	float        qf;
+	float        qf_ind;
+	float        qf_cap;
+	float        qf_res;
 } t_system_data;
 
 void Error_Handler(void);
