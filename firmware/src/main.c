@@ -132,6 +132,10 @@ unsigned int          adc_buffer_sum_count            = 0;                      
 t_comp                adc_dc_offset[8]    = {0};
 uint32_t              adc_dc_offset_count = 0;
 
+// raw ADC peak sample values for each V/I mode
+// this is to detect possible waveform clipping (ie, when in high gain mode)
+uint16_t              adc_buffer_max[4] = {0};
+
 #pragma pack(push, 1)
 float                 adc_data[8][ADC_DATA_LENGTH] = {0};
 #pragma pack(pop)
@@ -341,7 +345,7 @@ uint32_t find_last_good_settings(void)
 			{
 				//flash_addr     += block_size; // point to the next possible slot/block
 				flash_addr += sizeof(uint32_t); // scan the flash area 32-bit word by 32-bit word
-			}	
+			}
 		}
 		else
 		{
@@ -375,7 +379,7 @@ int write_settings(void)
 
 	// best to keep block size to a multiple of 32-bits
 	const uint32_t block_size = ((sizeof(t_settings) + sizeof(uint32_t) - 1) / sizeof(uint32_t)) * sizeof(uint32_t);
- 
+
 	// use this if flash page erase is required
 	FLASH_EraseInitTypeDef erase_init = {0};
 	erase_init.TypeErase   = FLASH_TYPEERASE_PAGES;
@@ -508,7 +512,7 @@ int write_settings(void)
 		HAL_FLASH_Lock();
 		return -5;
 	}
-	
+
 	HAL_FLASH_Lock();
 
 	// settings saved seem OK !
@@ -684,7 +688,7 @@ void set_measurement_frequency(const uint32_t Hz)
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
 			sine_table[i] = (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
-	
+
 	if (measurement_Hz > 0)
 	{	// set the timer rate
 		const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * measurement_Hz;
@@ -974,21 +978,35 @@ void process_data(void)
 
 	// stay with just LOW gain mode until we have the rest of the computation 100% working
 
-	// TODO:
-	// we need to check for sine wave clipping on the raw ADC samples (BEFORE the Goertzel filtering)
-	// we can then decide if using high gain samples is OK (or not)
+	{	// gain path decision
+		// use the high gain results ONLY if the high gain samples are NOT saturating (clipped)
+		//
+		// good way to detect waveform clipping is to create a histogram of the ADC raw sample values, then look for
+		// any obvious peaks in the histogram.
+		//
+		// any obvious sharp histogram peaks indicate several same valued samples, which of cause non-clipped sine waves don't have.
+		//
+		// the histogram only needs to be performed if the raw ADC sample magnitudes are approaching a level enough to maybe cause clipping
 
-//	const float threshold = 1700;
-	volt_gain_sel = 0;
-	amp_gain_sel  = 0;
-//	volt_gain_sel = (mag_rms[(volt_gain_sel * 4) + 2] <= threshold) ? 1 : 0;
-//	amp_gain_sel  = (mag_rms[(volt_gain_sel * 4) + 3] <= threshold) ? 1 : 0;
+		volt_gain_sel = 0;
+		amp_gain_sel  = 0;
+
+		// TODO:
+		// normal peak 12-bit ADC sample value is +-2047
+		// but the guy has used non-rail-to-rail OPAMP's which saturate well before reaching the OPAMP's supply line levels :(
+		//
+//		const float threshold = 1500;
+//		volt_gain_sel = (adc_buffer_max[(volt_gain_sel * 2) + 0] <= threshold) ? 1 : 0;
+//		amp_gain_sel  = (adc_buffer_max[(amp_gain_sel  * 2) + 1] <= threshold) ? 1 : 0;
+	}
 
 	// waveform amplitudes
 	system_data.rms_voltage_adc = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
 	system_data.rms_voltage_afc = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
 	system_data.rms_current_adc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
 	system_data.rms_current_afc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
+
+	// TODO: calibrate the 'high_gain' value by computing the actual gain from the calibration results
 
 	{	// scale according to which gain path is desired
 		const float   scale = 1.0f / high_gain;
@@ -1058,6 +1076,9 @@ void process_ADC(const void *buffer)
 
 		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
 
+		// reset the max value records
+		memset(adc_buffer_max, 0, sizeof(adc_buffer_max));
+
 		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);        // TEST only, LED on
 	}
 
@@ -1073,22 +1094,27 @@ void process_ADC(const void *buffer)
 	if (adc_buffer_sum_count >= skip_block_count)
 	{	// add the new sample block to the averaging buffer
 
-		if (vi_mode & 1u)
-		{	// invert the current (I) ADC waveform to counter-act the inverting OP-AMP
-			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-			{
-				adc_buffer_sum[i].adc -= adc_buffer[i].adc - 2048;
-				adc_buffer_sum[i].afc += adc_buffer[i].afc - 2048;
-			}
-		}
-		else
+		// invert the current (I) ADC waveform to counter-act the inverting OP-AMP stage
+		register const int16_t adc_sign = (vi_mode & 1u) ? -1 : 1;
+		register const int16_t afc_sign = 1;
+
+		// used to detect waveform clipping
+		// the AFC samples will never be clipped so no need to record those peaks
+		register uint16_t adc_max = adc_buffer_max[vi_mode];
+
+		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
-			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-			{
-				adc_buffer_sum[i].adc += adc_buffer[i].adc - 2048;
-				adc_buffer_sum[i].afc += adc_buffer[i].afc - 2048;
-			}
+			register const int16_t adc = (adc_buffer[i].adc - 2048) * adc_sign;
+			register const int16_t afc = (adc_buffer[i].afc - 2048) * afc_sign;
+
+			adc_buffer_sum[i].adc += adc;
+			adc_buffer_sum[i].afc += afc;
+
+			register const uint16_t val = (adc < 0) ? -adc : adc;   // abs()
+			adc_max = (val > adc_max) ? val : adc_max;
 		}
+
+		adc_buffer_max[vi_mode] = adc_max;
 	}
 
 	if (++adc_buffer_sum_count < (skip_block_count + adc_average_count))
@@ -1109,8 +1135,8 @@ void process_ADC(const void *buffer)
 
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
-			buf_adc[i] = adc_buffer_sum[i].adc * scale;        // averaged sample (saved as float)
-			buf_afc[i] = adc_buffer_sum[i].afc * scale;        //    "      "
+			buf_adc[i] = adc_buffer_sum[i].adc * scale;        // averaged sample
+			buf_afc[i] = adc_buffer_sum[i].afc * scale;        // averaged sample
 		}
 	}
 
@@ -1990,7 +2016,7 @@ void ADC_init(void)
 
 		if (HAL_ADCEx_Calibration_Start(&hadc2) != HAL_OK)
 			Error_Handler();
-		
+
 	#else
 		// single ADC dual channel mode
 
@@ -2351,13 +2377,13 @@ void process_op_mode(void)
 
 				if (index == 0)
 				{	// do the same again but at the next measurement frequency
-		
+
 					memset(&calibrate, 0, sizeof(calibrate));
 					calibrate.Hz = 1000;
 				}
 				else
 				{	// done
-		
+
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
 
@@ -2398,13 +2424,13 @@ void process_op_mode(void)
 
 				if (index == 0)
 				{	// do the same again but at the next measurement frequency
-				
+
 					memset(&calibrate, 0, sizeof(calibrate));
 					calibrate.Hz = 1000;
 				}
 				else
 				{	// done
-		
+
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
 
