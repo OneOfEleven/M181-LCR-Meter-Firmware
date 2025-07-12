@@ -1081,7 +1081,7 @@ void process_data(void)
 		system_data.rms_current_adc *= i_scale;
 		system_data.rms_current_afc *= i_scale;
 	}
-	
+
 	system_data.impedance         = system_data.rms_voltage_adc / system_data.rms_current_adc;
 	//
 	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
@@ -1097,17 +1097,17 @@ void process_data(void)
 	const float cs           = cosf(vi_phase_rad);
 	const float sn           = sinf(vi_phase_rad);
 
-	const float resistive    = system_data.impedance * fabsf(cs);    // R
-	const float reactance    = system_data.impedance * fabsf(sn);    // X
+	const float resistive    = system_data.impedance * fabsf(cs);        // R
+	const float reactance    = system_data.impedance * fabsf(sn);        // X
 
-	const float inductance   = reactance / omega;                    // L = X / ω
-	const float capacitance  = 1.0f / (omega * reactance);           // C = 1 / (ωX)
-	const float esr          = resistive;
-	const float tan_delta    = resistive / reactance;
+	const float inductance   = reactance / omega;                        // L = X / ω
+	const float capacitance  = 1.0f / (omega * reactance);               // C = 1 / (ωX)
+	const float esr          = resistive;                                // R
+	const float tan_delta    = resistive / reactance;                    // D
 
 	const float qf_ind       = (omega * inductance) / resistive;         // Q = (ωL) / R
-	const float qf_cap       = 1.0f / (omega * capacitance * resistive);
-	const float qf_res       = reactance / resistive;                    // or 1/D
+	const float qf_cap       = 1.0f / (omega * capacitance * resistive); // Q = 1 / (ωCR)
+	const float qf_res       = reactance / resistive;                    // Q = X / R or 1 / D
 
 	system_data.inductance   = inductance;
 	system_data.capacitance  = capacitance;
@@ -1557,6 +1557,7 @@ void draw_screen(const uint8_t full_update)
 						// Line 3: Q
 
 						float value = 0;
+
 						switch (settings.lcr_mode)
 						{
 							case LCR_MODE_INDUCTANCE:
@@ -1569,8 +1570,12 @@ void draw_screen(const uint8_t full_update)
 								value = system_data.qf_res;
 								break;
 						}
-						ssd1306_SetCursor(val31_x, line3_y);
-						snprintf(buffer_display, sizeof(buffer_display), "Q  %0.4f", value);
+
+						ssd1306_SetCursor(val41_x, line3_y);
+						ssd1306_WriteString("Q  ", Font_7x10, White);
+
+						ssd1306_SetCursor(val42_x, line3_y);
+						snprintf(buffer_display, sizeof(buffer_display), "%0.3f", value);
 						ssd1306_WriteString(buffer_display, Font_7x10, White);
 					}
 					#endif
