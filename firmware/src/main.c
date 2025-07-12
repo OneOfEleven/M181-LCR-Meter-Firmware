@@ -117,6 +117,7 @@ struct {
 
 unsigned int          volt_gain_sel = 0;
 unsigned int          amp_gain_sel  = 0;
+float                 high_gain     = 101;
 
 // ADC DMA sample buffer
 t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];      // *2 for DMA double buffering (ADC/DMA is continuously running)
@@ -970,60 +971,61 @@ void process_data(void)
 //	combine_afc(1, &current_afc_mag_rms, &current_afc_deg);
 
 	// *********************
-	// automatic gain selection
 
-	// ignore the gain - for now
 	// stay with just LOW gain mode until we have the rest of the computation 100% working
 
-//	const float threshold = 50;
+	// TODO:
+	// we need to check for sine wave clipping on the raw ADC samples (BEFORE the Goertzel filtering)
+	// we can then decide if using high gain samples is OK (or not)
+
+//	const float threshold = 1700;
 	volt_gain_sel = 0;
 	amp_gain_sel  = 0;
-//	volt_gain_sel = (mag_rms[(volt_gain_sel * 4) + 0] <= threshold) ? 1 : 0;
-//	amp_gain_sel  = (mag_rms[(volt_gain_sel * 4) + 2] <= threshold) ? 1 : 0;
+//	volt_gain_sel = (mag_rms[(volt_gain_sel * 4) + 2] <= threshold) ? 1 : 0;
+//	amp_gain_sel  = (mag_rms[(volt_gain_sel * 4) + 3] <= threshold) ? 1 : 0;
 
 	// waveform amplitudes
-	system_data.rms_voltage     = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
-	system_data.rms_afc_volt    = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
-	system_data.rms_current     = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
-	system_data.rms_afc_current = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
+	system_data.rms_voltage_adc = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
+	system_data.rms_voltage_afc = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
+	system_data.rms_current_adc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
+	system_data.rms_current_afc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
 
-	// *********************
-	// compute the impedance of the DUT
+	{	// scale according to which gain path is desired
+		const float   scale = 1.0f / high_gain;
+		const float v_scale = volt_gain_sel ? scale : 1.0f;
+		const float i_scale = amp_gain_sel  ? scale : 1.0f;
+		system_data.rms_voltage_adc *= v_scale;
+		system_data.rms_voltage_afc *= v_scale;
+		system_data.rms_current_adc *= i_scale;
+		system_data.rms_current_afc *= i_scale;
+	}
 
-	system_data.impedance = system_data.rms_voltage / system_data.rms_current;
-
-	// applying the correction Factor
-	//
-	// TODO: automatically (calibrate) measure the opamp gain on each of the two gain paths
-
-//	system_data.impedance = volt_gain_sel ? system_data.impedance / 101 : system_data.impedance;
-//	system_data.impedance = amp_gain_sel  ? system_data.impedance * 101 : system_data.impedance;
-
-	// **************************
-
-	system_data.voltage_phase = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);
-	system_data.current_phase = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);
-
-	system_data.vi_phase = phase_diff(system_data.voltage_phase, system_data.current_phase);
+	system_data.impedance         = system_data.rms_voltage_adc / system_data.rms_current_adc;
+	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);
+	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);
+	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);
 
 	// **************************
 
-	const float omega      = (float)(2.0 * M_PI) * measurement_Hz;          // angular frequency in rad/s
+	const float omega        = (float)(2 * M_PI) * measurement_Hz;          // angular frequency in rad/s
 
-	const float phase_rad  = system_data.vi_phase * DEG_TO_RAD;
-	const float resistive  = system_data.impedance * fabsf(cosf(phase_rad));
-	const float reactance  = system_data.impedance * fabsf(sinf(phase_rad));
+	const float vi_phase_rad = system_data.vi_phase_deg * DEG_TO_RAD;
+	const float cs           = cosf(vi_phase_rad);
+	const float sn           = sinf(vi_phase_rad);
 
-	const float inductance  = reactance / omega;                            // L = X / ω
-	const float capacitance = 1.0f / (omega * reactance);                   // C = 1 / (ωX)
-	const float esr         = resistive;
-	const float tan_delta   = resistive / reactance;
+	const float resistive    = system_data.impedance * fabsf(cs);           // R
+	const float reactance    = system_data.impedance * fabsf(sn);           // X
 
-	system_data.inductance  = inductance;
-	system_data.capacitance = capacitance;
-	system_data.resistance  = system_data.impedance;
-	system_data.esr         = esr;
-	system_data.tan_delta   = tan_delta;
+	const float inductance   = reactance / omega;                           // L = X / ω
+	const float capacitance  = 1.0f / (omega * reactance);                  // C = 1 / (ωX)
+	const float esr          = resistive;
+	const float tan_delta    = resistive / reactance;
+
+	system_data.inductance   = inductance;
+	system_data.capacitance  = capacitance;
+	system_data.resistance   = system_data.impedance;
+	system_data.esr          = esr;
+	system_data.tan_delta    = tan_delta;
 
 	// Unit conversion for capacitance, inductance, and resistance
 	system_data.unit_capacitance = unit_conversion(&system_data.capacitance);
@@ -1140,24 +1142,24 @@ void print_sprint(const unsigned int digit, const float value, char *output_char
 {
     if (digit == 4)
     {
-        if (value < 10.0f)
-            sprintf(output_char, "%.3f", value); // 1.234
+        if (value < 10)
+            sprintf(output_char, "%4.3f", value); // 1.234
         else
-		if (value < 100.0f)
-            sprintf(output_char, "%.2f", value); // 12.34
+		if (value < 100)
+            sprintf(output_char, "%4.2f", value); // 12.34
         else
-		if (value < 1000.0f)
-            sprintf(output_char, "%.1f", value); // 123.4
+		if (value < 1000)
+            sprintf(output_char, "%4.1f", value); // 123.4
         else
-            sprintf(output_char, "%.0f", value); // 1234 (no dp)
+            sprintf(output_char, "%4.0f", value); // 1234 (no dp)
     }
     else
 	if (digit == 2)
     {
-        if (value < 10.0f)
-            sprintf(output_char, "%.1f'", value); // 1.2
+        if (value < 10)
+            sprintf(output_char, "%2.1f", value); // 1.2
         else
-            sprintf(output_char, "%.0f'", value); // 12 (no dp)
+            sprintf(output_char, "%2.0f", value); // 12 (no dp)
     }
 }
 void print_custom_symbol(const unsigned int startX, const unsigned int startY, const uint16_t symbol[], const unsigned int symbolWidth, const unsigned int symbolHeight)
@@ -1450,17 +1452,17 @@ void draw_screen(const uint8_t full_update)
 					ssd1306_WriteString(buffer_display, Font_11x18, White);
 
 					ssd1306_SetCursor(val24_x, line2_y + 4);
-					print_sprint(4, system_data.vi_phase, buffer_display);
+					print_sprint(4, system_data.vi_phase_deg, buffer_display);
 					ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 					// Line 3: Voltage and Current reading
 
 					ssd1306_SetCursor(val32_x, line3_y);
-					sprintf(buffer_display, "%.3f", (system_data.rms_voltage >= 0) ? system_data.rms_voltage : 0);
+					sprintf(buffer_display, "%.3f", (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0);
 					ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 					ssd1306_SetCursor(val34_x, line3_y);
-					sprintf(buffer_display, "%.3f", (system_data.rms_current >= 0) ? system_data.rms_current : 0);
+					sprintf(buffer_display, "%.3f", (system_data.rms_current_afc >= 0) ? system_data.rms_current_afc : 0);
 					ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 					switch (settings.lcr_mode)
@@ -2494,22 +2496,29 @@ int main(void)
 
 	printf("\r\nrebooted m181 LCR Meter v%.2f\r\n", FW_VERSION);
 
-	{	// wait till all buttons have been released for at least 500ms
-		uint32_t tick = HAL_GetTick();
-		do {
+	{	// wait until all buttons have been released for at least 500ms
+		uint32_t butt_tick = HAL_GetTick();
+
+		while (1)
+		{
 			__WFI();
+
+			const uint32_t tick = HAL_GetTick();
 
 			for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
 				if (button[i].debounce > 0)
-					tick = HAL_GetTick();
+					butt_tick = tick;
+
+			if ((tick - butt_tick) >= 500)
+				break;
 
 			#ifdef USE_IWDG
 				// feed the dog
 				service_IWDG(0);
 			#endif
-		} while ((HAL_GetTick() - tick) < 500);
+		}
 
-		// clear button pressed info
+		// clear any butt press info
 		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
 		{
 			button[i].debounce     = 0;
@@ -2547,7 +2556,8 @@ int main(void)
 		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 
 		if (vi_measure_index >= VI_MODE_DONE)
-		{	// full measurement cycle is complete
+		{	// completed another full measurement cycle
+
 			process_data();
 			draw_screen(0);
 			process_uart_send();

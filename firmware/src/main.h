@@ -346,21 +346,28 @@ typedef struct {
 
 typedef struct {
 	unsigned int vi_measure_mode;
-	float        rms_voltage;
-	float        rms_afc_volt;
-	float        rms_current;
-	float        rms_afc_current;
-	float        voltage_phase;
-	float        current_phase;
-	float        vi_phase;
+
+	float        rms_voltage_adc;
+	float        rms_voltage_afc;
+	float        rms_current_adc;
+	float        rms_current_afc;
+
+	float        impedance;
+
+	float        voltage_phase_deg;
+	float        current_phase_deg;
+
+	float        vi_phase_deg;
+
 	float        capacitance;
 	float        inductance;
 	float        resistance;
+
 	int          unit_capacitance;
 	int          unit_inductance;
 	int          unit_resistance;
 	int          unit_esr;
-	float        impedance;
+
 	float        esr;
 	float        tan_delta;
 	float        qf;
