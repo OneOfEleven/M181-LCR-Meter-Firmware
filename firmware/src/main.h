@@ -315,6 +315,9 @@ enum {
 	VI_MODE_DONE
 };
 
+#define SETTING_FLAG_UART_DSO    (1u << 0)
+#define SETTING_FLAG_PARALLEL    (1u << 1)
+
 // this structure will be stored in flash (emulated EEPROM) so as to remember various things for the user
 //
 #pragma pack(push, 1)
@@ -323,7 +326,7 @@ typedef struct {
 
 	uint16_t     measurement_Hz;      // the sine wave measurement frequency the user is using
 	uint8_t      lcr_mode;            // the LCR mode the user is using
-	uint8_t      uart_all_print_dso;  // set to '1' to enable sending all sampled ADC data down the serial port
+	uint8_t      flags;
 
 	struct {
 		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode

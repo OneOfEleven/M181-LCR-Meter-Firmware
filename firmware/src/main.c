@@ -1412,7 +1412,7 @@ void draw_screen(const uint8_t full_update)
 	const uint8_t val41_x = offset_x;
 	const uint8_t val42_x = 20;
 	const uint8_t val43_x = 62;
-	const uint8_t val44_x = 75;
+//	const uint8_t val44_x = 75;
 	const uint8_t val45_x = SSD1306_WIDTH - 8;
 
 	if (draw_screen_count == 0 || full_update)
@@ -1424,7 +1424,10 @@ void draw_screen(const uint8_t full_update)
 		// Line 1
 
 		ssd1306_SetCursor(val1_x, line1_y);
-		ssd1306_WriteString("SER", Font_7x10, White);
+		if (settings.flags & SETTING_FLAG_PARALLEL)
+			ssd1306_WriteString("PAR", Font_7x10, White);
+		else
+			ssd1306_WriteString("SER", Font_7x10, White);
 
 		#if 0
 			ssd1306_SetCursor(val4_x, line1_y);
@@ -1800,7 +1803,7 @@ void draw_screen(const uint8_t full_update)
 		// Line 4: UART mode
 
 		ssd1306_SetCursor(val45_x, line4_y);
-		snprintf(buffer_display, sizeof(buffer_display), settings.uart_all_print_dso ? "U" : " ");       // ON/OFF
+		snprintf(buffer_display, sizeof(buffer_display), (settings.flags & SETTING_FLAG_UART_DSO) ? "U" : " ");       // ON/OFF
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 		// ***************************
@@ -2464,7 +2467,7 @@ void process_buttons(void)
 
 
 			// toggle UART data
-			settings.uart_all_print_dso = (1u - settings.uart_all_print_dso) & 1u;
+			settings.flags ^= SETTING_FLAG_UART_DSO;
 
 		}
 
@@ -2488,6 +2491,8 @@ void process_buttons(void)
 
 
 			// TODO: Serial/Parallel
+			
+			//settings.flags ^= SETTING_FLAG_PARALLEL;    // toggle Serial/Parallel display
 
 
 			// cycle the frequency
@@ -2542,7 +2547,7 @@ void process_buttons(void)
 
 void process_uart_send(void)
 {
-	if (settings.uart_all_print_dso)
+	if (settings.flags & SETTING_FLAG_UART_DSO)
 	{
 		const HAL_UART_StateTypeDef state = HAL_UART_GetState(&huart1);
 		if (state == HAL_UART_STATE_READY)
@@ -2756,8 +2761,8 @@ int main(void)
 //	settings.lcr_mode           = LCR_MODE_INDUCTANCE;
 //	settings.lcr_mode           = LCR_MODE_CAPACITANCE;
 	settings.lcr_mode           = LCR_MODE_RESISTANCE;
-//	settings.uart_all_print_dso = 0;
-	settings.uart_all_print_dso = 1;   // send ADC data via the serial port
+//	settings.flags              = 0;
+	settings.flags             |= SETTING_FLAG_UART_DSO;   // send ADC data via the serial port
 
 	DWT_Delay_Init();
 	HAL_Init();

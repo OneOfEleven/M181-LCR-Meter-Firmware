@@ -1,4 +1,4 @@
-## Goals
+## Goal
    To develop custom firmware for the M181 LCR Meter made by JyeTech.
 
    The original firmware is somewhat dire (at the time of writing this), it totally ignores any user input (buttons) after about a minute of being powered up.
