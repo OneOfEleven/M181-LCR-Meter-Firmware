@@ -62,9 +62,39 @@ typedef struct {
 	};
 } t_packet;
 #pragma pack(pop)
-
-static const uint16_t omega_7x10[10] = {
-	0x001C, 0x0022, 0x0041, 0x0041, 0x0041, 0x0041, 0x0022, 0x001C, 0x0014, 0x0022
+/*
+static const uint16_t omega_7x10[] = {
+	0b0011100,       // 1
+	0b0100010,       // 2
+	0b1000001,       // 3
+	0b1000001,       // 4
+	0b1000001,       // 5
+	0b1000001,       // 6
+	0b0100010,       // 7
+	0b0011100,       // 8
+	0b0010100,       // 9
+	0b0100010        // 10
+};
+*/
+static const uint16_t omega_11x18[] = {
+	0b00000000000,   // 1
+	0b00000000000,   // 2
+	0b00000000000,   // 3
+	0b00000000000,   // 4
+	0b00000000000,   // 5
+	0b00011111000,   // 6
+	0b00111111100,   // 7
+	0b01110001110,   // 8
+	0b11000000011,   // 9
+	0b11000000011,   // 10
+	0b11000000011,   // 11
+	0b11000000011,   // 12
+	0b01100000110,   // 13
+	0b00110001100,   // 14
+	0b00011011000,   // 15
+	0b00111011100,   // 16
+	0b11110001111,   // 17
+	0b11110001111    // 18
 };
 
 #if defined(USE_IWDG) && defined(HAL_IWDG_MODULE_ENABLED)
@@ -608,6 +638,11 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 
 int unit_conversion(float *value)
 {
+	if (*value == 0.0f)
+	{	// leave as is
+		return 0;
+	}
+
 	if (*value < 1e-12f)
 	{	// femto
 		*value *= 1e15f;
@@ -1340,7 +1375,7 @@ void draw_screen(const uint8_t full_update)
 	const uint8_t val1_x  = offset_x;
 	const uint8_t val2_x  = 36;
 //	const uint8_t val3_x  = 59;
-	const uint8_t val4_x  = 92;
+//	const uint8_t val4_x  = 92;
 
 	#ifdef DRAW_LINES
 		const uint8_t line2_y = line_spacing_y + 4;  // with horizontal lines
@@ -1348,8 +1383,8 @@ void draw_screen(const uint8_t full_update)
 		const uint8_t line2_y = line_spacing_y + 3;  // no horizontal lines
 	#endif
 	uint8_t       val21_x = offset_x;
-	const uint8_t val22_x = 22;
-	const uint8_t val23_x = 79;
+//	const uint8_t val22_x = 22;
+//	const uint8_t val23_x = 79;
 	const uint8_t val24_x = 104;
 
 	#ifdef DRAW_LINES
@@ -1359,7 +1394,7 @@ void draw_screen(const uint8_t full_update)
 	#endif
 	uint8_t       val31_x = offset_x;
 	const uint8_t val33_x = 62;
-	const uint8_t val35_x = SSD1306_WIDTH - 8;
+//	const uint8_t val35_x = SSD1306_WIDTH - 8;
 
 	const uint8_t line4_y = line3_y + line_spacing_y;
 	const uint8_t val41_x = offset_x;
@@ -1426,6 +1461,7 @@ void draw_screen(const uint8_t full_update)
 
 	if (vi_measure_index >= VI_MODE_DONE || full_update)
 	{
+		// ***************************
 		// Line 1: Frequency display
 
 		ssd1306_SetCursor(val2_x, line1_y);
@@ -1435,6 +1471,7 @@ void draw_screen(const uint8_t full_update)
 			snprintf(buffer_display, sizeof(buffer_display), "%2u kHz", measurement_Hz / 1000);
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
+		// ***************************
 		// Line 2: Mode
 
 		switch (op_mode)
@@ -1442,7 +1479,7 @@ void draw_screen(const uint8_t full_update)
 			default:
 			case OP_MODE_MEASURING:
 				{
-					float value;
+					float value = 0;
 
 					switch (settings.lcr_mode)
 					{
@@ -1463,22 +1500,22 @@ void draw_screen(const uint8_t full_update)
 
 						case LCR_MODE_AUTO:
 							// TODO:
-							break;					
-
-						default:
-							value = 0;
 							break;
 					}
+
+					const int units = unit_conversion(&value);
+
 					ssd1306_SetCursor(val21_x, line2_y);
 					ssd1306_WriteString(buffer_display, Font_11x18, White);
 
-					// Line 2: unit display
+					//ssd1306_SetCursor(val22_x, line2_y);
+					print_sprint(4, value, buffer_display, sizeof(buffer_display));
+					ssd1306_WriteString(buffer_display, Font_11x18, White);
 
 					switch (settings.lcr_mode)
 					{
 						case LCR_MODE_INDUCTANCE:
 						{
-							const int units = unit_conversion(&value);
 							#if 1
 								if (units <= -9)
 									snprintf(buffer_display, sizeof(buffer_display), "nH");
@@ -1494,7 +1531,7 @@ void draw_screen(const uint8_t full_update)
 								sprintf(buffer_display, "%2d", system_data.unit_inductance);  // TEST
 							#endif
 
-							ssd1306_SetCursor(val23_x, line2_y);
+							//ssd1306_SetCursor(val23_x, line2_y);
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
 						}
@@ -1520,7 +1557,7 @@ void draw_screen(const uint8_t full_update)
 								snprintf(buffer_display, sizeof(buffer_display), "%2d", units);  // TEST
 							#endif
 
-							ssd1306_SetCursor(val23_x, line2_y);
+							//ssd1306_SetCursor(val23_x, line2_y);
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
 						}
@@ -1542,32 +1579,38 @@ void draw_screen(const uint8_t full_update)
 									snprintf(buffer_display, sizeof(buffer_display), "M");
 								else
 									snprintf(buffer_display, sizeof(buffer_display), "G");
-								print_custom_symbol(val23_x + 7, line2_y + 4, omega_7x10, 7, 10);
 							#else
 								snprintf(buffer_display, sizeof(buffer_display), "%2d", system_data.unit_resistance);  // TEST
 							#endif
 
-							ssd1306_SetCursor(val23_x, line2_y + 4);
+							//ssd1306_SetCursor(val23_x, line2_y + 4);
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+							uint8_t x;
+							uint8_t y;
+							ssd1306_GetCursor(&x, &y);
+							//print_custom_symbol(val23_x + 7, line2_y + 4, omega_7x10, 7, 10);
+							print_custom_symbol(x, line2_y - 3, omega_11x18, 11, 18);
+
 							break;
 						}
 
 						case LCR_MODE_AUTO:
 						{
-							break;					
+							break;
 						}
 					}
 
-					ssd1306_SetCursor(val22_x, line2_y);
-					print_sprint(4, value, buffer_display, sizeof(buffer_display));
-					ssd1306_WriteString(buffer_display, Font_11x18, White);
+					#if 0
+						ssd1306_SetCursor(val24_x, line2_y + 4);
+						print_sprint(4, system_data.vi_phase_deg, buffer_display, sizeof(buffer_display));
+						ssd1306_WriteString(buffer_display, Font_7x10, White);
+					#endif
 
-					ssd1306_SetCursor(val24_x, line2_y + 4);
-					print_sprint(4, system_data.vi_phase_deg, buffer_display, sizeof(buffer_display));
-					ssd1306_WriteString(buffer_display, Font_7x10, White);
+					// ***************************
+					// Line 3:
 
 					# if 1
-					{	// Line 3: Voltage and Current reading
 
 						{	// voltage
 							float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
@@ -1616,9 +1659,9 @@ void draw_screen(const uint8_t full_update)
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							#endif
 						}
-					}
+
 					#else
-					{	// Line 3: Quality factor
+					{	// Quality factor
 
 						float value = 0;
 
@@ -1647,11 +1690,15 @@ void draw_screen(const uint8_t full_update)
 					}
 					#endif
 
+					// ***************************
+					// Line 4
+
 					switch (settings.lcr_mode)
 					{
 						case LCR_MODE_INDUCTANCE:
 						case LCR_MODE_CAPACITANCE:
-							// Line 4: ESR and Tan Delta
+
+							// ESR
 
 							ssd1306_SetCursor(val41_x, line4_y);
 							ssd1306_WriteString("ER ", Font_7x10, White);
@@ -1659,6 +1706,8 @@ void draw_screen(const uint8_t full_update)
 							ssd1306_SetCursor(val42_x, line4_y);
 							print_sprint(4, system_data.esr, buffer_display, sizeof(buffer_display));
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+							// Tan Delta
 
 							ssd1306_SetCursor(val43_x, line4_y);
 							ssd1306_WriteString("D  ", Font_7x10, White);
@@ -1670,10 +1719,46 @@ void draw_screen(const uint8_t full_update)
 							break;
 
 						case LCR_MODE_RESISTANCE:
+
+							{	// Quality factor
+
+								ssd1306_SetCursor(val41_x, line4_y);
+								ssd1306_WriteString("Q ", Font_7x10, White);
+
+								print_sprint(4, system_data.qf_res, buffer_display, sizeof(buffer_display));
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+							}
+
+							{	// inductance
+
+								float value = system_data.inductance;
+								const int units = unit_conversion(&value);
+
+								ssd1306_SetCursor(val43_x, line4_y);
+
+								print_sprint(4, value, buffer_display, sizeof(buffer_display));
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+								if (units <= -9)
+									snprintf(buffer_display, sizeof(buffer_display), "nH");
+								else
+								if (units == -6)
+									snprintf(buffer_display, sizeof(buffer_display), "uH");
+								else
+								if (units == -3)
+									snprintf(buffer_display, sizeof(buffer_display), "mH");
+								else
+									snprintf(buffer_display, sizeof(buffer_display), "H ");
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+							}
+
 							break;
 
 						case LCR_MODE_AUTO:
-							break;					}
+							break;
+					}
+
+					// ***************************
 				}
 
 				break;
@@ -1707,18 +1792,27 @@ void draw_screen(const uint8_t full_update)
 				break;
 		}
 
+		// ***************************
 		// Line 4: UART Mode
 
 		ssd1306_SetCursor(val45_x, line4_y);
 		snprintf(buffer_display, sizeof(buffer_display), settings.uart_all_print_dso ? "U" : " ");       // ON/OFF
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+		// ***************************
 	}
 
+	// ***************************
 	// Line 3: status
 
-	ssd1306_SetCursor(val35_x, line3_y);
-	snprintf(buffer_display, sizeof(buffer_display), "%u", system_data.vi_measure_mode);
-	ssd1306_WriteString(buffer_display, Font_7x10, White);
+	#if 0
+		ssd1306_SetCursor(val35_x, line3_y);
+		snprintf(buffer_display, sizeof(buffer_display), "%u", system_data.vi_measure_mode);
+		ssd1306_WriteString(buffer_display, Font_7x10, White);
+	#endif
+
+	// ***************************
+	// send the display buffer to the screen
 
 	ssd1306_UpdateScreen();
 
@@ -2429,7 +2523,7 @@ void process_buttons(void)
 		{
 			// cycle through the LCR modes
 			unsigned int mode = settings.lcr_mode;
-			//if (++mode > LCR_MODE_AUTO)               // TODO:      
+			//if (++mode > LCR_MODE_AUTO)               // TODO:
 			if (++mode > LCR_MODE_RESISTANCE)
 				mode = LCR_MODE_INDUCTANCE;
 			settings.lcr_mode = mode;
