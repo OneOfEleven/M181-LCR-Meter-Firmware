@@ -3,7 +3,7 @@
 
    The original firmware is somewhat dire (at the time of writing this), it totally ignores any user input (buttons) after about a minute of being powered up.
 
-## Original firmware source
+## Original auther of this custom open source firmware
 - Jaishankar M .. https://github.com/Jaishankar872/LCR_Meter_Proto_M181
 
 ## Hardware - M181 LCR Meter

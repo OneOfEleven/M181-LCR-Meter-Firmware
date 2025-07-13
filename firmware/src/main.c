@@ -1533,6 +1533,7 @@ void draw_screen(const uint8_t full_update)
 							if (unit != ' ')
 								buffer_display[i++] = unit;
 							buffer_display[i++] = 'H';
+							buffer_display[i++] = ' ';
 							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
@@ -1544,6 +1545,7 @@ void draw_screen(const uint8_t full_update)
 							if (unit != ' ')
 								buffer_display[i++] = unit;
 							buffer_display[i++] = 'F';
+							buffer_display[i++] = ' ';
 							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
@@ -1554,6 +1556,7 @@ void draw_screen(const uint8_t full_update)
 							unsigned int i = 0;
 							if (unit != ' ')
 								buffer_display[i++] = unit;
+							buffer_display[i++] = ' ';
 							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
 
@@ -2491,7 +2494,7 @@ void process_buttons(void)
 
 
 			// TODO: Serial/Parallel
-			
+
 			//settings.flags ^= SETTING_FLAG_PARALLEL;    // toggle Serial/Parallel display
 
 
