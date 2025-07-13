@@ -636,73 +636,63 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 // ***********************************************************
 // DSP stuff
 
-int unit_conversion(float *value, char *unit)
+char  unit_conversion(float *value)
 {
 	if (*value == 0.0f)
 	{	// leave as is
-		*unit = ' ';
-		return 0;
+		return ' ';
 	}
 
 	if (*value < 1e-12f)
 	{	// femto
 		*value *= 1e15f;
-		*unit = 'f';
-		return -15;
+		return 'f';
 	}
 
 	if (*value < 1e-9f)
 	{	// pico
 		*value *= 1e12f;
-		*unit = 'p';
-		return -12;
+		return 'p';
 	}
 
 	if (*value < 1e-6f)
 	{	// nano
 		*value *= 1e9f;
-		*unit = 'n';
-		return -9;
+		return 'p';
 	}
 
 	if (*value < 1e-3f)
 	{	// micro
 		*value *= 1e6f;
-		*unit = 'u';
-		return -6;
+		return 'u';
 	}
 
 	if (*value < 1e0f)
 	{	// milli
 		*value *= 1e3f;
-		*unit = 'm';
-		return -3;
+		return 'm';
 	}
 
 	if (*value < 1e3f)
 	{	// unit
-		*unit = ' ';
-		return 0;
+		return ' ';
 	}
 
 	if (*value < 1e6f)
 	{	// kilo
 		*value *= 1e-3f;
-		*unit = 'k';
-		return 3;
+		return 'k';
 	}
 
 	if (*value < 1e9f)
 	{	// Mega
 		*value *= 1e-6f;
-		*unit = 'M';
-		return 6;
+		return 'M';
 	}
 
 	// Giga
 	*value *= 1e-9f;
-	*unit = 'G';
-	return 9;
+	return 'G';
 }
 
 void set_measurement_frequency(const uint32_t Hz)
@@ -1407,7 +1397,7 @@ void draw_screen(const uint8_t full_update)
 	uint8_t       val21_x = offset_x;
 //	const uint8_t val22_x = 22;
 //	const uint8_t val23_x = 79;
-	const uint8_t val24_x = 104;
+//	const uint8_t val24_x = 104;
 
 	#ifdef DRAW_LINES
 		const uint8_t line3_y = 10 + line2_y + 0 + line_spacing_y;  // with horizontal lines
@@ -1476,7 +1466,7 @@ void draw_screen(const uint8_t full_update)
 	if (vi_measure_index >= VI_MODE_DONE || full_update)
 	{
 		// ***************************
-		// Line 1: Frequency display
+		// Line 1: measuriment frequency
 
 		ssd1306_SetCursor(val2_x, line1_y);
 		if (measurement_Hz < 1000)
@@ -1517,35 +1507,36 @@ void draw_screen(const uint8_t full_update)
 							break;
 					}
 
-					char unit = ' ';
-					unit_conversion(&value, &unit);
+					const char unit = unit_conversion(&value);
 
 					ssd1306_SetCursor(val21_x, line2_y);
 					ssd1306_WriteString(buffer_display, Font_11x18, White);
 
-					//ssd1306_SetCursor(val22_x, line2_y);
 					print_sprint(4, value, buffer_display, sizeof(buffer_display));
 					ssd1306_WriteString(buffer_display, Font_11x18, White);
 
+					{	// move slightly right
+						uint8_t x;
+						uint8_t y;
+						ssd1306_GetCursor(&x, &y);
+						ssd1306_SetCursor(x + 5, y);
+					}
+					
 					switch (settings.lcr_mode)
 					{
 						case LCR_MODE_INDUCTANCE:
-						{
 							buffer_display[0] = unit;
 							buffer_display[1] = 'H';
 							buffer_display[2] = 0;
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
-						}
 
 						case LCR_MODE_CAPACITANCE:
-						{
 							buffer_display[0] = unit;
 							buffer_display[1] = 'F';
 							buffer_display[2] = 0;
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
-						}
 
 						case LCR_MODE_RESISTANCE:
 						{
@@ -1579,8 +1570,7 @@ void draw_screen(const uint8_t full_update)
 
 						{	// voltage
 							float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
-							char unit = ' ';
-							unit_conversion(&value, &unit);
+							const char unit = unit_conversion(&value);
 
 							ssd1306_SetCursor(val31_x, line3_y);
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
@@ -1594,8 +1584,7 @@ void draw_screen(const uint8_t full_update)
 
 						{	// current
 							float value = (system_data.rms_current_afc >= 0) ? system_data.rms_current_afc : 0;
-							char unit = ' ';
-							unit_conversion(&value, &unit);
+							const char unit = unit_conversion(&value);
 
 							ssd1306_SetCursor(val33_x, line3_y);
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
@@ -1627,8 +1616,7 @@ void draw_screen(const uint8_t full_update)
 								break;
 						}
 
-						char unit = ' ';
-						unit_conversion(&value, &unit);
+						const char unit = unit_conversion(&value);
 
 						ssd1306_SetCursor(val31_x, line3_y);
 						ssd1306_WriteString("Q  ", Font_7x10, White);
@@ -1654,8 +1642,7 @@ void draw_screen(const uint8_t full_update)
 							{	// ESR
 
 								float value = system_data.esr;
-								char unit = ' ';
-								unit_conversion(&value, &unit);
+								const char unit = unit_conversion(&value);
 
 								ssd1306_SetCursor(val41_x, line4_y);
 								ssd1306_WriteString("ER ", Font_7x10, White);
@@ -1674,8 +1661,7 @@ void draw_screen(const uint8_t full_update)
 							{	// Tan Delta
 
 								float value = system_data.tan_delta;
-								char unit = ' ';
-								unit_conversion(&value, &unit);
+								const char unit = unit_conversion(&value);
 
 								ssd1306_SetCursor(val43_x, line4_y);
 								ssd1306_WriteString("D  ", Font_7x10, White);
@@ -1709,8 +1695,7 @@ void draw_screen(const uint8_t full_update)
 										break;
 								}
 
-								char unit = ' ';
-								unit_conversion(&value, &unit);
+								const char unit = unit_conversion(&value);
 
 								ssd1306_SetCursor(val43_x, line4_y);
 								ssd1306_WriteString("Q  ", Font_7x10, White);
@@ -1732,8 +1717,7 @@ void draw_screen(const uint8_t full_update)
 							{	// Quality factor
 
 								float value = system_data.qf_res;
-								char unit = ' ';
-								unit_conversion(&value, &unit);
+								const char unit = unit_conversion(&value);
 
 								ssd1306_SetCursor(val41_x, line4_y);
 								ssd1306_WriteString("Q ", Font_7x10, White);
@@ -1749,8 +1733,7 @@ void draw_screen(const uint8_t full_update)
 							{	// inductance
 
 								float value = system_data.inductance;
-								char unit = ' ';
-								unit_conversion(&value, &unit);
+								const char unit = unit_conversion(&value);
 
 								ssd1306_SetCursor(val43_x, line4_y);
 
