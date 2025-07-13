@@ -1530,7 +1530,6 @@ void draw_screen(const uint8_t full_update)
 
 						case LCR_MODE_CAPACITANCE:
 						{
-							const int units = unit_conversion(&value);
 							#if 1
 								if (units <= -12)
 									snprintf(buffer_display, sizeof(buffer_display), "pF");
@@ -1556,7 +1555,6 @@ void draw_screen(const uint8_t full_update)
 
 						case LCR_MODE_RESISTANCE:
 						{
-							const int units = unit_conversion(&value);
 							#if 1
 								if (units <= -3)
 									snprintf(buffer_display, sizeof(buffer_display), "m");

@@ -47,6 +47,9 @@
 * ER → Equivalent Series Resistor(ESR)
 * D → Dissipation factor (or) Tan Delta
 
+# New firmware displays
+<img src="firmware/docs/new_firmware.png" alt="image" style="width:200px;height:auto;">
+
 # Windows test GUI
 
 - streamed uart data from the M181 to the windows test GUI (compiled with Borland c++ builder v6) ..
