@@ -9,7 +9,8 @@
 #define I2C_CLEAR_SCL     HAL_GPIO_WritePin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin, GPIO_PIN_RESET);
 #define I2C_SET_SCL       HAL_GPIO_WritePin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin, GPIO_PIN_SET);
 
-#define I2C_DELAY         DWT_Delay_ns(50);
+//#define I2C_DELAY         DWT_Delay_ns(50);
+#define I2C_DELAY         DWT_Delay_ns(0);
 
 void I2C_bus_init(void)
 {
@@ -20,7 +21,7 @@ void I2C_bus_init(void)
 
 	GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_OD;
 	GPIO_InitStruct.Pull  = GPIO_PULLUP;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
 	GPIO_InitStruct.Pin   = SW_I2C_SDA_Pin;
 	HAL_GPIO_Init(SW_I2C_SDA_GPIO_Port, &GPIO_InitStruct);
 	GPIO_InitStruct.Pin   = SW_I2C_SCL_Pin;
@@ -113,10 +114,7 @@ uint8_t I2C_read_byte(const uint8_t ack, const uint8_t stop)
 		B |= I2C_read_bit();
 	}
 
-	if (ack)
-		I2C_write_bit(0);
-	else
-		I2C_write_bit(1);
+	I2C_write_bit(ack ? 0 : 1);
 
 	if (stop)
 		I2C_stop_cond();
@@ -215,7 +213,6 @@ uint8_t I2C_receive(const uint8_t address, const uint8_t reg[], uint8_t *data, c
 				*data++ = I2C_read_byte(0, 0);   // read data
 
 			I2C_stop_cond();
-
 			return 1;
 		}
 	}

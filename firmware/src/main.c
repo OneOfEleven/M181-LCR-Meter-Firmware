@@ -1350,6 +1350,8 @@ void screen_init(void)
 
 void bootup_screen(void)
 {
+//	ssd1306_Fill(Black);
+	
 	ssd1306_SetCursor(0, 0);
 	ssd1306_WriteString("M181", Font_7x10, White);
 
@@ -1415,7 +1417,7 @@ void draw_screen(const uint8_t full_update)
 //	const uint8_t val44_x = 75;
 	const uint8_t val45_x = SSD1306_WIDTH - 8;
 
-	if (draw_screen_count == 0 || full_update)
+//	if (draw_screen_count == 0 || full_update)
 	{	// full redraw
 
 		// clear the screen
@@ -1466,7 +1468,7 @@ void draw_screen(const uint8_t full_update)
 		draw_screen_count = 0;
 	}
 
-	if (vi_measure_index >= VI_MODE_DONE || full_update)
+//	if (vi_measure_index >= VI_MODE_DONE || full_update)
 	{
 		// ***************************
 		// Line 1: measuriment frequency
@@ -1693,6 +1695,7 @@ void draw_screen(const uint8_t full_update)
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
 								unsigned int i = strlen(buffer_display);
 								buffer_display[i++] = unit;
+								buffer_display[i++] = ' ';
 								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
@@ -1711,6 +1714,7 @@ void draw_screen(const uint8_t full_update)
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
 								unsigned int i = strlen(buffer_display);
 								buffer_display[i++] = unit;
+								buffer_display[i++] = ' ';
 								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
@@ -1743,6 +1747,7 @@ void draw_screen(const uint8_t full_update)
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
 								unsigned int i = strlen(buffer_display);
 								buffer_display[i++] = unit;
+								buffer_display[i++] = ' ';
 								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
