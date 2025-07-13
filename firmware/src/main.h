@@ -303,7 +303,7 @@ enum {
 	LCR_MODE_INDUCTANCE = 0,
 	LCR_MODE_CAPACITANCE,
 	LCR_MODE_RESISTANCE,
-	LCR_MODE_TAN_DELTA
+	LCR_MODE_AUTO                     // TODO: add code to auto detect if DUT is a cap, ind or res
 };
 
 // VI mode
@@ -315,31 +315,31 @@ enum {
 	VI_MODE_DONE
 };
 
-// this structure will be stored in flash (emulated EEPROM)
+// this structure will be stored in flash (emulated EEPROM) so as to remember various things for the user
 //
 #pragma pack(push, 1)
 typedef struct {
-	uint32_t     marker;              // settings marker
+	uint32_t     marker;              // settings marker - so we can find this saved block in flash area
 
-	uint16_t     measurement_Hz;      // the sine wave measurement frequency
-	uint8_t      lcr_mode;            // the mode the user is using
-	uint8_t      uart_all_print_dso;  // set to '1' if to send all sampled ADC data down the serial port
+	uint16_t     measurement_Hz;      // the sine wave measurement frequency the user is using
+	uint8_t      lcr_mode;            // the LCR mode the user is using
+	uint8_t      uart_all_print_dso;  // set to '1' to enable sending all sampled ADC data down the serial port
 
 	struct {
 		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];          // pad to 32-bit alignment
+		uint8_t  padding[3];          // just padding to maintain 32-bit alignment
 	} open_probe_calibration[2];      // 100Hz and 1kHz results
 
 	struct {
 		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];          // pad to 32-bit alignment
+		uint8_t  padding[3];          // just padding to maintain 32-bit alignment
 	} shorted_probe_calibration[2];   // 100Hz and 1kHz results
 
-	uint8_t      padding[2];          // pad to 32-bit struct size
+	uint8_t      padding[2];          // just padding to maintain 32-bit alignment
 
 	uint16_t     crc;                 // CRC value for the entire structure. CRC computed with this set to '0'
 } t_settings;
@@ -363,12 +363,6 @@ typedef struct {
 	float        capacitance;
 	float        inductance;
 	float        resistance;
-
-	int          unit_capacitance;
-	int          unit_inductance;
-	int          unit_resistance;
-	int          unit_esr;
-
 	float        esr;
 	float        tan_delta;
 	float        qf_ind;
