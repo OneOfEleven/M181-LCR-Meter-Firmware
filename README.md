@@ -1,9 +1,11 @@
 ## Goal
-   To develop custom firmware for the M181 LCR Meter made by JyeTech.
+   Develop custom firmware for the M181 LCR Meter which made/sold by 'JyeTech'.
 
-   The original firmware is somewhat dire (at the time of writing this), it totally ignores any user input (buttons) after about a minute of being powered up.
+   The makers firmware is somewhat dire (at the time of writing this), it totally ignores any user input (buttons) after about a minute of being powered up.
 
-## Original auther of this custom open source firmware
+   Anyway ..
+
+## Original auther of this open source firmware (not the sellers firmware)
 - Jaishankar M .. https://github.com/Jaishankar872/LCR_Meter_Proto_M181
 
 ## Hardware - M181 LCR Meter
