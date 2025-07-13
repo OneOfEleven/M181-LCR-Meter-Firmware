@@ -193,6 +193,12 @@ void ssd1306_SetCursor(uint8_t x, uint8_t y)
 	SSD1306.CurrentY = y;
 }
 
+void ssd1306_GetCursor(uint8_t *x, uint8_t *y)
+{
+	*x = SSD1306.CurrentX;
+	*y = SSD1306.CurrentY;
+}
+
 // Draw a filled rectangle
 void ssd1306_FillRectangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, SSD1306_COLOR color)
 {
@@ -205,3 +211,11 @@ void ssd1306_FillRectangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, SSD13
 		for (unsigned int x = x_start; x <= x_end && x < SSD1306_WIDTH; x++)
 			ssd1306_DrawPixel(x, y, color);
 }
+
+// dotted line
+void ssd1306_dotted_hline(const unsigned int x1, const unsigned int x2, const unsigned int x_step, const unsigned int y, const SSD1306_COLOR colour)
+{
+	for (unsigned int x = x1; x <= x2; x += x_step)
+		ssd1306_DrawPixel(x, y, colour);
+}
+					

@@ -9,8 +9,7 @@
 #define I2C_CLEAR_SCL     HAL_GPIO_WritePin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin, GPIO_PIN_RESET);
 #define I2C_SET_SCL       HAL_GPIO_WritePin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin, GPIO_PIN_SET);
 
-//#define I2C_DELAY         DWT_Delay_us(5); // 5 microsecond delay
-#define I2C_DELAY         DWT_Delay_ns(100); // 0.1 microsecond delay .. much faster display update
+#define I2C_DELAY         DWT_Delay_ns(50);
 
 void I2C_bus_init(void)
 {

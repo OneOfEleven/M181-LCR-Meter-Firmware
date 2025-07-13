@@ -1366,7 +1366,7 @@ void bootup_screen(void)
 
 void draw_screen(const uint8_t full_update)
 {
-	//#define DRAW_LINES          // use this if you want horizontal lines drawn
+	#define DRAW_LINES          // use this if you want horizontal lines drawn
 
 	const uint8_t offset_x       = 1;
 	const uint8_t line_spacing_y = 13;
@@ -1434,26 +1434,18 @@ void draw_screen(const uint8_t full_update)
 						ssd1306_FillRectangle(0, line_spacing_y - 1, SSD1306_WIDTH, line_spacing_y, White);
 					#else
 						// dotted lines
-						for (unsigned int x = 0; x < SSD1306_WIDTH; x += 3)
-						{
-							ssd1306_DrawPixel(x, line_spacing_y - 1, White);
-							ssd1306_DrawPixel(x, line3_y - 4, White);
-						}
+						ssd1306_dotted_hline(0, SSD1306_WIDTH, 3, line_spacing_y - 1, White);
+						//ssd1306_dotted_hline(0, SSD1306_WIDTH, 3, line3_y - 4,        White);
 					#endif
 				#endif
+				break;
 			}
 
 			case OP_MODE_OPEN_PROBE_CALIBRATION:
-			{
-
 				break;
-			}
 
 			case OP_MODE_SHORTED_PROBE_CALIBRATION:
-			{
-
 				break;
-			}
 		}
 
 		draw_screen_count = 0;
