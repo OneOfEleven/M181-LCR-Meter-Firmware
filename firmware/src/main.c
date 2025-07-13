@@ -1390,7 +1390,7 @@ void draw_screen(const uint8_t full_update)
 //	const uint8_t val4_x  = 92;
 
 	#ifdef DRAW_LINES
-		const uint8_t line2_y = line_spacing_y + 4;  // with horizontal lines
+		const uint8_t line2_y = line_spacing_y + 5;  // with horizontal lines
 	#else
 		const uint8_t line2_y = line_spacing_y + 3;  // no horizontal lines
 	#endif
@@ -1400,7 +1400,7 @@ void draw_screen(const uint8_t full_update)
 //	const uint8_t val24_x = 104;
 
 	#ifdef DRAW_LINES
-		const uint8_t line3_y = 10 + line2_y + 0 + line_spacing_y;  // with horizontal lines
+		const uint8_t line3_y = 10 + line2_y - 1 + line_spacing_y;  // with horizontal lines
 	#else
 		const uint8_t line3_y = 10 + line2_y + 1 + line_spacing_y;  // no horizontal lines
 	#endif
@@ -1476,7 +1476,7 @@ void draw_screen(const uint8_t full_update)
 		ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 		// ***************************
-		// Line 2: Mode
+		// Line 2: LCR mode
 
 		switch (op_mode)
 		{
@@ -1698,9 +1698,9 @@ void draw_screen(const uint8_t full_update)
 								const char unit = unit_conversion(&value);
 
 								ssd1306_SetCursor(val43_x, line4_y);
-								ssd1306_WriteString("Q  ", Font_7x10, White);
+								ssd1306_WriteString("Q ", Font_7x10, White);
 
-								ssd1306_SetCursor(val44_x, line4_y);
+								//ssd1306_SetCursor(val44_x, line4_y);
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 
@@ -1714,28 +1714,12 @@ void draw_screen(const uint8_t full_update)
 
 						case LCR_MODE_RESISTANCE:
 
-							{	// Quality factor
-
-								float value = system_data.qf_res;
-								const char unit = unit_conversion(&value);
-
-								ssd1306_SetCursor(val41_x, line4_y);
-								ssd1306_WriteString("Q ", Font_7x10, White);
-
-								print_sprint(4, value, buffer_display, sizeof(buffer_display));
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-								buffer_display[0] = unit;
-								buffer_display[1] = 0;
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-							}
-
 							{	// inductance
 
 								float value = system_data.inductance;
 								const char unit = unit_conversion(&value);
 
-								ssd1306_SetCursor(val43_x, line4_y);
+								ssd1306_SetCursor(val41_x, line4_y);
 
 								print_sprint(4, value, buffer_display, sizeof(buffer_display));
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
@@ -1743,6 +1727,22 @@ void draw_screen(const uint8_t full_update)
 								buffer_display[0] = unit;
 								buffer_display[1] = 'H';
 								buffer_display[2] = 0;
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+							}
+
+							{	// Quality factor
+
+								float value = system_data.qf_res;
+								const char unit = unit_conversion(&value);
+
+								ssd1306_SetCursor(val43_x, line4_y);
+								ssd1306_WriteString("Q ", Font_7x10, White);
+
+								print_sprint(3, value, buffer_display, sizeof(buffer_display));
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+								buffer_display[0] = unit;
+								buffer_display[1] = 0;
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
 
@@ -1787,7 +1787,7 @@ void draw_screen(const uint8_t full_update)
 		}
 
 		// ***************************
-		// Line 4: UART Mode
+		// Line 4: UART mode
 
 		ssd1306_SetCursor(val45_x, line4_y);
 		snprintf(buffer_display, sizeof(buffer_display), settings.uart_all_print_dso ? "U" : " ");       // ON/OFF
