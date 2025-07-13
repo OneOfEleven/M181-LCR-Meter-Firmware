@@ -1531,9 +1531,15 @@ void draw_screen(const uint8_t full_update)
 						{
 							unsigned int i = 0;
 							if (unit != ' ')
+							{
 								buffer_display[i++] = unit;
-							buffer_display[i++] = 'H';
-							buffer_display[i++] = ' ';
+								buffer_display[i++] = 'H';
+							}
+							else
+							{
+								buffer_display[i++] = 'H';
+								buffer_display[i++] = ' ';
+							}
 							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
@@ -1543,9 +1549,15 @@ void draw_screen(const uint8_t full_update)
 						{
 							unsigned int i = 0;
 							if (unit != ' ')
+							{
 								buffer_display[i++] = unit;
-							buffer_display[i++] = 'F';
-							buffer_display[i++] = ' ';
+								buffer_display[i++] = 'F';
+							}
+							else
+							{
+								buffer_display[i++] = 'F';
+								buffer_display[i++] = ' ';
+							}
 							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
@@ -1554,16 +1566,13 @@ void draw_screen(const uint8_t full_update)
 						case LCR_MODE_RESISTANCE:
 						{
 							unsigned int i = 0;
-							if (unit != ' ')
-								buffer_display[i++] = unit;
-							buffer_display[i++] = ' ';
+							buffer_display[i++] = unit;
 							buffer_display[i++] = '\0';
-							ssd1306_WriteString(buffer_display, Font_7x10, White);
+							ssd1306_WriteString(buffer_display, Font_11x18, White);
 
 							uint8_t x;
 							uint8_t y;
 							ssd1306_GetCursor(&x, &y);
-							//print_custom_symbol(val23_x + 7, line2_y + 4, omega_7x10, 7, 10);
 							print_custom_symbol(x, line2_y - 3, omega_11x18, 11, 18);
 
 							break;
@@ -1592,8 +1601,15 @@ void draw_screen(const uint8_t full_update)
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
 							unsigned int i = strlen(buffer_display);
 							if (unit != ' ')
+							{
 								buffer_display[i++] = unit;
-							buffer_display[i++] = 'V';
+								buffer_display[i++] = 'V';
+							}
+							else
+							{
+								buffer_display[i++] = 'V';
+								buffer_display[i++] = ' ';
+							}
 							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
 						}
@@ -1606,8 +1622,15 @@ void draw_screen(const uint8_t full_update)
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
 							unsigned int i = strlen(buffer_display);
 							if (unit != ' ')
+							{
 								buffer_display[i++] = unit;
-							buffer_display[i++] = 'A';
+								buffer_display[i++] = 'A';
+							}
+							else
+							{
+								buffer_display[i++] = 'A';
+								buffer_display[i++] = ' ';
+							}
 							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
 						}
@@ -1640,8 +1663,7 @@ void draw_screen(const uint8_t full_update)
 						ssd1306_SetCursor(val42_x, line3_y);
 						print_sprint(4, value, buffer_display, sizeof(buffer_display));
 						unsigned int i = strlen(buffer_display);
-						if (unit != ' ')
-							buffer_display[i++] = unit;
+						buffer_display[i++] = unit;
 						buffer_display[i++] = '\0';
 						ssd1306_WriteString(buffer_display, Font_7x10, White);
 					}
@@ -1667,8 +1689,7 @@ void draw_screen(const uint8_t full_update)
 
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
 								unsigned int i = strlen(buffer_display);
-								if (unit != ' ')
-									buffer_display[i++] = unit;
+								buffer_display[i++] = unit;
 								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
@@ -1686,8 +1707,7 @@ void draw_screen(const uint8_t full_update)
 
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
 								unsigned int i = strlen(buffer_display);
-								if (unit != ' ')
-									buffer_display[i++] = unit;
+								buffer_display[i++] = unit;
 								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
@@ -1719,8 +1739,7 @@ void draw_screen(const uint8_t full_update)
 								//ssd1306_SetCursor(val44_x, line4_y);
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
 								unsigned int i = strlen(buffer_display);
-								if (unit != ' ')
-									buffer_display[i++] = unit;
+								buffer_display[i++] = unit;
 								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
@@ -1740,8 +1759,15 @@ void draw_screen(const uint8_t full_update)
 								print_sprint(4, value, buffer_display, sizeof(buffer_display));
 								unsigned int i = strlen(buffer_display);
 								if (unit != ' ')
+								{
 									buffer_display[i++] = unit;
-								buffer_display[i++] = 'H';
+									buffer_display[i++] = 'H';
+								}
+								else
+								{
+									buffer_display[i++] = 'H';
+									buffer_display[i++] = ' ';
+								}
 								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
@@ -1756,8 +1782,7 @@ void draw_screen(const uint8_t full_update)
 
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
 								unsigned int i = strlen(buffer_display);
-								if (unit != ' ')
-									buffer_display[i++] = unit;
+								buffer_display[i++] = unit;
 								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
