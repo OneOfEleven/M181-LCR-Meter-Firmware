@@ -636,62 +636,72 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 // ***********************************************************
 // DSP stuff
 
-int unit_conversion(float *value)
+int unit_conversion(float *value, char *unit)
 {
 	if (*value == 0.0f)
 	{	// leave as is
+		*unit = ' ';
 		return 0;
 	}
 
 	if (*value < 1e-12f)
 	{	// femto
 		*value *= 1e15f;
+		*unit = 'f';
 		return -15;
 	}
 
 	if (*value < 1e-9f)
 	{	// pico
 		*value *= 1e12f;
+		*unit = 'p';
 		return -12;
 	}
 
 	if (*value < 1e-6f)
 	{	// nano
 		*value *= 1e9f;
+		*unit = 'n';
 		return -9;
 	}
 
 	if (*value < 1e-3f)
 	{	// micro
 		*value *= 1e6f;
+		*unit = 'u';
 		return -6;
 	}
 
 	if (*value < 1e0f)
 	{	// milli
 		*value *= 1e3f;
+		*unit = 'm';
 		return -3;
 	}
 
 	if (*value < 1e3f)
 	{	// unit
+		*unit = ' ';
 		return 0;
 	}
 
 	if (*value < 1e6f)
 	{	// kilo
 		*value *= 1e-3f;
+		*unit = 'k';
 		return 3;
 	}
 
 	if (*value < 1e9f)
 	{	// Mega
 		*value *= 1e-6f;
+		*unit = 'M';
 		return 6;
 	}
 
 	// Giga
 	*value *= 1e-9f;
+	*unit = 'G';
 	return 9;
 }
 
@@ -1278,26 +1288,38 @@ void process_ADC(const void *buffer)
 
 void print_sprint(const unsigned int digit, const float value, char *output_char, const unsigned int out_max_size)
 {
-    if (digit == 4)
-    {
-        if (value < 10)
-            snprintf(output_char, out_max_size, "%4.3f", value); // 1.234
-        else
-		if (value < 100)
-            snprintf(output_char, out_max_size, "%4.2f", value); // 12.34
-        else
-		if (value < 1000)
-            snprintf(output_char, out_max_size, "%4.1f", value); // 123.4
-        else
-            snprintf(output_char, out_max_size, "%4.0f", value); // 1234 (no dp)
-    }
-    else
-	if (digit == 2)
-    {
-        if (value < 10)
-            snprintf(output_char, out_max_size, "%2.1f", value); // 1.2
-        else
-            snprintf(output_char, out_max_size, "%2.0f", value); // 12 (no dp)
+	switch (digit)
+	{
+		case 2:
+	        if (value < 10)
+    	        snprintf(output_char, out_max_size, "%2.1f", value); // 1.2
+        	else
+            	snprintf(output_char, out_max_size, "%2.0f", value); // 12 (no dp)
+			break;
+
+		case 3:
+	        if (value < 10)
+    	        snprintf(output_char, out_max_size, "%3.2f", value); // 1.23
+        	else
+			if (value < 100)
+            	snprintf(output_char, out_max_size, "%3.1f", value); // 12.3
+	        else
+    	        snprintf(output_char, out_max_size, "%3.0f", value); // 123 (no dp)
+			break;
+
+		default:
+		case 4:
+	        if (value < 10)
+    	        snprintf(output_char, out_max_size, "%4.3f", value); // 1.234
+        	else
+			if (value < 100)
+    	        snprintf(output_char, out_max_size, "%4.2f", value); // 12.34
+       	 else
+			if (value < 1000)
+            	snprintf(output_char, out_max_size, "%4.1f", value); // 123.4
+	        else
+    	        snprintf(output_char, out_max_size, "%4.0f", value); // 1234 (no dp)
+			break;
     }
 }
 
@@ -1495,7 +1517,8 @@ void draw_screen(const uint8_t full_update)
 							break;
 					}
 
-					const int units = unit_conversion(&value);
+					char unit = ' ';
+					unit_conversion(&value, &unit);
 
 					ssd1306_SetCursor(val21_x, line2_y);
 					ssd1306_WriteString(buffer_display, Font_11x18, White);
@@ -1508,73 +1531,27 @@ void draw_screen(const uint8_t full_update)
 					{
 						case LCR_MODE_INDUCTANCE:
 						{
-							#if 1
-								if (units <= -9)
-									snprintf(buffer_display, sizeof(buffer_display), "nH");
-								else
-								if (units == -6)
-									snprintf(buffer_display, sizeof(buffer_display), "uH");
-								else
-								if (units == -3)
-									snprintf(buffer_display, sizeof(buffer_display), "mH");
-								else
-									snprintf(buffer_display, sizeof(buffer_display), "H ");
-							#else
-								sprintf(buffer_display, "%2d", system_data.unit_inductance);  // TEST
-							#endif
-
-							//ssd1306_SetCursor(val23_x, line2_y);
+							buffer_display[0] = unit;
+							buffer_display[1] = 'H';
+							buffer_display[2] = 0;
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
 						}
 
 						case LCR_MODE_CAPACITANCE:
 						{
-							#if 1
-								if (units <= -12)
-									snprintf(buffer_display, sizeof(buffer_display), "pF");
-								else
-								if (units == -9)
-									snprintf(buffer_display, sizeof(buffer_display), "nF");
-								else
-								if (units == -6)
-									snprintf(buffer_display, sizeof(buffer_display), "uF");
-								else
-								if (units == -3)
-									snprintf(buffer_display, sizeof(buffer_display), "mF");
-								else
-									snprintf(buffer_display, sizeof(buffer_display), "F ");
-							#else
-								snprintf(buffer_display, sizeof(buffer_display), "%2d", units);  // TEST
-							#endif
-
-							//ssd1306_SetCursor(val23_x, line2_y);
+							buffer_display[0] = unit;
+							buffer_display[1] = 'F';
+							buffer_display[2] = 0;
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
 						}
 
 						case LCR_MODE_RESISTANCE:
 						{
-							#if 1
-								if (units <= -3)
-									snprintf(buffer_display, sizeof(buffer_display), "m");
-								else
-								if (units == 0)
-									snprintf(buffer_display, sizeof(buffer_display), " ");
-								else
-								if (units == 3)
-									snprintf(buffer_display, sizeof(buffer_display), "k");
-								else
-								if (units == 6)
-									snprintf(buffer_display, sizeof(buffer_display), "M");
-								else
-									snprintf(buffer_display, sizeof(buffer_display), "G");
-							#else
-								snprintf(buffer_display, sizeof(buffer_display), "%2d", system_data.unit_resistance);  // TEST
-							#endif
-
-							//ssd1306_SetCursor(val23_x, line2_y + 4);
-							ssd1306_WriteString(buffer_display, Font_7x10, White);
+							buffer_display[0] = unit;
+							buffer_display[1] = 0;
+							ssd1306_WriteString(buffer_display, Font_11x18, White);
 
 							uint8_t x;
 							uint8_t y;
@@ -1586,9 +1563,7 @@ void draw_screen(const uint8_t full_update)
 						}
 
 						case LCR_MODE_AUTO:
-						{
 							break;
-						}
 					}
 
 					#if 0
@@ -1604,50 +1579,32 @@ void draw_screen(const uint8_t full_update)
 
 						{	// voltage
 							float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
-							const int units = unit_conversion(&value);
+							char unit = ' ';
+							unit_conversion(&value, &unit);
 
 							ssd1306_SetCursor(val31_x, line3_y);
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-							#if 1
-								if (units <= -6)
-									snprintf(buffer_display, sizeof(buffer_display), "uV");
-								else
-								if (units <= -3)
-									snprintf(buffer_display, sizeof(buffer_display), "mV");
-								else
-									snprintf(buffer_display, sizeof(buffer_display), " V");
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-							#else
-								ssd1306_SetCursor(val31_x, line3_y);
-								snprintf(buffer_display, sizeof(buffer_display), "V  %.3f", value);
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-							#endif
+							buffer_display[0] = unit;
+							buffer_display[1] = 'V';
+							buffer_display[2] = 0;
+							ssd1306_WriteString(buffer_display, Font_7x10, White);
 						}
 
 						{	// current
 							float value = (system_data.rms_current_afc >= 0) ? system_data.rms_current_afc : 0;
-							const int units = unit_conversion(&value);
+							char unit = ' ';
+							unit_conversion(&value, &unit);
 
 							ssd1306_SetCursor(val33_x, line3_y);
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-							#if 1
-								if (units <= -6)
-									snprintf(buffer_display, sizeof(buffer_display), "uA");
-								else
-								if (units <= -3)
-									snprintf(buffer_display, sizeof(buffer_display), "mA");
-								else
-									snprintf(buffer_display, sizeof(buffer_display), " A");
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-							#else
-								ssd1306_SetCursor(val33_x, line3_y);
-								snprintf(buffer_display, sizeof(buffer_display), "A %.3f", value);
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-							#endif
+							buffer_display[0] = unit;
+							buffer_display[1] = 'A';
+							buffer_display[2] = 0;
+							ssd1306_WriteString(buffer_display, Font_7x10, White);
 						}
 
 					#else
@@ -1667,15 +1624,21 @@ void draw_screen(const uint8_t full_update)
 								value = system_data.qf_res;
 								break;
 							case LCR_MODE_AUTO:
-								break;					}
+								break;
 						}
 
-						ssd1306_SetCursor(val41_x, line3_y);
+						char unit = ' ';
+						unit_conversion(&value, &unit);
+
+						ssd1306_SetCursor(val31_x, line3_y);
 						ssd1306_WriteString("Q  ", Font_7x10, White);
 
 						ssd1306_SetCursor(val42_x, line3_y);
 						print_sprint(4, value, buffer_display, sizeof(buffer_display));
-						//snprintf(buffer_display, sizeof(buffer_display), "%0.3f", value);
+						ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+						buffer_display[0] = unit;
+						buffer_display[1] = 0;
 						ssd1306_WriteString(buffer_display, Font_7x10, White);
 					}
 					#endif
@@ -1688,23 +1651,79 @@ void draw_screen(const uint8_t full_update)
 						case LCR_MODE_INDUCTANCE:
 						case LCR_MODE_CAPACITANCE:
 
-							// ESR
+							{	// ESR
 
-							ssd1306_SetCursor(val41_x, line4_y);
-							ssd1306_WriteString("ER ", Font_7x10, White);
+								float value = system_data.esr;
+								char unit = ' ';
+								unit_conversion(&value, &unit);
 
-							ssd1306_SetCursor(val42_x, line4_y);
-							print_sprint(4, system_data.esr, buffer_display, sizeof(buffer_display));
-							ssd1306_WriteString(buffer_display, Font_7x10, White);
+								ssd1306_SetCursor(val41_x, line4_y);
+								ssd1306_WriteString("ER ", Font_7x10, White);
 
-							// Tan Delta
+								ssd1306_SetCursor(val42_x, line4_y);
 
-							ssd1306_SetCursor(val43_x, line4_y);
-							ssd1306_WriteString("D  ", Font_7x10, White);
+								print_sprint(3, value, buffer_display, sizeof(buffer_display));
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-							ssd1306_SetCursor(val44_x, line4_y);
-							print_sprint(4, system_data.tan_delta, buffer_display, sizeof(buffer_display));
-							ssd1306_WriteString(buffer_display, Font_7x10, White);
+								buffer_display[0] = unit;
+								buffer_display[1] = 0;
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+							}
+
+							#if 0
+							{	// Tan Delta
+
+								float value = system_data.tan_delta;
+								char unit = ' ';
+								unit_conversion(&value, &unit);
+
+								ssd1306_SetCursor(val43_x, line4_y);
+								ssd1306_WriteString("D  ", Font_7x10, White);
+
+								ssd1306_SetCursor(val44_x, line4_y);
+
+								print_sprint(3, value, buffer_display, sizeof(buffer_display));
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+								buffer_display[0] = unit;
+								buffer_display[1] = 0;
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+							}
+							#else
+							{	// Quality factor
+
+								float value = 0;
+
+								switch (settings.lcr_mode)
+								{
+									case LCR_MODE_INDUCTANCE:
+										value = system_data.qf_ind;
+										break;
+									case LCR_MODE_CAPACITANCE:
+										value = system_data.qf_cap;
+										break;
+									case LCR_MODE_RESISTANCE:
+										value = system_data.qf_res;
+										break;
+									case LCR_MODE_AUTO:
+										break;
+								}
+
+								char unit = ' ';
+								unit_conversion(&value, &unit);
+
+								ssd1306_SetCursor(val43_x, line4_y);
+								ssd1306_WriteString("Q  ", Font_7x10, White);
+
+								ssd1306_SetCursor(val44_x, line4_y);
+								print_sprint(3, value, buffer_display, sizeof(buffer_display));
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+								buffer_display[0] = unit;
+								buffer_display[1] = 0;
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+							}
+							#endif
 
 							break;
 
@@ -1712,33 +1731,35 @@ void draw_screen(const uint8_t full_update)
 
 							{	// Quality factor
 
+								float value = system_data.qf_res;
+								char unit = ' ';
+								unit_conversion(&value, &unit);
+
 								ssd1306_SetCursor(val41_x, line4_y);
 								ssd1306_WriteString("Q ", Font_7x10, White);
 
-								print_sprint(4, system_data.qf_res, buffer_display, sizeof(buffer_display));
+								print_sprint(4, value, buffer_display, sizeof(buffer_display));
+								ssd1306_WriteString(buffer_display, Font_7x10, White);
+
+								buffer_display[0] = unit;
+								buffer_display[1] = 0;
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
 
 							{	// inductance
 
 								float value = system_data.inductance;
-								const int units = unit_conversion(&value);
+								char unit = ' ';
+								unit_conversion(&value, &unit);
 
 								ssd1306_SetCursor(val43_x, line4_y);
 
 								print_sprint(4, value, buffer_display, sizeof(buffer_display));
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-								if (units <= -9)
-									snprintf(buffer_display, sizeof(buffer_display), "nH");
-								else
-								if (units == -6)
-									snprintf(buffer_display, sizeof(buffer_display), "uH");
-								else
-								if (units == -3)
-									snprintf(buffer_display, sizeof(buffer_display), "mH");
-								else
-									snprintf(buffer_display, sizeof(buffer_display), "H ");
+								buffer_display[0] = unit;
+								buffer_display[1] = 'H';
+								buffer_display[2] = 0;
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
 
