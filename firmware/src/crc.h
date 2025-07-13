@@ -14,7 +14,7 @@
 
 #include <stdint.h>
 
-//#define USE_CRC_FLASH   // CRC tables in flash rather than EAM
+//#define USE_CRC_FLASH   // CRC tables in flash rather than RAM, RAM access is faster though
 #define USE_CRC_TABLES  // fast CRC .. if you have the flash or RAM to spare for the CRC tables
 
 #ifndef USE_CRC_FLASH

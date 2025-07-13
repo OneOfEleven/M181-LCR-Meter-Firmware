@@ -5,33 +5,41 @@
 #include "stm32_sw_i2c.h"
 #include "delay.h"
 
-//uint8_t _txBuffer[6];
-//uint8_t _rxBuffer[6];
-//uint8_t _reg[2];
+// 1-bit per pixel screen buffer
+uint8_t SSD1306_Buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
 
-static uint8_t SSD1306_Buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
+#define USE_LINE_TABLE           // to speed up the pixel drawing
 
-static SSD1306_t SSD1306;
+#ifdef USE_LINE_TABLE
+	uint16_t line_table[SSD1306_HEIGHT]       = {0};
+	uint8_t  line_table_pixel[SSD1306_HEIGHT] = {0};
+#endif
+
+SSD1306_t SSD1306;
 
 //  Send a byte to the command register
-static uint8_t ssd1306_WriteCommand(uint8_t command)
+static uint8_t ssd1306_WriteCommand(const uint8_t command)
 {
-	// control byte, command byte
-	uint8_t txBuffer[] = {0x00, command};
-
-	// use I2C_transmit to send the data
+	const uint8_t txBuffer[] = {0x00, command};
 	I2C_transmit(SSD1306_I2C_ADDR, txBuffer, sizeof(txBuffer));
-
-	return 0; // Assuming I2C_transmit handles errors internally
+	return 0;
 
 	// return HAL_I2C_Mem_Write(hi2c, SSD1306_I2C_ADDR, 0x00, 1, &command, 1, 10);
 }
 
-//  Initialize the oled screen
+//  Initialize the oled screen and line table
 //
 // uint8_t ssd1306_Init(I2C_HandleTypeDef *hi2c)
-uint8_t ssd1306_Init()
+uint8_t ssd1306_Init(void)
 {
+	#ifdef USE_LINE_TABLE
+		for (uint16_t y = 0; y < SSD1306_HEIGHT; y++)
+		{
+			line_table[y]       = (y / 8) * SSD1306_WIDTH;
+			line_table_pixel[y] = 1u << (y % 8);	
+		}
+	#endif
+
 	// Wait for the screen to boot
 	HAL_Delay(100);
 
@@ -92,19 +100,13 @@ uint8_t ssd1306_Init()
 //  Fill the whole screen with the given color
 void ssd1306_Fill(SSD1306_COLOR color)
 {
-	// Fill screenbuffer with a constant value (color)
-	#if 0
-	    for (unsigned int i = 0; i < sizeof(SSD1306_Buffer); i++)
-    	    SSD1306_Buffer[i] = (color == Black) ? 0x00 : 0xFF;
-	#else
-		memset(SSD1306_Buffer, (color == Black) ? 0x00 : 0xFF, sizeof(SSD1306_Buffer));
-	#endif
+	memset(SSD1306_Buffer, (color == Black) ? 0x00 : 0xFF, sizeof(SSD1306_Buffer));
 }
 
 //  Write the screenbuffer with changed to the screen
 //
 // void ssd1306_UpdateScreen(I2C_HandleTypeDef *hi2c)
-void ssd1306_UpdateScreen()
+void ssd1306_UpdateScreen(void)
 {
 	uint8_t txBuffer[SSD1306_WIDTH + 1]; // +1 for control byte
 
@@ -129,20 +131,27 @@ void ssd1306_UpdateScreen()
 //  X => X Coordinate
 //  Y => Y Coordinate
 //  color => Pixel color
-void ssd1306_DrawPixel(uint8_t x, uint8_t y, SSD1306_COLOR color)
+void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR color)
 {
 	if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT)
-		return;          // Don't write outside the buffer
+		return;
 
-	// Check if pixel should be inverted
 	if (SSD1306.Inverted)
-		color = (SSD1306_COLOR)!color;
+		color = !color;
 
-	// Draw in the correct color
-	if (color == White)
-		SSD1306_Buffer[x + (y / 8) * SSD1306_WIDTH] |= 1 << (y % 8);
-	else
-		SSD1306_Buffer[x + (y / 8) * SSD1306_WIDTH] &= ~(1 << (y % 8));
+	#ifdef USE_LINE_TABLE
+		const unsigned int m = line_table[y] + x;
+		const unsigned int p = line_table_pixel[y];
+		if (color == White)
+			SSD1306_Buffer[m] |=  p;	
+		else	
+			SSD1306_Buffer[m] &= ~p;
+	#else
+		if (color == White)
+			SSD1306_Buffer[x + (y / 8) * SSD1306_WIDTH] |=   1u << (y % 8);	
+		else	
+			SSD1306_Buffer[x + (y / 8) * SSD1306_WIDTH] &= ~(1u << (y % 8));
+	#endif
 }
 
 //  Draw 1 char to the screen buffer
@@ -158,12 +167,7 @@ char ssd1306_WriteChar(char ch, FontDef Font, SSD1306_COLOR color)
 	{
 		const unsigned int b = Font.data[(ch - 32) * Font.FontHeight + i];
 		for (unsigned int j = 0; j < Font.FontWidth; j++)
-		{
-			if ((b << j) & 0x8000)
-				ssd1306_DrawPixel(SSD1306.CurrentX + j, (SSD1306.CurrentY + i), (SSD1306_COLOR)color);
-			else
-				ssd1306_DrawPixel(SSD1306.CurrentX + j, (SSD1306.CurrentY + i), (SSD1306_COLOR)!color);
-		}
+			ssd1306_DrawPixel(SSD1306.CurrentX + j, (SSD1306.CurrentY + i), ((b << j) & 0x8000) ? color : !color);
 	}
 
 	SSD1306.CurrentX += Font.FontWidth;
@@ -228,4 +232,3 @@ void ssd1306_dotted_hline(const unsigned int x1, const unsigned int x2, const un
 	for (unsigned int x = x1; x <= x2; x += x_step)
 		ssd1306_DrawPixel(x, y, colour);
 }
-					

@@ -2901,9 +2901,9 @@ int main(void)
 
 			vi_measure_index = 0;         // start next data capture
 		}
-		else
-		if (system_data.vi_measure_mode != prev_vi_measure_mode && draw_screen_count > 0)
-			draw_screen(0);
+		//else
+		//if (system_data.vi_measure_mode != prev_vi_measure_mode && draw_screen_count > 0)
+		//	draw_screen(0);
 
 		// save settings to flash if it's time too
 		if (save_settings_timer == 0)

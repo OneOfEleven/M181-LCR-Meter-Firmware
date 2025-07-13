@@ -27,14 +27,10 @@
 	#define SSD1306_COM_ALTERNATIVE_PIN_CONFIG    1
 #endif
 
-//extern uint8_t _txBuffer[6];
-//extern uint8_t _rxBuffer[6];
-//extern uint8_t _reg[2];
-
 typedef enum
 {
-	Black = 0x00, // Black color, no pixel
-	White = 0x01, // Pixel is set. Color depends on LCD
+	Black = 0x00,     // Black color, no pixel
+	White = 0x01      // Pixel is set. Color depends on LCD
 } SSD1306_COLOR;
 
 //  Struct to store transformations
@@ -46,11 +42,11 @@ typedef struct {
 } SSD1306_t;
 
 // uint8_t ssd1306_Init(I2C_HandleTypeDef *hi2c);
-uint8_t ssd1306_Init();
+uint8_t ssd1306_Init(void);
 //void ssd1306_UpdateScreen(I2C_HandleTypeDef *hi2c);
-void ssd1306_UpdateScreen();
+void ssd1306_UpdateScreen(void);
 void ssd1306_Fill(SSD1306_COLOR color);
-void ssd1306_DrawPixel(uint8_t x, uint8_t y, SSD1306_COLOR color);
+void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR color);
 char ssd1306_WriteChar(char ch, FontDef Font, SSD1306_COLOR color);
 char ssd1306_WriteString(const char *str, FontDef Font, SSD1306_COLOR color);
 void ssd1306_SetCursor(const uint16_t x, const uint16_t y);
