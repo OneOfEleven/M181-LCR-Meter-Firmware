@@ -36,7 +36,7 @@ uint8_t ssd1306_Init(void)
 		for (uint16_t y = 0; y < SSD1306_HEIGHT; y++)
 		{
 			line_table[y]       = (y / 8) * SSD1306_WIDTH;
-			line_table_pixel[y] = 1u << (y % 8);	
+			line_table_pixel[y] = 1u << (y % 8);
 		}
 	#endif
 
@@ -143,13 +143,13 @@ void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR
 		const unsigned int m = line_table[y] + x;
 		const unsigned int p = line_table_pixel[y];
 		if (color == White)
-			SSD1306_Buffer[m] |=  p;	
-		else	
+			SSD1306_Buffer[m] |=  p;
+		else
 			SSD1306_Buffer[m] &= ~p;
 	#else
 		if (color == White)
-			SSD1306_Buffer[x + (y / 8) * SSD1306_WIDTH] |=   1u << (y % 8);	
-		else	
+			SSD1306_Buffer[x + (y / 8) * SSD1306_WIDTH] |=   1u << (y % 8);
+		else
 			SSD1306_Buffer[x + (y / 8) * SSD1306_WIDTH] &= ~(1u << (y % 8));
 	#endif
 }
