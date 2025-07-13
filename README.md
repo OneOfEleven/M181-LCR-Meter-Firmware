@@ -1,5 +1,5 @@
 ## Goal
-   Develop custom firmware for the M181 LCR Meter which made/sold by 'JyeTech'.
+   Develop custom firmware for the M181 LCR Meter which is made/sold by 'JyeTech'.
 
    The makers firmware is somewhat dire (at the time of writing this), it totally ignores any user input (buttons) after about a minute of being powered up.
 
