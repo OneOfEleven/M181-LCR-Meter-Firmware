@@ -1371,7 +1371,7 @@ void bootup_screen(void)
 	ssd1306_SetCursor(5, 38);
 	ssd1306_WriteString("HW by JYETech", Font_7x10, White);
 	ssd1306_SetCursor(5, 52);
-	ssd1306_WriteString("FW by Jaishankar", Font_7x10, White);
+	ssd1306_WriteString("FW by Jai & 1o11", Font_7x10, White);
 
 	ssd1306_UpdateScreen();
 }
@@ -1525,24 +1525,34 @@ void draw_screen(const uint8_t full_update)
 					switch (settings.lcr_mode)
 					{
 						case LCR_MODE_INDUCTANCE:
-							buffer_display[0] = unit;
-							buffer_display[1] = 'H';
-							buffer_display[2] = 0;
+						{
+							unsigned int i = 0;
+							if (unit != ' ')
+								buffer_display[i++] = unit;
+							buffer_display[i++] = 'H';
+							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
+						}
 
 						case LCR_MODE_CAPACITANCE:
-							buffer_display[0] = unit;
-							buffer_display[1] = 'F';
-							buffer_display[2] = 0;
+						{
+							unsigned int i = 0;
+							if (unit != ' ')
+								buffer_display[i++] = unit;
+							buffer_display[i++] = 'F';
+							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_11x18, White);
 							break;
+						}
 
 						case LCR_MODE_RESISTANCE:
 						{
-							buffer_display[0] = unit;
-							buffer_display[1] = 0;
-							ssd1306_WriteString(buffer_display, Font_11x18, White);
+							unsigned int i = 0;
+							if (unit != ' ')
+								buffer_display[i++] = unit;
+							buffer_display[i++] = '\0';
+							ssd1306_WriteString(buffer_display, Font_7x10, White);
 
 							uint8_t x;
 							uint8_t y;
@@ -1574,11 +1584,11 @@ void draw_screen(const uint8_t full_update)
 
 							ssd1306_SetCursor(val31_x, line3_y);
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
-							ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-							buffer_display[0] = unit;
-							buffer_display[1] = 'V';
-							buffer_display[2] = 0;
+							unsigned int i = strlen(buffer_display);
+							if (unit != ' ')
+								buffer_display[i++] = unit;
+							buffer_display[i++] = 'V';
+							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
 						}
 
@@ -1588,11 +1598,11 @@ void draw_screen(const uint8_t full_update)
 
 							ssd1306_SetCursor(val33_x, line3_y);
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
-							ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-							buffer_display[0] = unit;
-							buffer_display[1] = 'A';
-							buffer_display[2] = 0;
+							unsigned int i = strlen(buffer_display);
+							if (unit != ' ')
+								buffer_display[i++] = unit;
+							buffer_display[i++] = 'A';
+							buffer_display[i++] = '\0';
 							ssd1306_WriteString(buffer_display, Font_7x10, White);
 						}
 
@@ -1623,10 +1633,10 @@ void draw_screen(const uint8_t full_update)
 
 						ssd1306_SetCursor(val42_x, line3_y);
 						print_sprint(4, value, buffer_display, sizeof(buffer_display));
-						ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-						buffer_display[0] = unit;
-						buffer_display[1] = 0;
+						unsigned int i = strlen(buffer_display);
+						if (unit != ' ')
+							buffer_display[i++] = unit;
+						buffer_display[i++] = '\0';
 						ssd1306_WriteString(buffer_display, Font_7x10, White);
 					}
 					#endif
@@ -1650,10 +1660,10 @@ void draw_screen(const uint8_t full_update)
 								ssd1306_SetCursor(val42_x, line4_y);
 
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-								buffer_display[0] = unit;
-								buffer_display[1] = 0;
+								unsigned int i = strlen(buffer_display);
+								if (unit != ' ')
+									buffer_display[i++] = unit;
+								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
 
@@ -1669,10 +1679,10 @@ void draw_screen(const uint8_t full_update)
 								ssd1306_SetCursor(val44_x, line4_y);
 
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-								buffer_display[0] = unit;
-								buffer_display[1] = 0;
+								unsigned int i = strlen(buffer_display);
+								if (unit != ' ')
+									buffer_display[i++] = unit;
+								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
 							#else
@@ -1702,10 +1712,10 @@ void draw_screen(const uint8_t full_update)
 
 								//ssd1306_SetCursor(val44_x, line4_y);
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-								buffer_display[0] = unit;
-								buffer_display[1] = 0;
+								unsigned int i = strlen(buffer_display);
+								if (unit != ' ')
+									buffer_display[i++] = unit;
+								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
 							#endif
@@ -1722,11 +1732,11 @@ void draw_screen(const uint8_t full_update)
 								ssd1306_SetCursor(val41_x, line4_y);
 
 								print_sprint(4, value, buffer_display, sizeof(buffer_display));
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-								buffer_display[0] = unit;
-								buffer_display[1] = 'H';
-								buffer_display[2] = 0;
+								unsigned int i = strlen(buffer_display);
+								if (unit != ' ')
+									buffer_display[i++] = unit;
+								buffer_display[i++] = 'H';
+								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
 
@@ -1739,10 +1749,10 @@ void draw_screen(const uint8_t full_update)
 								ssd1306_WriteString("Q ", Font_7x10, White);
 
 								print_sprint(3, value, buffer_display, sizeof(buffer_display));
-								ssd1306_WriteString(buffer_display, Font_7x10, White);
-
-								buffer_display[0] = unit;
-								buffer_display[1] = 0;
+								unsigned int i = strlen(buffer_display);
+								if (unit != ' ')
+									buffer_display[i++] = unit;
+								buffer_display[i++] = '\0';
 								ssd1306_WriteString(buffer_display, Font_7x10, White);
 							}
 
