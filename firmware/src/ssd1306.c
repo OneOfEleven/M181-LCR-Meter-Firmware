@@ -187,16 +187,22 @@ void ssd1306_InvertColors(void)
 }
 
 //  Set cursor position
-void ssd1306_SetCursor(uint8_t x, uint8_t y)
+void ssd1306_SetCursor(const uint16_t x, const uint16_t y)
 {
 	SSD1306.CurrentX = x;
 	SSD1306.CurrentY = y;
 }
 
-void ssd1306_GetCursor(uint8_t *x, uint8_t *y)
+void ssd1306_GetCursor(uint16_t *x, uint16_t *y)
 {
 	*x = SSD1306.CurrentX;
 	*y = SSD1306.CurrentY;
+}
+
+void ssd1306_MoveCursor(const int x, const int y)
+{
+	SSD1306.CurrentX = (((int)SSD1306.CurrentX + x) <= 0) ? 0 : (((int)SSD1306.CurrentX + x) > SSD1306_WIDTH ) ? SSD1306_WIDTH  : SSD1306.CurrentX + x;
+	SSD1306.CurrentY = (((int)SSD1306.CurrentY + y) <= 0) ? 0 : (((int)SSD1306.CurrentY + y) > SSD1306_HEIGHT) ? SSD1306_HEIGHT : SSD1306.CurrentY + y;
 }
 
 // Draw a filled rectangle

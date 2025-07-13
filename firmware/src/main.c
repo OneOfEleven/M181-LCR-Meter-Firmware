@@ -82,19 +82,19 @@ static const uint16_t omega_11x18[] = {
 	0b00000000000,   // 3
 	0b00000000000,   // 4
 	0b00000000000,   // 5
-	0b00011111000,   // 6
-	0b00111111100,   // 7
-	0b01110001110,   // 8
-	0b11000000011,   // 9
-	0b11000000011,   // 10
-	0b11000000011,   // 11
-	0b11000000011,   // 12
-	0b01100000110,   // 13
-	0b00110001100,   // 14
-	0b00011011000,   // 15
-	0b00111011100,   // 16
-	0b11110001111,   // 17
-	0b11110001111    // 18
+	0b00001111000,   // 6
+	0b00011111100,   // 7
+	0b00111001110,   // 8
+	0b01100000011,   // 9
+	0b01100000011,   // 10
+	0b01100000011,   // 11
+	0b01100000011,   // 12
+	0b00110000110,   // 13
+	0b00011001100,   // 14
+	0b00011001100,   // 15
+	0b00011001100,   // 16
+	0b01111001111,   // 17
+	0b01111001111    // 18
 };
 
 #if defined(USE_IWDG) && defined(HAL_IWDG_MODULE_ENABLED)
@@ -128,12 +128,12 @@ char                  buffer_display[26] = {0};
 
 t_button              button[3] = {0};
 
-const uint16_t        DAC_resolution                      = 256;  // 8-bit
-volatile unsigned int sine_table_index                    = 0;    //
+const uint16_t        DAC_resolution                  = 256;  // 8-bit
+volatile unsigned int sine_table_index                = 0;    //
 uint8_t               sine_table[ADC_DATA_LENGTH / 2] = {0};  // matched to the ADC sampling
 
 uint16_t              measurement_Hz        = 1000;
-float                 measurement_amplitude = 1.0;                // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
+float                 measurement_amplitude = 1.0;            // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
 
 unsigned int          op_mode = OP_MODE_MEASURING;
 
@@ -1518,13 +1518,9 @@ void draw_screen(const uint8_t full_update)
 					print_sprint(4, value, buffer_display, sizeof(buffer_display));
 					ssd1306_WriteString(buffer_display, Font_11x18, White);
 
-					{	// move slightly right
-						uint8_t x;
-						uint8_t y;
-						ssd1306_GetCursor(&x, &y);
-						ssd1306_SetCursor(x + 5, y);
-					}
-					
+					// move slightly right
+					ssd1306_MoveCursor(5, 0);
+
 					switch (settings.lcr_mode)
 					{
 						case LCR_MODE_INDUCTANCE:
@@ -1573,16 +1569,14 @@ void draw_screen(const uint8_t full_update)
 								ssd1306_WriteString(buffer_display, Font_11x18, White);
 							}
 
-							uint8_t x;
-							uint8_t y;
+							uint16_t x;
+							uint16_t y;
 							ssd1306_GetCursor(&x, &y);
 							print_custom_symbol(x, line2_y - 3, omega_11x18, 11, 18);
+							ssd1306_MoveCursor(11, 0);
 
 							if (unit == ' ')
-							{
-								ssd1306_SetCursor(x + 11, y);
 								ssd1306_WriteString(" ", Font_11x18, White);
-							}
 
 							break;
 						}
