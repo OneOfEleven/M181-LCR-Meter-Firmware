@@ -1566,14 +1566,23 @@ void draw_screen(const uint8_t full_update)
 						case LCR_MODE_RESISTANCE:
 						{
 							unsigned int i = 0;
-							buffer_display[i++] = unit;
-							buffer_display[i++] = '\0';
-							ssd1306_WriteString(buffer_display, Font_11x18, White);
+							if (unit != ' ')
+							{
+								buffer_display[i++] = unit;
+								buffer_display[i++] = '\0';
+								ssd1306_WriteString(buffer_display, Font_11x18, White);
+							}
 
 							uint8_t x;
 							uint8_t y;
 							ssd1306_GetCursor(&x, &y);
 							print_custom_symbol(x, line2_y - 3, omega_11x18, 11, 18);
+
+							if (unit == ' ')
+							{
+								ssd1306_SetCursor(x + 11, y);
+								ssd1306_WriteString(" ", Font_11x18, White);
+							}
 
 							break;
 						}
