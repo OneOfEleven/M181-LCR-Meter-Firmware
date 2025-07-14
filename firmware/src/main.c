@@ -847,17 +847,17 @@ void process_Goertzel(void)
 		const unsigned int vi_mode = buf_index >> 1;
 
 		#if !defined(GOERTZEL_FILTER_LENGTH) || (GOERTZEL_FILTER_LENGTH <= 0)
-			uint8_t filter = 0;
+			uint8_t filter = 0;	// don't Goertzel filter
 		#else
-			uint8_t filter = 1;
+			uint8_t filter = 1; // do Goertzel filter
 		#endif
 
 		// don't bother Goertzel filtering if any possible clipping/saturation has been detected on this mode
-		if (adc_data_clipping[vi_mode])
+		if (vi_mode >= 2 && adc_data_clipping[vi_mode])
 			filter = 0;
 
 		if (!filter)
-		{	// don't filter the waveform, do these ..
+		{	// don't filter the waveform, but do do these ..
 			//    remove waveform DC offset
 			//   compute waveform RMS magnitude
 			//   compute waveform phase
@@ -982,7 +982,7 @@ void combine_afc_all(float *avg_rms, float *avg_deg)
 	for (unsigned int i = 1; i < 8; i += 2)
 	{
 		// don't bother using this AFC if any possible clipping/saturation has been detected on this mode
-		if (adc_data_clipping[i >> 1])
+		if (i >= 4 && adc_data_clipping[i >> 1])
 			continue;
 
 		sum_rms += mag_rms[i];
@@ -1042,8 +1042,8 @@ void process_data(void)
 		#else
 			// use LO or HI gain
 
-			volt_gain_sel = adc_data_clipping[2] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
-			amp_gain_sel  = adc_data_clipping[3] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
+			volt_gain_sel = adc_data_clipping[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
+			amp_gain_sel  = adc_data_clipping[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
 		#endif
 	}
 
@@ -1159,7 +1159,8 @@ void process_ADC(const void *buffer)
 
 		// used to detect waveform clipping
 		uint8_t histogram[65] = {0};
-		const unsigned int histo_len = ARRAY_SIZE(histogram);
+		const unsigned int histo_len = ARRAY_SIZE(histogram) - 1;
+		const uint8_t      threshold = histo_len >> 4;        // good enough ?
 
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
@@ -1169,29 +1170,29 @@ void process_ADC(const void *buffer)
 			adc_buffer_sum[i].adc += adc;
 			adc_buffer_sum[i].afc += afc;
 
-			// abs()
-			register uint32_t val = (adc < 0) ? -adc : adc;   // 0..2048
-
-			// update the histogram
-			//val = (val * (histo_len - 1)) / 2048;           // 0 to (histo_len - 1)
-			val = (val * (histo_len - 1)) >> 11;              // 0 to (histo_len - 1)
-			//val = (val > (histo_len - 1)) ? (histo_len - 1) : val;
-			if (val > 0)	// ignore DC 0
+			if (vi_mode >= 2)
+			{	// update the histogram
+				register uint32_t val = (adc < 0) ? -adc : adc;   // 0..2048
+				//val = (val * histo_len) / 2048;                 // 0 to histo_len
+				val = (val * histo_len) >> 11;                    // 0 to histo_len
+				//val = (val > histo_len) ? histo_len : val;      // clamp
 				histogram[val]++;
+			}
 		}
 
-		// check to see any clipping/saturation is happening
-		// we are looking for any spikes in the upper half of the histogram
-		const uint8_t threshold = histo_len / 8; // good enough ?
-		      uint8_t clipped   = 0;
-		for (unsigned int i = histo_len / 2; i < histo_len && !clipped; i++)
-			if (histogram[i] >= threshold)
-				clipped = 1;
-		adc_data_clipping[vi_mode] |= clipped;        // '1' if clipped/saturated samples are present
+		if (vi_mode >= 2)
+		{
+			// check to see any clipping/saturation is happening
+			// we are looking for any spikes in the upper half of the histogram
+			uint8_t clipped   = 0;
+			for (unsigned int i = histo_len >> 1; i <= histo_len && !clipped; i++)
+				clipped = (histogram[i] >= threshold) ? 1 : clipped;
+			adc_data_clipping[vi_mode] |= clipped;                // '1' if clipped/saturated samples are present
+		}
 	}
 
-	// don't continue to accumulate sample blocks if any possible clipping/saturtion has been detected
-	const unsigned int average_count = adc_data_clipping[vi_mode] ? 1 : adc_average_count;
+	// don't continue to accumulate sample blocks if any waveform clipping/saturtion has been detected
+	const unsigned int average_count = adc_data_clipping[vi_mode] ? 0 : adc_average_count;
 
 //	HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);           // TEST
 
