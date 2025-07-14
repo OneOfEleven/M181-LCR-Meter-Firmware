@@ -852,9 +852,26 @@ void process_Goertzel(void)
 			uint8_t filter = 1; // do Goertzel filter
 		#endif
 
-		// don't bother Goertzel filtering if any possible clipping/saturation has been detected on this mode
-		if (vi_mode >= VI_MODE_VOLT_HI_GAIN && adc_data_clipping[vi_mode])
-			filter = 0;
+		// only filter if we're going to use the data
+		switch (vi_mode)
+		{
+			case VI_MODE_VOLT_LO_GAIN:
+				if (!adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
+					filter = 0;
+				break;
+			case VI_MODE_AMP_LO_GAIN:
+				if (!adc_data_clipping[VI_MODE_AMP_HI_GAIN])
+					filter = 0;
+				break;
+			case VI_MODE_VOLT_HI_GAIN:
+				if (adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
+					filter = 0;
+				break;
+			case VI_MODE_AMP_HI_GAIN:
+				if (adc_data_clipping[VI_MODE_AMP_HI_GAIN])
+					filter = 0;
+				break;
+		}
 
 		if (!filter)
 		{	// don't filter the waveform, but do do these ..
@@ -972,22 +989,39 @@ void process_Goertzel(void)
 	adc_dc_offset_count++;
 }
 
-void combine_afc_all(float *avg_rms, float *avg_deg)
+void combine_afc(float *avg_rms, float *avg_deg)
 {	// combine AFC mag/phase results (the AFC sample blocks are all the same so use the average)
 
 	unsigned int sum_count = 0;
 	float        sum_rms   = 0;
 	t_comp       sum_phase = {0, 0};
 
-	for (unsigned int i = 1; i < 8; i += 2)
+	for (unsigned int mode = 0; mode < 8; mode += 2)
 	{
-		// don't bother using this AFC if any possible clipping/saturation has been detected on this mode
-		if (i >= 4 && adc_data_clipping[i >> 1])
-			continue;
+		// don't bother using this AFC if any clipping/saturation has been detected on this mode
+		switch (mode >> 1)
+		{
+			case VI_MODE_VOLT_LO_GAIN:
+				if (!adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
+					continue;
+				break;
+			case VI_MODE_AMP_LO_GAIN:
+				if (!adc_data_clipping[VI_MODE_AMP_HI_GAIN])
+					continue;
+				break;
+			case VI_MODE_VOLT_HI_GAIN:
+				if (adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
+					continue;
+				break;
+			case VI_MODE_AMP_HI_GAIN:
+				if (adc_data_clipping[VI_MODE_AMP_HI_GAIN])
+					continue;
+				break;
+		}
 
-		sum_rms += mag_rms[i];
+		sum_rms += mag_rms[mode + 1];
 
-		const float phase_rad = phase_deg[i] * DEG_TO_RAD;
+		const float phase_rad = phase_deg[mode + 1] * DEG_TO_RAD;
 		sum_phase.re += cosf(phase_rad);
 		sum_phase.im += sinf(phase_rad);
 
@@ -1002,13 +1036,13 @@ void process_data(void)
 {
 	process_Goertzel();
 
-	#if 0
+	#if 1
 	{	// combine all four AFC waves into one - good idea, or not ?
 
 		float afc_rms;
 		float afc_deg;
 
-		combine_afc_all(&afc_rms, &afc_deg);
+		combine_afc(&afc_rms, &afc_deg);
 
 		mag_rms[1]   = afc_rms;
 		mag_rms[3]   = afc_rms;
@@ -1181,7 +1215,7 @@ void process_ADC(const void *buffer)
 
 			// check to see any clipping/saturation is happening
 			// we are looking for any spikes in the upper half of the histogram
-			uint8_t clipped   = 0;
+			uint8_t clipped = 0;
 			for (unsigned int i = histo_len >> 1; i <= histo_len && !clipped; i++)
 				clipped = (histogram[i] >= threshold) ? 1 : clipped;
 			adc_data_clipping[vi_mode] |= clipped;                // '1' if clipped/saturated samples are present
