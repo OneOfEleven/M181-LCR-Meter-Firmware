@@ -1161,8 +1161,6 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 			memmove(&client.rx.buffer[0], &client.rx.buffer[1], client.rx.buffer_wr - 1);
 			client.rx.buffer_wr--;
 
-			client.rx.timer.mark();
-
 			printf("error: crc\r\n");
 			continue;
 		}
@@ -1173,8 +1171,6 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 
 	if (client.rx.buffer_wr < sizeof(t_packet))
 		return;
-
-	client.rx.timer.mark();
 
 	if (!PauseSpeedButton->Down)
 	{
@@ -1319,7 +1315,7 @@ void __fastcall TForm1::processSerial()
 		if (num_bytes > 0)
 		{
 			m_serial.client.rx.buffer_wr += num_bytes;
-//			m_serial.client.rx.timer.mark();
+			m_serial.client.rx.timer.mark();
 		}
 	}
 

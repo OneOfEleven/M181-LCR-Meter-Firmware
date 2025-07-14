@@ -853,7 +853,7 @@ void process_Goertzel(void)
 		#endif
 
 		// don't bother Goertzel filtering if any possible clipping/saturation has been detected on this mode
-		if (vi_mode >= 2 && adc_data_clipping[vi_mode])
+		if (vi_mode >= VI_MODE_VOLT_HI_GAIN && adc_data_clipping[vi_mode])
 			filter = 0;
 
 		if (!filter)
@@ -1162,32 +1162,38 @@ void process_ADC(const void *buffer)
 		const unsigned int histo_len = ARRAY_SIZE(histogram) - 1;
 		const uint8_t      threshold = histo_len >> 4;        // good enough ?
 
-		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-		{
-			register const int16_t adc = (adc_buffer[i].adc - 2048) * adc_sign;
-			register const int16_t afc = (adc_buffer[i].afc - 2048) * afc_sign;
+		if (vi_mode >= VI_MODE_VOLT_HI_GAIN)
+		{	// include updating the histogram
+			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+			{
+				register const int16_t adc = (adc_buffer[i].adc - 2048) * adc_sign;
+				register const int16_t afc = (adc_buffer[i].afc - 2048) * afc_sign;
 
-			adc_buffer_sum[i].adc += adc;
-			adc_buffer_sum[i].afc += afc;
+				adc_buffer_sum[i].adc += adc;
+				adc_buffer_sum[i].afc += afc;
 
-			if (vi_mode >= 2)
-			{	// update the histogram
 				register uint32_t val = (adc < 0) ? -adc : adc;   // 0..2048
 				//val = (val * histo_len) / 2048;                 // 0 to histo_len
 				val = (val * histo_len) >> 11;                    // 0 to histo_len
 				//val = (val > histo_len) ? histo_len : val;      // clamp
 				histogram[val]++;
 			}
-		}
 
-		if (vi_mode >= 2)
-		{
 			// check to see any clipping/saturation is happening
 			// we are looking for any spikes in the upper half of the histogram
 			uint8_t clipped   = 0;
 			for (unsigned int i = histo_len >> 1; i <= histo_len && !clipped; i++)
 				clipped = (histogram[i] >= threshold) ? 1 : clipped;
 			adc_data_clipping[vi_mode] |= clipped;                // '1' if clipped/saturated samples are present
+		}
+		else
+		{	// forget updating the histogram
+			// the LOW gain modes never clip/saturate
+			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+			{
+				adc_buffer_sum[i].adc += (adc_buffer[i].adc - 2048) * adc_sign;
+				adc_buffer_sum[i].afc += (adc_buffer[i].afc - 2048) * afc_sign;
+			}
 		}
 	}
 
