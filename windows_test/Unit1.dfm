@@ -1,12 +1,12 @@
 object Form1: TForm1
   Left = 284
   Top = 145
-  Width = 770
+  Width = 800
   Height = 571
   Caption = 'Form1'
   Color = clBtnFace
   Constraints.MinHeight = 488
-  Constraints.MinWidth = 770
+  Constraints.MinWidth = 800
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
   Font.Height = -11
@@ -23,8 +23,8 @@ object Form1: TForm1
   object PaintBox1: TPaintBox
     Left = 0
     Top = 45
-    Width = 754
-    Height = 458
+    Width = 792
+    Height = 466
     Align = alClient
     Color = clBlack
     Font.Charset = ANSI_CHARSET
@@ -38,8 +38,8 @@ object Form1: TForm1
   end
   object StatusBar1: TStatusBar
     Left = 0
-    Top = 503
-    Width = 754
+    Top = 511
+    Width = 792
     Height = 29
     Font.Charset = ANSI_CHARSET
     Font.Color = clBtnText
@@ -71,13 +71,13 @@ object Form1: TForm1
   object Panel2: TPanel
     Left = 0
     Top = 0
-    Width = 754
+    Width = 792
     Height = 45
     Align = alTop
     BevelOuter = bvNone
     TabOrder = 1
     DesignSize = (
-      754
+      792
       45)
     object Label1: TLabel
       Left = 18
@@ -96,7 +96,7 @@ object Form1: TForm1
       Caption = 'Serial speed '
     end
     object ConsoleWindowSpeedButton: TSpeedButton
-      Left = 685
+      Left = 715
       Top = 12
       Width = 58
       Height = 25
@@ -131,6 +131,21 @@ object Form1: TForm1
       ParentShowHint = False
       ShowHint = True
     end
+    object HistogramSpeedButton: TSpeedButton
+      Left = 444
+      Top = 12
+      Width = 69
+      Height = 25
+      Cursor = crHandPoint
+      Hint = 'Show/hide histogram'
+      AllowAllUp = True
+      GroupIndex = 2
+      Down = True
+      Caption = 'Histogram'
+      ParentShowHint = False
+      ShowHint = True
+      OnClick = HistogramSpeedButtonClick
+    end
     object SerialPortComboBox: TComboBox
       Left = 76
       Top = 14
@@ -161,7 +176,7 @@ object Form1: TForm1
       OnSelect = SerialSpeedComboBoxSelect
     end
     object CaptureButton: TButton
-      Left = 604
+      Left = 634
       Top = 12
       Width = 75
       Height = 25
@@ -175,9 +190,9 @@ object Form1: TForm1
       OnClick = CaptureButtonClick
     end
     object NormaliseTrackBar: TTrackBar
-      Left = 444
+      Left = 516
       Top = 12
-      Width = 153
+      Width = 113
       Height = 25
       Cursor = crHandPoint
       Hint = 'Normalised waveform brightness'

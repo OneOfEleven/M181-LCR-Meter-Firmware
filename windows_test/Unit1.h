@@ -184,6 +184,7 @@ __published:
 	TSpeedButton *PauseSpeedButton;
 	TButton *CaptureButton;
 	TTrackBar *NormaliseTrackBar;
+	TSpeedButton *HistogramSpeedButton;
 	void __fastcall FormCreate(TObject *Sender);
 	void __fastcall FormDestroy(TObject *Sender);
 	void __fastcall FormClose(TObject *Sender, TCloseAction &Action);
@@ -198,6 +199,7 @@ __published:
 	void __fastcall ConsoleWindowSpeedButtonClick(TObject *Sender);
 	void __fastcall CaptureButtonClick(TObject *Sender);
 	void __fastcall NormaliseTrackBarChange(TObject *Sender);
+	void __fastcall HistogramSpeedButtonClick(TObject *Sender);
 
 private:
 
@@ -248,9 +250,10 @@ private:
 	// one for each waveform
 	struct {
 		t_goertzel goertzel;
-		float      magnitude_rms;
-		float      phase_deg;
-		float      average;
+		float        magnitude_rms;
+		float        phase_deg;
+		float        average;
+		unsigned int m_histogram[256];
 	} m_waveform_info[8];
 
 	void __fastcall loadSettings();

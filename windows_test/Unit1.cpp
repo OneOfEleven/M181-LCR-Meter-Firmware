@@ -463,6 +463,7 @@ void __fastcall TForm1::FormCreate(TObject *Sender)
 		goertzel_init(&m_waveform_info[i].goertzel, 2.0 / ARRAY_SIZE(m_values[i]));
 		m_waveform_info[i].magnitude_rms = 0;
 		m_waveform_info[i].phase_deg     = 0;
+		memset(m_waveform_info[i].m_histogram, 0, sizeof(m_waveform_info[i].m_histogram));
 	}
 
 	// ******************
@@ -837,6 +838,8 @@ void __fastcall TForm1::loadSettings()
 #endif
 
 	NormaliseTrackBar->Position = ini->ReadInteger("Misc", "Normalised", NormaliseTrackBar->Position);
+
+	HistogramSpeedButton->Down = ini->ReadBool("Misc", "Histogram", HistogramSpeedButton->Down);
 	
 	delete ini;
 }
@@ -876,6 +879,8 @@ void __fastcall TForm1::saveSettings()
 	ini->WriteInteger("SerialPort", "Speed", (int)SerialSpeedComboBox->Items->Objects[SerialSpeedComboBox->ItemIndex]);
 
 	ini->WriteInteger("Misc", "Normalised", NormaliseTrackBar->Position);
+
+	ini->WriteBool("Misc", "Histogram", HistogramSpeedButton->Down);
 
 	delete ini;
 }
@@ -980,6 +985,7 @@ bool __fastcall TForm1::serialConnect()
 		m_waveform_info[i].goertzel.im   = 0;
 		m_waveform_info[i].magnitude_rms = 0;
 		m_waveform_info[i].phase_deg     = 0;
+		memset(m_waveform_info[i].m_histogram, 0, sizeof(m_waveform_info[i].m_histogram));
 	}
 
 	m_breaks = 0;
@@ -1185,6 +1191,9 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 			float avg_sum = 0;
 			float sum = 0;
 
+			memset(m_waveform_info[i].m_histogram, 0, sizeof(m_waveform_info[i].m_histogram));
+			const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].m_histogram);
+
 			for (unsigned int k = 0; k < len && !except; k++)
 			{
 				float v = m_values[i][k];
@@ -1202,6 +1211,12 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 
 						avg_sum += v;
 						sum += SQR(v);
+
+						// waveform histogram
+						unsigned int s = abs((int)(v * (histo_len - 1) * (1.0f / 2500)));  // 0 to (histo_len - 1)
+						s = (s > (histo_len - 1)) ? (histo_len - 1) : s;
+						if (s > 0)	// ignore DC
+							m_waveform_info[i].m_histogram[s]++;
 					}
 				}
 				catch (Exception &e)
@@ -1527,6 +1542,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 		std::vector <Gdiplus::PointF> gdi_points(values);
 		std::vector <Gdiplus::PointF> gdi_points_normalize(values);
+		std::vector <Gdiplus::PointF> gdi_points_histo;
 
 		for (unsigned int i = 0; i < waveforms; i++)
 		{
@@ -1567,12 +1583,34 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				m_bitmap_main->Canvas->FillRect(TRect(x1, y1, x2, y2));
 			}
 
-  			if ((i & 1) == 0)
+			if ((i & 1) == 0)
 			{	// center line
 				Gdiplus::Pen pen(Gdiplus::Color(255, 100, 100, 100), 1);  // ARGB
 				pen.SetAlignment(Gdiplus::PenAlignmentCenter);
 				pen.SetDashStyle(Gdiplus::DashStyleDash);
 				g.DrawLine(&pen, x + left_margin, cy, x + x_size - right_margin, cy);
+			}
+
+			if (HistogramSpeedButton->Down && (i & 1) == 0)
+			{	// histogram
+				const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].m_histogram);
+
+				const float u_scale = (float)(x_size - left_margin - right_margin) / (histo_len - 1);
+				const float v_scale = (float)((y_size / 2) * 4) / 255;
+
+				gdi_points_histo.resize(histo_len);
+
+				for (unsigned int k = 0; k < histo_len; k++)
+				{
+					gdi_points_histo[k].X = x + left_margin + (k * u_scale);
+					gdi_points_histo[k].Y = cy - (m_waveform_info[i].m_histogram[k] * v_scale);
+				}
+
+				Gdiplus::Pen pen(Gdiplus::Color(80, 128, 255, 128), 1);    // ARGB
+				pen.SetAlignment(Gdiplus::PenAlignmentCenter);
+				//pen.SetDashStyle(Gdiplus::DashStyleDash);
+				//pen.SetDashPattern(dash_pattern, ARRAY_SIZE(dash_pattern));
+				g.DrawLines(&pen, &gdi_points_histo[0], gdi_points_histo.size());
 			}
 
 			if (NormaliseTrackBar->Position > 0)
@@ -1831,6 +1869,11 @@ void __fastcall TForm1::CaptureButtonClick(TObject *Sender)
 }
 
 void __fastcall TForm1::NormaliseTrackBarChange(TObject *Sender)
+{
+	PaintBox1->Invalidate();
+}
+
+void __fastcall TForm1::HistogramSpeedButtonClick(TObject *Sender)
 {
 	PaintBox1->Invalidate();
 }

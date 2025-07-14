@@ -165,7 +165,7 @@ uint32_t              adc_dc_offset_count = 0;
 
 // raw ADC peak sample values for each V/I mode
 // this is to detect possible waveform clipping (ie, when in high gain mode)
-uint16_t              adc_buffer_max[4] = {0};
+//uint16_t              adc_buffer_max[4] = {0};
 
 #pragma pack(push, 1)
 float                 adc_data[8][ADC_DATA_LENGTH] = {0};
@@ -1044,16 +1044,9 @@ void process_data(void)
 			amp_gain_sel  = 0;
 		#else
 			// use LO or HI gain
-			// use HI gain mode if the raw ADC HI gain samples are below a fixed threshold
-			//
-			// but the guy has used non-rail-to-rail output OPAMP's which saturate well before reaching the OPAMP's supply line levels :(
-			// this means we never see the full range of the ADC (0-4095) being used - which is a waste of dynamic range
-			//
-			// need to replace the TL084 OPAMP's with much improved rail-to-rail OPAMP's
-			// along with a proper TPS60403 voltage inverter
 
-			volt_gain_sel = (adc_buffer_max[2] <= hi_gain_threshold) ? 1 : 0;
-			amp_gain_sel  = (adc_buffer_max[3] <= hi_gain_threshold) ? 1 : 0;
+			volt_gain_sel = adc_data_clipping[2] ? 0 : 1;
+			amp_gain_sel  = adc_data_clipping[3] ? 0 : 1;
 		#endif
 	}
 
@@ -1146,7 +1139,7 @@ void process_ADC(const void *buffer)
 		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
 
 		// reset the max value records
-		memset(adc_buffer_max, 0, sizeof(adc_buffer_max));
+//		memset(adc_buffer_max, 0, sizeof(adc_buffer_max));
 
 		// reset the clipping detected flags
 		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
@@ -1171,8 +1164,11 @@ void process_ADC(const void *buffer)
 		register const int16_t afc_sign = 1;
 
 		// used to detect waveform clipping
-		// the AFC samples will never be clipped so no need to record those peaks
-		register uint16_t adc_max = adc_buffer_max[vi_mode];
+		uint8_t histogram[128] = {0};
+		const unsigned int histo_len = ARRAY_SIZE(histogram);
+
+		// used to detect waveform clipping
+//		register uint16_t adc_max = adc_buffer_max[vi_mode];
 
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
@@ -1182,15 +1178,34 @@ void process_ADC(const void *buffer)
 			adc_buffer_sum[i].adc += adc;
 			adc_buffer_sum[i].afc += afc;
 
-			register const uint16_t val = (adc < 0) ? -adc : adc;   // abs()
-			adc_max = (val > adc_max) ? val : adc_max;
+			// abs()
+			register uint32_t val = (adc < 0) ? -adc : adc;   // 0..2048
+
+			// peak value
+//			adc_max = (val > adc_max) ? val : adc_max;
+
+			// histogram
+			//val = (val * (histo_len - 1)) / 2048;           // 0 to (histo_len - 1)
+			val = (val * (histo_len - 1)) >> 11;              // 0 to (histo_len - 1)
+			//val = (val > (histo_len - 1)) ? (histo_len - 1) : val;
+			if (val > 0)	// ignore DC 0
+				histogram[val]++;
 		}
 
-		adc_buffer_max[vi_mode] = adc_max;
+//		adc_buffer_max[vi_mode] = adc_max;
+
+		// check to see any clipping/saturation is happening
+		// we are looking for any spikes in the upper half of the histogram
+		const uint8_t threshold = ADC_DATA_LENGTH / 16; // good enough ?
+		      uint8_t clipped   = 0;
+		for (unsigned int i = histo_len / 2; i < histo_len && !clipped; i++)
+			if (histogram[i] >= threshold)
+				clipped = 1;
+		adc_data_clipping[vi_mode] |= clipped;        // '1' if clipped/saturated samples are present
 	}
 
 	// if the waveform in this mode is clipping/saturating then simply move on to the next mode
-	adc_data_clipping[vi_mode] = ((vi_mode == VI_MODE_VOLT_HI_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) && adc_buffer_max[vi_mode] >= hi_gain_threshold) ? 1 : 0;
+//	adc_data_clipping[vi_mode] = ((vi_mode == VI_MODE_VOLT_HI_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) && adc_buffer_max[vi_mode] >= hi_gain_threshold) ? 1 : 0;
 
 	// don't continue to accumulate sample blocks if any possible clipping/saturtion has been detected
 	const unsigned int average_count = adc_data_clipping[vi_mode] ? 1 : adc_average_count;
@@ -1413,11 +1428,21 @@ void draw_screen(void)
 				snprintf(buffer_display, sizeof(buffer_display), "%2u kHz", measurement_Hz / 1000);
 			ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-			#if 1
+			#if 0
 				// VI phase
 				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * 7), 0);
 				print_sprint(4, system_data.vi_phase_deg, buffer_display, sizeof(buffer_display));
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
+			#elif 1
+			{
+				// show the gain setting for V and I mode
+				buffer_display[0] = volt_gain_sel ? 'H' : 'L';
+				buffer_display[1] = amp_gain_sel  ? 'H' : 'L';
+				buffer_display[2] ='\0';
+				//ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * 7), 0);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * 7), LINE2_Y + 5);
+				ssd1306_WriteString(buffer_display, Font_7x10, White);
+			}
 			#endif
 
 			// ***************************
