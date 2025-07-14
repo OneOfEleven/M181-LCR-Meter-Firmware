@@ -852,28 +852,30 @@ void process_Goertzel(void)
 			uint8_t filter = 1; // do Goertzel filter
 		#endif
 
+		uint8_t clipped = 0;
+
 		// only filter if we're going to use the data
 		switch (vi_mode)
 		{
 			case VI_MODE_VOLT_LO_GAIN:
 				if (!adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
-					filter = 0;
+					clipped = 1;
 				break;
 			case VI_MODE_AMP_LO_GAIN:
 				if (!adc_data_clipping[VI_MODE_AMP_HI_GAIN])
-					filter = 0;
+					clipped = 1;
 				break;
 			case VI_MODE_VOLT_HI_GAIN:
 				if (adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
-					filter = 0;
+					clipped = 1;
 				break;
 			case VI_MODE_AMP_HI_GAIN:
 				if (adc_data_clipping[VI_MODE_AMP_HI_GAIN])
-					filter = 0;
+					clipped = 1;
 				break;
 		}
 
-		if (!filter)
+		if (!filter || clipped)
 		{	// don't filter the waveform, but do do these ..
 			//    remove waveform DC offset
 			//   compute waveform RMS magnitude
@@ -881,6 +883,7 @@ void process_Goertzel(void)
 
 			register float *buf = adc_data[buf_index];   // point to the ADC samples
 
+			if (vi_mode < 2 || !clipped)
 			{	// remove waveform DC offset
 
 				// compute the average (DC offset)
@@ -1191,13 +1194,14 @@ void process_ADC(const void *buffer)
 		register const int16_t adc_sign = (vi_mode & 1u) ? -1 : 1;
 		register const int16_t afc_sign = 1;
 
-		// used to detect waveform clipping
-		uint8_t histogram[65] = {0};
-		const unsigned int histo_len = ARRAY_SIZE(histogram) - 1;
-		const uint8_t      threshold = histo_len >> 4;        // good enough ?
-
 		if (vi_mode >= VI_MODE_VOLT_HI_GAIN)
 		{	// include updating the histogram
+
+			// for detecting waveform clipping
+			uint8_t histogram[64 + 2] = {0};
+			const unsigned int histo_len = ARRAY_SIZE(histogram) - 2;
+			const uint8_t      threshold = ADC_DATA_LENGTH / 10;
+
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
 				register const int16_t adc = (adc_buffer[i].adc - 2048) * adc_sign;
@@ -1208,25 +1212,29 @@ void process_ADC(const void *buffer)
 
 				register uint32_t val = (adc < 0) ? -adc : adc;   // 0..2048
 				//val = (val * histo_len) / 2048;                 // 0 to histo_len
-				val = (val * histo_len) >> 11;                    // 0 to histo_len
-				//val = (val > histo_len) ? histo_len : val;      // clamp
+				val = (val * (uint32_t)histo_len) >> 11;          // 0 to histo_len
+				//val = (val > histo_len) ? histo_len : val;        // clamp
 				histogram[val]++;
 			}
 
 			// check to see any clipping/saturation is happening
 			// we are looking for any spikes in the upper half of the histogram
 			register uint8_t clipped = 0;
-			register uint8_t prev    = 0;
-			for (unsigned int i = histo_len >> 1; i <= histo_len && !clipped; i++)
+			register uint8_t p1      = 0;
+			register uint8_t p2      = 0;
+			for (unsigned int i = histo_len - (histo_len >> 2); i < ARRAY_SIZE(histogram) && !clipped; i++) // scan the last quarter only
 			{
 				#if 0
-					clipped = (histogram[i] >= threshold) ? 1 : clipped;
+					if (histogram[i] >= threshold)
+						clipped = 1;
 				#else
-					// look for edge difference
-					register const uint8_t h = histogram[i];
-					register const uint8_t diff = (prev >= h) ? prev - h : h - prev;
-					prev = h;
-					clipped = (diff >= threshold) ? 1 : clipped;
+					// look for spike
+					register const uint8_t p0 = histogram[i];
+					register const uint8_t d1 = (p1 >= p0) ? p1 - p0 : 0;
+					register const uint8_t d2 = (p1 >= p2) ? p1 - p2 : 0;
+					p2 = p1;
+					p1 = p0;
+					clipped = (d1 > threshold && d2 > threshold) ? 1 : clipped;
 				#endif
 			}
 			adc_data_clipping[vi_mode] |= clipped;                // '1' if clipped/saturated samples are present

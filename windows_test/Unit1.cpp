@@ -1188,7 +1188,7 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 			float sum = 0;
 
 			memset(m_waveform_info[i].histogram, 0, sizeof(m_waveform_info[i].histogram));
-			const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].histogram);
+			const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].histogram) - 2;
 
 			for (unsigned int k = 0; k < len && !except; k++)
 			{
@@ -1209,7 +1209,7 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 						sum += SQR(v);
 
 						// waveform histogram
-						unsigned int s = abs((int)(v * (histo_len - 1) * (1.0f / 2500)));  // 0 to (histo_len - 1)
+						unsigned int s = abs((int)(v * (histo_len - 1) * (1.0f / 2048)));  // 0 to (histo_len - 1)
 						s = (s > (histo_len - 1)) ? (histo_len - 1) : s;
 						if (s > 0)	// ignore DC
 							m_waveform_info[i].histogram[s]++;
@@ -1591,8 +1591,8 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 			{	// histogram
 				const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].histogram);
 
-				const float u_scale = (float)(x_size - left_margin - right_margin) / (histo_len - 1);
-				const float v_scale = (float)((y_size / 2) * 4) / 255;
+				const float xx_scale = (float)(x_size - left_margin - right_margin) / (histo_len - 1);
+				const float yy_scale = (float)((y_size / 2) * 4) / 255;
 
 				gdi_points_histo.resize(0);
 
@@ -1601,8 +1601,8 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 				for (unsigned int k = 0; k < histo_len; k++)
 				{
-					p2.X = x + left_margin + (k * u_scale);
-					p2.Y = cy - (m_waveform_info[i].histogram[k] * v_scale);
+					p2.X = x + left_margin + (k * xx_scale);
+					p2.Y = cy - (m_waveform_info[i].histogram[k] * yy_scale);
 					if (k == 0)
 						p1 = p2;
 					p1.Y = p2.Y;
