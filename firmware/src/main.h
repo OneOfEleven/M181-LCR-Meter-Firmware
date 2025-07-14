@@ -18,12 +18,18 @@
 #endif
 
 #include <stdint.h>
+
+#define _USE_MATH_DEFINES
 #include <math.h>
 
 #include "stm32f1xx_hal.h"
 
 #ifndef DEBUG
 //	#define USE_IWDG                               // useful to reset the CPU if something locks up etc
+#endif
+
+#ifndef M_PI
+    #define M_PI 3.14159265358979323846
 #endif
 
 #define FW_VERSION                   0.25
@@ -321,7 +327,7 @@ enum {
 // this structure will be stored in flash (emulated EEPROM) so as to remember various things for the user
 //
 #pragma pack(push, 1)
-typedef struct {
+typedef struct t_settings {
 	uint32_t     marker;              // settings marker - so we can find this saved block in flash area
 
 	uint16_t     measurement_Hz;      // the sine wave measurement frequency the user is using
@@ -348,7 +354,7 @@ typedef struct {
 } t_settings;
 #pragma pack(pop)
 
-typedef struct {
+typedef struct t_system_data {
 	unsigned int vi_measure_mode;
 
 	float        rms_voltage_adc;

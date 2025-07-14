@@ -2,6 +2,11 @@
 #ifndef __STM32_SW_I2C_H
 #define __STM32_SW_I2C_H
 
+#ifdef __cplusplus
+	extern "C"
+	{
+#endif
+
 #include <stdint.h>
 
 void    I2C_bus_init(void);
@@ -18,5 +23,9 @@ uint8_t I2C_send_byte_data(const uint8_t address, const uint8_t reg, const uint8
 uint8_t I2C_receive_byte_data(const uint8_t address, const uint8_t reg);
 uint8_t I2C_transmit(const uint8_t address, const uint8_t data[], const uint8_t size);
 uint8_t I2C_receive(const uint8_t address, const uint8_t reg[], uint8_t *data, const uint8_t reg_size, const uint8_t size);
+
+#ifdef __cplusplus
+	}
+#endif
 
 #endif

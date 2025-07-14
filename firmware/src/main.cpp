@@ -41,9 +41,21 @@ typedef struct {
 	int32_t afc;
 } t_adc_dma_data_32;
 
-typedef struct {
+typedef struct t_comp {
 	float re;
 	float im;
+
+	t_comp(void)
+	{
+		re = 0.0f;
+		im = 0.0f;
+	}
+
+	t_comp(const float _re, const float _im)
+	{
+		re = _re;
+		im = _im;
+	}
 } t_comp;
 
 #pragma pack(push, 1)
@@ -160,7 +172,7 @@ t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};                    
 unsigned int          adc_buffer_sum_count            = 0;                          // number of sums so far done
 
 // ADC rolling average (DC offset)
-t_comp                adc_dc_offset[8]    = {0};
+t_comp                adc_dc_offset[8];
 uint32_t              adc_dc_offset_count = 0;
 
 #pragma pack(push, 1)
@@ -733,33 +745,31 @@ void set_measurement_frequency(const uint32_t Hz)
 	}
 }
 
-/*
-t_complex <float> serial_to_parallel(t_complex <float> z)
+t_comp serial_to_parallel(const t_comp z)
 {	// convert serial impedance to parallel impedance equivalent
 
 	const float pwr = (z.re * z.re) + (z.im * z.im);
 
 	if (z.re != 0 && z.im != 0)
-		return t_complex <float> (pwr / z.re, pwr / z.im);
+		return t_comp(pwr / z.re, pwr / z.im);
 
 	if (z.re != 0 && pwr > 0)
-		return t_complex <float> (pwr / z.re, _FPCLASS_PINF);
+		return t_comp(pwr / z.re, NAN);
 
 	if (z.re != 0 && pwr < 0)
-		return t_complex <float> (pwr / z.re, _FPCLASS_NINF);
+		return t_comp(pwr / z.re, NAN);
 
 	if (z.im != 0 && pwr > 0)
-		return t_complex <float> (_FPCLASS_PINF, pwr / z.re);
+		return t_comp(NAN, pwr / z.re);
 
 	if (z.im != 0 && pwr < 0)
-		return t_complex <float> (_FPCLASS_NINF, pwr / z.re);
+		return t_comp(NAN, pwr / z.re);
 
 	if (pwr == 0)
-		return t_complex <float> (0, 0);
+		return t_comp(0, 0);
 
-	return t_complex <float> (_FPCLASS_PINF, _FPCLASS_PINF);
+	return t_comp(NAN, NAN);
 }
-*/
 
 /*
 float phase_diff(const t_comp c1, const t_comp c2)
@@ -1124,6 +1134,8 @@ void process_data(void)
 	//
 	const float resistive    = system_data.impedance * fabsf(cs);        // R
 	const float reactance    = system_data.impedance * fabsf(sn);        // X
+
+//	const t_comp par         = serial_to_parallel(t_comp(resistive, reactance));
 
 	const float inductance   = reactance / omega;                        // L = X / ω
 	const float capacitance  = 1.0f / (omega * reactance);               // C = 1 / (ωX)
@@ -2455,7 +2467,7 @@ void process_buttons(void)
 
 		if (button[0].held_ms >= 800)
 		{
-			memset(&calibrate, 0, sizeof(calibrate));
+			memset((void *)&calibrate, 0, sizeof(calibrate));
 			calibrate.Hz = 100;
 
 			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
@@ -2482,7 +2494,7 @@ void process_buttons(void)
 
 		if (button[1].held_ms >= 800)
 		{
-			memset(&calibrate, 0, sizeof(calibrate));
+			memset((void *)&calibrate, 0, sizeof(calibrate));
 			calibrate.Hz = 100;
 
 			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
@@ -2653,7 +2665,7 @@ void process_op_mode(void)
 				if (index == 0)
 				{	// do the same again but at the next measurement frequency
 
-					memset(&calibrate, 0, sizeof(calibrate));
+					memset((void *)&calibrate, 0, sizeof(calibrate));
 					calibrate.Hz = 1000;
 				}
 				else
@@ -2700,7 +2712,7 @@ void process_op_mode(void)
 				if (index == 0)
 				{	// do the same again but at the next measurement frequency
 
-					memset(&calibrate, 0, sizeof(calibrate));
+					memset((void *)&calibrate, 0, sizeof(calibrate));
 					calibrate.Hz = 1000;
 				}
 				else
