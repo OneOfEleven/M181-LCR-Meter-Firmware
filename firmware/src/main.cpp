@@ -1132,28 +1132,52 @@ void process_data(void)
 
 	// TODO: find out if the following 'fabsf()'s should be there or not
 	//
-	const float resistive    = system_data.impedance * fabsf(cs);        // R
-	const float reactance    = system_data.impedance * fabsf(sn);        // X
+	const float ser_resistive    = system_data.impedance * fabsf(cs);                // Rs
+	const float ser_reactance    = system_data.impedance * fabsf(sn);                // Xs
 
-//	const t_comp par         = serial_to_parallel(t_comp(resistive, reactance));
+	const float ser_inductance   = ser_reactance / omega;                            // L = X / ω
+	const float ser_capacitance  = 1.0f / (omega * ser_reactance);                   // C = 1 / (ωX)
+	const float ser_esr          = ser_resistive;                                    // R
+	const float ser_tan_delta    = ser_resistive / ser_reactance;                    // D = R / X
 
-	const float inductance   = reactance / omega;                        // L = X / ω
-	const float capacitance  = 1.0f / (omega * reactance);               // C = 1 / (ωX)
-	const float esr          = resistive;                                // R
-	const float tan_delta    = resistive / reactance;                    // D = R / X
+	// these are each the same result, just done in a different way
+//	const float ser_qf_ind       = (omega * ser_inductance) / ser_resistive;         // Q = (ωL) / R
+//	const float ser_qf_cap       = 1.0f / (omega * ser_capacitance * ser_resistive); // Q = 1 / (ωCR)
+	const float ser_qf_res       = ser_reactance / ser_resistive;                    // Q = X / R or 1 / D
 
-	const float qf_ind       = (omega * inductance) / resistive;         // Q = (ωL) / R
-	const float qf_cap       = 1.0f / (omega * capacitance * resistive); // Q = 1 / (ωCR)
-	const float qf_res       = reactance / resistive;                    // Q = X / R or 1 / D
+	system_data.series.inductance  = ser_inductance;
+	system_data.series.capacitance = ser_capacitance;
+	system_data.series.resistance  = system_data.impedance;
+	system_data.series.esr         = ser_esr;
+	system_data.series.tan_delta   = ser_tan_delta;
+//	system_data.series.qf          = ser_qf_ind;
+//	system_data.series.qf          = ser_qf_cap;
+	system_data.series.qf          = ser_qf_res;
 
-	system_data.inductance   = inductance;
-	system_data.capacitance  = capacitance;
-	system_data.resistance   = system_data.impedance;
-	system_data.esr          = esr;
-	system_data.tan_delta    = tan_delta;
-	system_data.qf_ind       = qf_ind;
-	system_data.qf_cap       = qf_cap;
-	system_data.qf_res       = qf_res;
+	{	// series to parallel
+		const float p             = SQR(ser_resistive) + SQR(ser_reactance);
+		const float resistive = p / ser_resistive;
+		const float reactance = p / ser_reactance;
+
+		const float inductance   = reactance / omega;                            // L = X / ω
+		const float capacitance  = 1.0f / (omega * reactance);                   // C = 1 / (ωX)
+		const float esr          = resistive;                                    // R
+		const float tan_delta    = resistive / reactance;                        // D = R / X
+
+		// these are each the same result, just done in a different way
+//		const float qf_ind       = (omega * inductance) / resistive;             // Q = (ωL) / R
+//		const float qf_cap       = 1.0f / (omega * capacitance * resistive);     // Q = 1 / (ωCR)
+		const float qf_res       = reactance / resistive;                        // Q = X / R or 1 / D
+
+		system_data.parallel.inductance  = inductance;
+		system_data.parallel.capacitance = capacitance;
+		system_data.parallel.resistance  = system_data.impedance;
+		system_data.parallel.esr         = esr;
+		system_data.parallel.tan_delta   = tan_delta;
+//		system_data.parallel.qf          = qf_ind;
+//		system_data.parallel.qf          = qf_cap;
+		system_data.parallel.qf          = qf_res;
+	}
 
 	// **************************
 }
@@ -1465,6 +1489,8 @@ void draw_screen(void)
 	// clear the screen
 	ssd1306_Fill(Black);
 
+	const uint8_t par = settings.flags & SETTING_FLAG_PARALLEL;
+
 	switch (op_mode)
 	{
 		default:
@@ -1475,7 +1501,7 @@ void draw_screen(void)
 
 			// serial/parallel mode
 			ssd1306_SetCursor(OFFSET_X, 0);
-			ssd1306_WriteString((settings.flags & SETTING_FLAG_PARALLEL) ? "PAR" : "SER", Font_7x10, White);
+			ssd1306_WriteString(par ? "PAR" : "SER", Font_7x10, White);
 
 			// measurement frequency
 			ssd1306_SetCursor(7 * 5, 0);
@@ -1524,17 +1550,17 @@ void draw_screen(void)
 				switch (settings.lcr_mode)
 				{
 					case LCR_MODE_INDUCTANCE:
-						value = system_data.inductance;
+						value = par ? system_data.parallel.inductance : system_data.series.inductance;
 						snprintf(buffer_display, sizeof(buffer_display), "L");
 						break;
 
 					case LCR_MODE_CAPACITANCE:
-						value = system_data.capacitance;
+						value = par ? system_data.parallel.capacitance : system_data.series.capacitance;
 						snprintf(buffer_display, sizeof(buffer_display), "C");
 						break;
 
 					case LCR_MODE_RESISTANCE:
-						value = system_data.resistance;
+						value = par ? system_data.parallel.resistance : system_data.series.resistance;
 						snprintf(buffer_display, sizeof(buffer_display), "R");
 						break;
 
@@ -1643,23 +1669,7 @@ void draw_screen(void)
 			#else
 			{	// Quality factor
 
-				float value = 0;
-
-				switch (settings.lcr_mode)
-				{
-					case LCR_MODE_INDUCTANCE:
-						value = system_data.qf_ind;
-						break;
-					case LCR_MODE_CAPACITANCE:
-						value = system_data.qf_cap;
-						break;
-					case LCR_MODE_RESISTANCE:
-						value = system_data.qf_res;
-						break;
-					case LCR_MODE_AUTO:
-						break;
-				}
-
+				float value = par ? system_data.parallel.qf : system_data.series.qf;
 				const char unit = unit_conversion(&value);
 
 				ssd1306_SetCursor(OFFSET_X, LINE3_Y);
@@ -1684,7 +1694,7 @@ void draw_screen(void)
 
 					{	// ESR
 
-						float value = system_data.esr;
+						float value = par ? system_data.parallel.esr : system_data.series.esr;
 						const char unit = unit_conversion(&value);
 
 						ssd1306_SetCursor(OFFSET_X, LINE4_Y);
@@ -1702,7 +1712,7 @@ void draw_screen(void)
 					#if 0
 					{	// Tan Delta
 
-						float value = system_data.tan_delta;
+						float value = par ? system_data.parallel.tan_delta : system_data.series.tan_delta;
 						const char unit = unit_conversion(&value);
 
 						ssd1306_SetCursor(x2, LINE4_Y);
@@ -1719,23 +1729,7 @@ void draw_screen(void)
 					#else
 					{	// Quality factor
 
-						float value = 0;
-
-						switch (settings.lcr_mode)
-						{
-							case LCR_MODE_INDUCTANCE:
-								value = system_data.qf_ind;
-								break;
-							case LCR_MODE_CAPACITANCE:
-								value = system_data.qf_cap;
-								break;
-							case LCR_MODE_RESISTANCE:
-								value = system_data.qf_res;
-								break;
-							case LCR_MODE_AUTO:
-								break;
-						}
-
+						float value = par ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value);
 
 						ssd1306_SetCursor(x2, LINE4_Y);
@@ -1756,7 +1750,7 @@ void draw_screen(void)
 
 					{	// inductance
 
-						float value = system_data.inductance;
+						float value = par ? system_data.parallel.inductance : system_data.series.inductance;
 						const char unit = unit_conversion(&value);
 
 						ssd1306_SetCursor(OFFSET_X, LINE4_Y);
@@ -1772,7 +1766,7 @@ void draw_screen(void)
 
 					{	// Quality factor
 
-						float value = system_data.qf_res;
+						float value = par ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value);
 
 						ssd1306_SetCursor(x2, LINE4_Y);
@@ -2462,6 +2456,7 @@ void process_buttons(void)
 
 	if (button[0].released)
 	{	// HOLD button
+
 		button[0].released     = 0;
 		button[0].pressed_tick = 0;
 
@@ -2474,14 +2469,8 @@ void process_buttons(void)
 		}
 		else
 		{
-
-
-			// TODO: display HOLD
-
-
-			// toggle UART data
+//			settings.flags ^= SETTING_FLAG_HOLD;
 			settings.flags ^= SETTING_FLAG_UART_DSO;
-
 		}
 
 		draw_screen();
@@ -2489,6 +2478,7 @@ void process_buttons(void)
 
 	if (button[1].released)
 	{	// S/P button
+
 		button[1].released     = 0;
 		button[1].pressed_tick = 0;
 
@@ -2501,13 +2491,23 @@ void process_buttons(void)
 		}
 		else
 		{
+			settings.flags ^= SETTING_FLAG_PARALLEL;    // toggle Serial/Parallel display
 
+			// save settings
+			save_settings_timer = SAVE_SETTINGS_MS;
+		}
 
-			// TODO: Serial/Parallel
+		draw_screen();
+	}
 
-			//settings.flags ^= SETTING_FLAG_PARALLEL;    // toggle Serial/Parallel display
+	if (button[2].released)
+	{	// RCL button
 
+		button[2].released     = 0;
+		button[2].pressed_tick = 0;
 
+		if (button[2].held_ms >= 800)
+		{
 			// cycle the frequency
 			switch (settings.measurement_Hz)
 			{
@@ -2527,19 +2527,6 @@ void process_buttons(void)
 
 			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
-		}
-
-		draw_screen();
-	}
-
-	if (button[2].released)
-	{	// S/P button
-		button[2].released     = 0;
-		button[2].pressed_tick = 0;
-
-		if (button[2].held_ms >= 800)
-		{
-
 		}
 		else
 		{

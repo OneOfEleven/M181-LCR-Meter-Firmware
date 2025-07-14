@@ -323,6 +323,7 @@ enum {
 
 #define SETTING_FLAG_UART_DSO    (1u << 0)
 #define SETTING_FLAG_PARALLEL    (1u << 1)
+#define SETTING_FLAG_HOLD        (1u << 2)
 
 // this structure will be stored in flash (emulated EEPROM) so as to remember various things for the user
 //
@@ -369,14 +370,24 @@ typedef struct t_system_data {
 
 	float        vi_phase_deg;
 
-	float        capacitance;
-	float        inductance;
-	float        resistance;
-	float        esr;
-	float        tan_delta;
-	float        qf_ind;
-	float        qf_cap;
-	float        qf_res;
+	struct {
+		float    capacitance;
+		float    inductance;
+		float    resistance;
+		float    esr;
+		float    tan_delta;
+		float    qf;
+	} series;
+
+	struct {
+		float    capacitance;
+		float    inductance;
+		float    resistance;
+		float    esr;
+		float    tan_delta;
+		float    qf;
+	} parallel;
+
 } t_system_data;
 
 void Error_Handler(void);

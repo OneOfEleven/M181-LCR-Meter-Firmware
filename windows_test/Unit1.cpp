@@ -1745,23 +1745,24 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				m_bitmap_main->Canvas->Brush->Style = bsClear;
 				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
 
-				s = ((i & 1) == 0) ? "   ADC " : "   AFC ";
+				s = ((i & 1) == 0) ? "     ADC " : "     AFC ";
 				g.FillRectangle(&brush, tx, ty1, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty1, s);
 
-				s.printf("   avg %0.3f ", m_waveform_info[i].average);
+				s.printf("     avg %0.3f ", m_waveform_info[i].average);
 				g.FillRectangle(&brush, tx, ty2, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty2, s);
 
-				s.printf("   mag %0.3f peak ", m_waveform_info[i].magnitude_rms * sqrt(2));
+				//s.printf("     mag %0.3f peak ", m_waveform_info[i].magnitude_rms * sqrt(2));
+				s.printf(" min max %0.1f %0.1f ", min, max);
 				g.FillRectangle(&brush, tx, ty3, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty3, s);
 
-				s.printf("   mag %0.3f rms ", m_waveform_info[i].magnitude_rms);
+				s.printf("     mag %0.3f rms ", m_waveform_info[i].magnitude_rms);
 				g.FillRectangle(&brush, tx, ty4, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty4, s);
 
-				s.printf(" phase %+0.3f\xb0 ", m_waveform_info[i].phase_deg);
+				s.printf("   phase %+0.3f\xb0 ", m_waveform_info[i].phase_deg);
 				g.FillRectangle(&brush, tx, ty5, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty5, s);
 			}
