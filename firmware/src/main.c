@@ -1200,7 +1200,7 @@ void process_ADC(const void *buffer)
 			// for detecting waveform clipping
 			uint8_t histogram[64 + 2] = {0};
 			const unsigned int histo_len = ARRAY_SIZE(histogram) - 2;
-			const uint8_t      threshold = ADC_DATA_LENGTH / 10;
+			const uint8_t      threshold = ADC_DATA_LENGTH / 12;
 
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
@@ -1213,18 +1213,19 @@ void process_ADC(const void *buffer)
 				register uint32_t val = (adc < 0) ? -adc : adc;   // 0..2048
 				//val = (val * histo_len) / 2048;                 // 0 to histo_len
 				val = (val * (uint32_t)histo_len) >> 11;          // 0 to histo_len
-				//val = (val > histo_len) ? histo_len : val;        // clamp
+				//val = (val > histo_len) ? histo_len : val;      // clamp
 				histogram[val]++;
 			}
 
-			// check to see any clipping/saturation is happening
-			// we are looking for any spikes in the upper half of the histogram
+			// check to see any clipping/saturation is occuring
+			// we're looking for any spikes in the top quarter of the histogram
 			register uint8_t clipped = 0;
 			register uint8_t p1      = 0;
 			register uint8_t p2      = 0;
-			for (unsigned int i = histo_len - (histo_len >> 2); i < ARRAY_SIZE(histogram) && !clipped; i++) // scan the last quarter only
+			for (unsigned int i = histo_len - (histo_len >> 2); i < ARRAY_SIZE(histogram) && !clipped; i++) 
 			{
 				#if 0
+					// look at the absolute levels (rather than spikes)
 					if (histogram[i] >= threshold)
 						clipped = 1;
 				#else
@@ -1234,7 +1235,8 @@ void process_ADC(const void *buffer)
 					register const uint8_t d2 = (p1 >= p2) ? p1 - p2 : 0;
 					p2 = p1;
 					p1 = p0;
-					clipped = (d1 > threshold && d2 > threshold) ? 1 : clipped;
+					clipped = (d1 > threshold && d2 > threshold) ? 1 : clipped;      // spikes leading and trailing edge
+					//clipped = (d1 > threshold) ? 1 : clipped;                      // spikes leading edge only
 				#endif
 			}
 			adc_data_clipping[vi_mode] |= clipped;                // '1' if clipped/saturated samples are present
