@@ -1215,9 +1215,20 @@ void process_ADC(const void *buffer)
 
 			// check to see any clipping/saturation is happening
 			// we are looking for any spikes in the upper half of the histogram
-			uint8_t clipped = 0;
+			register uint8_t clipped = 0;
+			register uint8_t prev    = 0;
 			for (unsigned int i = histo_len >> 1; i <= histo_len && !clipped; i++)
-				clipped = (histogram[i] >= threshold) ? 1 : clipped;
+			{
+				#if 0
+					clipped = (histogram[i] >= threshold) ? 1 : clipped;
+				#else
+					// look for edge difference
+					register const uint8_t h = histogram[i];
+					register const uint8_t diff = (prev >= h) ? prev - h : h - prev;
+					prev = h;
+					clipped = (diff >= threshold) ? 1 : clipped;
+				#endif
+			}
 			adc_data_clipping[vi_mode] |= clipped;                // '1' if clipped/saturated samples are present
 		}
 		else
@@ -1300,7 +1311,7 @@ void process_ADC(const void *buffer)
 
 void print_sprint(const unsigned int digit, const float value, char *output_char, const unsigned int out_max_size)
 {
-	float val = value;
+//	float val = value;
 //	const char unit = unit_conversion(&val);
 
 	const float v = fabsf(value);
