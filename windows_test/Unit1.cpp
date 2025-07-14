@@ -1148,11 +1148,16 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 		// found the start marker
 
 		const uint16_t crc = CRC16_block(0, packet->data, sizeof(packet->data));
-		if (crc != packet->crc)
+//		if (crc != packet->crc)
+		if (crc != packet->crc && packet->crc != 0)  // allow the packet if the CRC is 0x0000
 		{
 			// slide the data down on byte
 			memmove(&client.rx.buffer[0], &client.rx.buffer[1], client.rx.buffer_wr - 1);
 			client.rx.buffer_wr--;
+
+			client.rx.timer.mark();
+
+			printf("error: crc\r\n");
 			continue;
 		}
 
@@ -1162,6 +1167,8 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 
 	if (client.rx.buffer_wr < sizeof(t_packet))
 		return;
+
+	client.rx.timer.mark();
 
 	if (!PauseSpeedButton->Down)
 	{
@@ -1297,7 +1304,7 @@ void __fastcall TForm1::processSerial()
 		if (num_bytes > 0)
 		{
 			m_serial.client.rx.buffer_wr += num_bytes;
-			m_serial.client.rx.timer.mark();
+//			m_serial.client.rx.timer.mark();
 		}
 	}
 
@@ -1515,7 +1522,8 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 		const float x_scale = (float)(x_size - left_margin - right_margin) / (values - 1);
 		const float y_scale = (float)((y_size / 2) - 10) / peak_value;
 
-		const float dash_pattern[] = {5, 5};
+		const float dash_pattern[]  = {5, 5};
+		const float dash_pattern2[] = {2, 2};
 
 		std::vector <Gdiplus::PointF> gdi_points(values);
 		std::vector <Gdiplus::PointF> gdi_points_normalize(values);
@@ -1618,20 +1626,51 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
 				m_bitmap_main->Canvas->Brush->Style = bsClear;
 				//m_bitmap_main->Canvas->TextOut(x, cy - (text_height / 2), s);
-				m_bitmap_main->Canvas->TextOut(x + left_margin - m_bitmap_main->Canvas->TextWidth(s), cy - (text_height / 2), s);
+				m_bitmap_main->Canvas->TextOut(x + left_margin - m_bitmap_main->Canvas->TextWidth(s), cy - text_height, s);
 			}
 
 			if ((i & 1) == 0)
 			{	// phase difference
 
+				m_bitmap_main->Canvas->Font->Color = clWhite;
+				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
+				m_bitmap_main->Canvas->Brush->Style = bsClear;
+
 				const float pd = phase_diff(m_waveform_info[i + 0].phase_deg, m_waveform_info[i + 1].phase_deg);
 				s.printf(" %0.3f\xb0 ", pd);
+				m_bitmap_main->Canvas->TextOut(x + left_margin - m_bitmap_main->Canvas->TextWidth(s), cy, s);
+			}
+
+			if ((i & 1) == 0)
+			{	// vertical scale
 
 				m_bitmap_main->Canvas->Font->Color = clWhite;
 				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
 				m_bitmap_main->Canvas->Brush->Style = bsClear;
-				//m_bitmap_main->Canvas->TextOut(x, cy - (text_height / 2), s);
-				m_bitmap_main->Canvas->TextOut(x + left_margin - m_bitmap_main->Canvas->TextWidth(s), cy + (text_height / 2), s);
+
+				Gdiplus::Pen pen(Gdiplus::Color(8, 255, 255, 255), 1);    // ARGB
+				pen.SetAlignment(Gdiplus::PenAlignmentCenter);
+				//pen.SetDashStyle(Gdiplus::DashStyleDash);
+				pen.SetDashPattern(dash_pattern2, ARRAY_SIZE(dash_pattern2));
+
+				const unsigned int levels = 8;
+
+				for (unsigned int i = 2; i <= levels; i++)
+				{
+					const int level = (peak_value * i) / levels;
+					const int y1    = cy - (int)(level * y_scale);
+					const int y2    = cy + (int)(level * y_scale);
+					g.DrawLine(&pen, x + left_margin, y1, x + x_size - right_margin, y1);
+					g.DrawLine(&pen, x + left_margin, y2, x + x_size - right_margin, y2);
+
+					String s1, s2;
+					s1.printf(" %d ", level);
+					s2.printf(" %d ", -level);
+					const int tx1 = x + left_margin - m_bitmap_main->Canvas->TextWidth(s1);
+					const int tx2 = x + left_margin - m_bitmap_main->Canvas->TextWidth(s2);
+					m_bitmap_main->Canvas->TextOut(tx1, y1 - (text_height / 2), s1);
+					m_bitmap_main->Canvas->TextOut(tx2, y2 - (text_height / 2), s2);
+				}
 			}
 
 /*
@@ -1663,10 +1702,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				m_bitmap_main->Canvas->Brush->Style = bsClear;
 				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
 
-				if ((i & 1) == 0)
-					s = "   ADC ";
-				else
-					s = "   AFC ";
+				s = ((i & 1) == 0) ? "   ADC " : "   AFC ";
 				g.FillRectangle(&brush, tx, ty1, m_bitmap_main->Canvas->TextWidth(s), text_height);
 				m_bitmap_main->Canvas->TextOut(tx, ty1, s);
 

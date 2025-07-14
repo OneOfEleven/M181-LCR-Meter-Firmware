@@ -145,7 +145,7 @@ struct {
 	t_comp            phase_sum[8];
 } calibrate = {0};
 
-const float           hi_gain_threshold = 1600;
+const float           hi_gain_threshold = 1500;
 unsigned int          volt_gain_sel     = 0;
 unsigned int          amp_gain_sel      = 0;
 float                 high_gain         = 101;
