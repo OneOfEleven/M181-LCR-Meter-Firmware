@@ -145,9 +145,10 @@ struct {
 	t_comp            phase_sum[8];
 } calibrate = {0};
 
-unsigned int          volt_gain_sel = 0;
-unsigned int          amp_gain_sel  = 0;
-float                 high_gain     = 101;
+const float           hi_gain_threshold = 1600;
+unsigned int          volt_gain_sel     = 0;
+unsigned int          amp_gain_sel      = 0;
+float                 high_gain         = 101;
 
 // ADC DMA sample buffer
 t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];      // *2 for DMA double buffering (ADC/DMA is continuously running)
@@ -169,6 +170,9 @@ uint16_t              adc_buffer_max[4] = {0};
 #pragma pack(push, 1)
 float                 adc_data[8][ADC_DATA_LENGTH] = {0};
 #pragma pack(pop)
+
+// non-zero if waveform clipping/saturation is detected (per block)
+uint8_t               adc_data_clipping[4] = {0};
 
 float                 mag_rms[8]   = {0};
 float                 phase_deg[8] = {0};
@@ -843,14 +847,17 @@ void process_Goertzel(void)
 
 	for (unsigned int buf_index = 0; buf_index < ARRAY_SIZE(adc_data); buf_index++)
 	{
+		const unsigned int vi_mode = buf_index >> 1;
+
 		#if !defined(GOERTZEL_FILTER_LENGTH) || (GOERTZEL_FILTER_LENGTH <= 0)
 			uint8_t filter = 0;
 		#else
 			uint8_t filter = 1;
 		#endif
 
-		//if (!settings.uart_all_print_dso)
-		//	filter = 0;    // TEST
+		// don't bother Goertzel filtering if any possible clipping/saturation has been detected on this mode
+		if (adc_data_clipping[vi_mode])
+			filter = 0;
 
 		if (!filter)
 		{	// don't filter the waveform, do these ..
@@ -968,34 +975,6 @@ void process_Goertzel(void)
 	adc_dc_offset_count++;
 }
 
-void combine_afc(const unsigned int vi, float *avg_rms, float *avg_deg)
-{	// combine AFC mag/phase results (the AFC sample blocks are all the same so use the average)
-	//
-	// voltage results .. vi = 0
-	// current results .. vi = 1
-
-	unsigned int sum_count = 0;
-	float        sum_rms   = 0;
-	t_comp       sum_phase = {0, 0};
-
-	// scan over each AFC results
-	for (unsigned int i = 1; i < 4; i += 2)
-	{
-		const unsigned int buf_index = ((vi & 1u) * 4) + i;
-
-		sum_rms += mag_rms[buf_index];
-
-		const float phase_rad = phase_deg[buf_index] * DEG_TO_RAD;
-		sum_phase.re += cosf(phase_rad);
-		sum_phase.im += sinf(phase_rad);
-
-		sum_count++;
-	}
-
-	*avg_rms = sum_rms / sum_count;
-	*avg_deg = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
-}
-
 void combine_afc_all(float *avg_rms, float *avg_deg)
 {	// combine AFC mag/phase results (the AFC sample blocks are all the same so use the average)
 
@@ -1005,11 +984,13 @@ void combine_afc_all(float *avg_rms, float *avg_deg)
 
 	for (unsigned int i = 1; i < 8; i += 2)
 	{
-		const unsigned int buf_index = i;
+		// don't bother using this AFC if any possible clipping/saturation has been detected on this mode
+		if (adc_data_clipping[i >> 1])
+			continue;
 
-		sum_rms += mag_rms[buf_index];
+		sum_rms += mag_rms[i];
 
-		const float phase_rad = phase_deg[buf_index] * DEG_TO_RAD;
+		const float phase_rad = phase_deg[i] * DEG_TO_RAD;
 		sum_phase.re += cosf(phase_rad);
 		sum_phase.im += sinf(phase_rad);
 
@@ -1025,27 +1006,6 @@ void process_data(void)
 	process_Goertzel();
 
 	#if 0
-	{	// combine two AFC waves into one, two pairs (lo and hi gain) - good idea, or not ?
-
-		float lo_gain_afc_rms;
-		float lo_gain_afc_deg;
-		float hi_gain_afc_rms;
-		float hi_gain_afc_deg;
-
-		combine_afc(0, &lo_gain_afc_rms, &lo_gain_afc_deg);
-		combine_afc(1, &hi_gain_afc_rms, &hi_gain_afc_deg);
-
-		mag_rms[1]   = lo_gain_afc_rms;
-		mag_rms[3]   = lo_gain_afc_rms;
-		phase_deg[1] = lo_gain_afc_deg;
-		phase_deg[3] = lo_gain_afc_deg;
-
-		mag_rms[5]   = hi_gain_afc_rms;
-		mag_rms[7]   = hi_gain_afc_rms;
-		phase_deg[5] = hi_gain_afc_deg;
-		phase_deg[7] = hi_gain_afc_deg;
-	}
-	#elif 1
 	{	// combine all four AFC waves into one - good idea, or not ?
 
 		float afc_rms;
@@ -1092,9 +1052,8 @@ void process_data(void)
 			// need to replace the TL084 OPAMP's with much improved rail-to-rail OPAMP's
 			// along with a proper TPS60403 voltage inverter
 
-			const float threshold = 1600;
-			volt_gain_sel = (adc_buffer_max[2] <= threshold) ? 1 : 0;
-			amp_gain_sel  = (adc_buffer_max[3] <= threshold) ? 1 : 0;
+			volt_gain_sel = (adc_buffer_max[2] <= hi_gain_threshold) ? 1 : 0;
+			amp_gain_sel  = (adc_buffer_max[3] <= hi_gain_threshold) ? 1 : 0;
 		#endif
 	}
 
@@ -1189,6 +1148,9 @@ void process_ADC(const void *buffer)
 		// reset the max value records
 		memset(adc_buffer_max, 0, sizeof(adc_buffer_max));
 
+		// reset the clipping detected flags
+		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
+
 		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);        // TEST only, LED on
 	}
 
@@ -1227,9 +1189,15 @@ void process_ADC(const void *buffer)
 		adc_buffer_max[vi_mode] = adc_max;
 	}
 
+	// if the waveform in this mode is clipping/saturating then simply move on to the next mode
+	adc_data_clipping[vi_mode] = ((vi_mode == VI_MODE_VOLT_HI_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) && adc_buffer_max[vi_mode] >= hi_gain_threshold) ? 1 : 0;
+
+	// don't continue to accumulate sample blocks if any possible clipping/saturtion has been detected
+	const unsigned int average_count = adc_data_clipping[vi_mode] ? 1 : adc_average_count;
+
 //	HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);           // TEST
 
-	if (++adc_buffer_sum_count < (skip_block_count + adc_average_count))
+	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 		return;
 
 	// next measurement mode
@@ -1293,20 +1261,32 @@ void process_ADC(const void *buffer)
 
 void print_sprint(const unsigned int digit, const float value, char *output_char, const unsigned int out_max_size)
 {
+	float val = value;
+//	const char unit = unit_conversion(&val);
+
+	const float v = fabsf(value);
+
 	switch (digit)
 	{
 		case 2:
-	        if (value < 10)
+	        if (v < 10)
     	        snprintf(output_char, out_max_size, "%2.1f", value); // 1.2
         	else
             	snprintf(output_char, out_max_size, "%2.0f", value); // 12 (no dp)
 			break;
 
 		case 3:
-	        if (value < 10)
+			// TODO: fix
+	        if (v < 1e-3f)
+    	        snprintf(output_char, out_max_size, "%3.0fu", value * 1e6f); // 123u
+			else
+	        if (v < 1e0f)
+    	        snprintf(output_char, out_max_size, "%3.0fm", value * 1e3f); // 123m
+			else
+	        if (v < 10)
     	        snprintf(output_char, out_max_size, "%3.2f", value); // 1.23
         	else
-			if (value < 100)
+			if (v < 100)
             	snprintf(output_char, out_max_size, "%3.1f", value); // 12.3
 	        else
     	        snprintf(output_char, out_max_size, "%3.0f", value); // 123 (no dp)
@@ -1314,13 +1294,20 @@ void print_sprint(const unsigned int digit, const float value, char *output_char
 
 		default:
 		case 4:
-	        if (value < 10)
+			// TODO: fix
+	        if (v < 1e-3f)
+    	        snprintf(output_char, out_max_size, "%4.0fu", value * 1e6f); // 123u
+			else
+	        if (v < 1e0f)
+    	        snprintf(output_char, out_max_size, "%4.0fm", value * 1e3f); // 123m
+			else
+	        if (v < 10)
     	        snprintf(output_char, out_max_size, "%4.3f", value); // 1.234
         	else
-			if (value < 100)
+			if (v < 100)
     	        snprintf(output_char, out_max_size, "%4.2f", value); // 12.34
-       	 else
-			if (value < 1000)
+			else
+			if (v < 1000)
             	snprintf(output_char, out_max_size, "%4.1f", value); // 123.4
 	        else
     	        snprintf(output_char, out_max_size, "%4.0f", value); // 1234 (no dp)
@@ -1377,13 +1364,8 @@ void bootup_screen(void)
 	ssd1306_SetCursor(16, 14);
 	ssd1306_WriteString("LCR Meter", Font_11x18, White);
 
-	#if 0
-		ssd1306_FillRectangle(10, 32 - 1, SSD1306_WIDTH - 10, 32, White);
-	#elif 0
-		// dotted line
-		for (unsigned int x = 10; x < (SSD1306_WIDTH - 10); x += 2)
-			ssd1306_DrawPixel(x, 32 - 1, White);
-	#endif
+	// dotted line
+	ssd1306_dotted_hline(10, SSD1306_WIDTH - 10, 3, 32 - 1, White);
 
 	ssd1306_SetCursor(5, 38);
 	ssd1306_WriteString("HW by JYETech", Font_7x10, White);
@@ -1424,7 +1406,7 @@ void draw_screen(void)
 			ssd1306_WriteString((settings.flags & SETTING_FLAG_PARALLEL) ? "PAR" : "SER", Font_7x10, White);
 
 			// measurement frequency
-			ssd1306_SetCursor(25, 0);
+			ssd1306_SetCursor(7 * 5, 0);
 			if (measurement_Hz < 1000)
 				snprintf(buffer_display, sizeof(buffer_display), "%3u Hz", measurement_Hz);
 			else
@@ -1433,8 +1415,8 @@ void draw_screen(void)
 
 			#if 1
 				// VI phase
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (7 * 7), 0);
-				snprintf(buffer_display, sizeof(buffer_display), "%+6.2f", system_data.vi_phase_deg);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * 7), 0);
+				print_sprint(4, system_data.vi_phase_deg, buffer_display, sizeof(buffer_display));
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
 			#endif
 
