@@ -163,15 +163,12 @@ unsigned int          adc_buffer_sum_count            = 0;                      
 t_comp                adc_dc_offset[8]    = {0};
 uint32_t              adc_dc_offset_count = 0;
 
-// raw ADC peak sample values for each V/I mode
-// this is to detect possible waveform clipping (ie, when in high gain mode)
-//uint16_t              adc_buffer_max[4] = {0};
-
 #pragma pack(push, 1)
 float                 adc_data[8][ADC_DATA_LENGTH] = {0};
 #pragma pack(pop)
 
 // non-zero if waveform clipping/saturation is detected (per block)
+// we use the histogram method to detect clipped/saturate samples
 uint8_t               adc_data_clipping[4] = {0};
 
 float                 mag_rms[8]   = {0};
@@ -1045,8 +1042,8 @@ void process_data(void)
 		#else
 			// use LO or HI gain
 
-			volt_gain_sel = adc_data_clipping[2] ? 0 : 1;
-			amp_gain_sel  = adc_data_clipping[3] ? 0 : 1;
+			volt_gain_sel = adc_data_clipping[2] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
+			amp_gain_sel  = adc_data_clipping[3] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
 		#endif
 	}
 
@@ -1138,9 +1135,6 @@ void process_ADC(const void *buffer)
 
 		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
 
-		// reset the max value records
-//		memset(adc_buffer_max, 0, sizeof(adc_buffer_max));
-
 		// reset the clipping detected flags
 		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
 
@@ -1164,11 +1158,8 @@ void process_ADC(const void *buffer)
 		register const int16_t afc_sign = 1;
 
 		// used to detect waveform clipping
-		uint8_t histogram[128] = {0};
+		uint8_t histogram[65] = {0};
 		const unsigned int histo_len = ARRAY_SIZE(histogram);
-
-		// used to detect waveform clipping
-//		register uint16_t adc_max = adc_buffer_max[vi_mode];
 
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
@@ -1181,10 +1172,7 @@ void process_ADC(const void *buffer)
 			// abs()
 			register uint32_t val = (adc < 0) ? -adc : adc;   // 0..2048
 
-			// peak value
-//			adc_max = (val > adc_max) ? val : adc_max;
-
-			// histogram
+			// update the histogram
 			//val = (val * (histo_len - 1)) / 2048;           // 0 to (histo_len - 1)
 			val = (val * (histo_len - 1)) >> 11;              // 0 to (histo_len - 1)
 			//val = (val > (histo_len - 1)) ? (histo_len - 1) : val;
@@ -1192,20 +1180,15 @@ void process_ADC(const void *buffer)
 				histogram[val]++;
 		}
 
-//		adc_buffer_max[vi_mode] = adc_max;
-
 		// check to see any clipping/saturation is happening
 		// we are looking for any spikes in the upper half of the histogram
-		const uint8_t threshold = ADC_DATA_LENGTH / 16; // good enough ?
+		const uint8_t threshold = histo_len / 8; // good enough ?
 		      uint8_t clipped   = 0;
 		for (unsigned int i = histo_len / 2; i < histo_len && !clipped; i++)
 			if (histogram[i] >= threshold)
 				clipped = 1;
 		adc_data_clipping[vi_mode] |= clipped;        // '1' if clipped/saturated samples are present
 	}
-
-	// if the waveform in this mode is clipping/saturating then simply move on to the next mode
-//	adc_data_clipping[vi_mode] = ((vi_mode == VI_MODE_VOLT_HI_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) && adc_buffer_max[vi_mode] >= hi_gain_threshold) ? 1 : 0;
 
 	// don't continue to accumulate sample blocks if any possible clipping/saturtion has been detected
 	const unsigned int average_count = adc_data_clipping[vi_mode] ? 1 : adc_average_count;

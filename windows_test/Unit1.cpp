@@ -463,7 +463,7 @@ void __fastcall TForm1::FormCreate(TObject *Sender)
 		goertzel_init(&m_waveform_info[i].goertzel, 2.0 / ARRAY_SIZE(m_values[i]));
 		m_waveform_info[i].magnitude_rms = 0;
 		m_waveform_info[i].phase_deg     = 0;
-		memset(m_waveform_info[i].m_histogram, 0, sizeof(m_waveform_info[i].m_histogram));
+		memset(m_waveform_info[i].histogram, 0, sizeof(m_waveform_info[i].histogram));
 	}
 
 	// ******************
@@ -985,7 +985,7 @@ bool __fastcall TForm1::serialConnect()
 		m_waveform_info[i].goertzel.im   = 0;
 		m_waveform_info[i].magnitude_rms = 0;
 		m_waveform_info[i].phase_deg     = 0;
-		memset(m_waveform_info[i].m_histogram, 0, sizeof(m_waveform_info[i].m_histogram));
+		memset(m_waveform_info[i].histogram, 0, sizeof(m_waveform_info[i].histogram));
 	}
 
 	m_breaks = 0;
@@ -1191,8 +1191,8 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 			float avg_sum = 0;
 			float sum = 0;
 
-			memset(m_waveform_info[i].m_histogram, 0, sizeof(m_waveform_info[i].m_histogram));
-			const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].m_histogram);
+			memset(m_waveform_info[i].histogram, 0, sizeof(m_waveform_info[i].histogram));
+			const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].histogram);
 
 			for (unsigned int k = 0; k < len && !except; k++)
 			{
@@ -1216,7 +1216,7 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 						unsigned int s = abs((int)(v * (histo_len - 1) * (1.0f / 2500)));  // 0 to (histo_len - 1)
 						s = (s > (histo_len - 1)) ? (histo_len - 1) : s;
 						if (s > 0)	// ignore DC
-							m_waveform_info[i].m_histogram[s]++;
+							m_waveform_info[i].histogram[s]++;
 					}
 				}
 				catch (Exception &e)
@@ -1593,17 +1593,26 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 			if (HistogramSpeedButton->Down && (i & 1) == 0)
 			{	// histogram
-				const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].m_histogram);
+				const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].histogram);
 
 				const float u_scale = (float)(x_size - left_margin - right_margin) / (histo_len - 1);
 				const float v_scale = (float)((y_size / 2) * 4) / 255;
 
-				gdi_points_histo.resize(histo_len);
+				gdi_points_histo.resize(0);
+
+				Gdiplus::PointF p1;
+				Gdiplus::PointF p2;
 
 				for (unsigned int k = 0; k < histo_len; k++)
 				{
-					gdi_points_histo[k].X = x + left_margin + (k * u_scale);
-					gdi_points_histo[k].Y = cy - (m_waveform_info[i].m_histogram[k] * v_scale);
+					p2.X = x + left_margin + (k * u_scale);
+					p2.Y = cy - (m_waveform_info[i].histogram[k] * v_scale);
+					if (k == 0)
+						p1 = p2;
+					p1.Y = p2.Y;
+					gdi_points_histo.push_back(p1);
+					gdi_points_histo.push_back(p2);
+					p1 = p2;
 				}
 
 				Gdiplus::Pen pen(Gdiplus::Color(80, 128, 255, 128), 1);    // ARGB
