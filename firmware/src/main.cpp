@@ -180,6 +180,7 @@ float                 adc_data[8][ADC_DATA_LENGTH] = {0};
 // non-zero if waveform clipping/saturation is detected (per block)
 // we use the histogram method to detect clipped/saturate samples
 uint8_t               adc_data_clipping[4] = {0};
+uint8_t               adc_data_clipped[4] = {0};
 
 float                 mag_rms[8]   = {0};
 float                 phase_deg[8] = {0};
@@ -814,19 +815,19 @@ void process_Goertzel(void)
 		switch (vi_mode)
 		{
 			case VI_MODE_VOLT_LO_GAIN:
-				if (!adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
+				if (!adc_data_clipped[VI_MODE_VOLT_HI_GAIN])
 					clipped = 1;
 				break;
 			case VI_MODE_AMP_LO_GAIN:
-				if (!adc_data_clipping[VI_MODE_AMP_HI_GAIN])
+				if (!adc_data_clipped[VI_MODE_AMP_HI_GAIN])
 					clipped = 1;
 				break;
 			case VI_MODE_VOLT_HI_GAIN:
-				if (adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
+				if (adc_data_clipped[VI_MODE_VOLT_HI_GAIN])
 					clipped = 1;
 				break;
 			case VI_MODE_AMP_HI_GAIN:
-				if (adc_data_clipping[VI_MODE_AMP_HI_GAIN])
+				if (adc_data_clipped[VI_MODE_AMP_HI_GAIN])
 					clipped = 1;
 				break;
 		}
@@ -967,8 +968,8 @@ void process_data(void)
 	// gain path decision
 	// use the high gain results ONLY if the high gain samples are NOT saturating (clipped)
 	//
-	volt_gain_sel = adc_data_clipping[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
-	amp_gain_sel  = adc_data_clipping[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
+	volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
+	amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
 
 	// waveform amplitudes
 	//
@@ -1135,7 +1136,7 @@ void process_ADC(const void *buffer)
 			}
 
 			// check to see any clipping/saturation is occuring
-			// we do this by looking for any spikes in the upper part of the sample histogram
+			// we do this by looking for any spikes in the top quarter part of the sample histogram
 			register uint8_t clipped = 0;
 			register uint8_t p1      = 0;
 			register uint8_t p2      = 0;
@@ -1171,9 +1172,19 @@ void process_ADC(const void *buffer)
 		}
 	}
 
-	// don't continue to accumulate sample blocks if waveform clipping/saturtion has been detected
-	// because we drop clipped sample blocks (not usable)
-	const unsigned int average_count = (settings.flags & SETTING_FLAG_HOLD) ? 8 : adc_data_clipping[vi_mode] ? 0 : adc_average_count;
+	// decide which modes need averaging and which can be dropped
+	// we drop the hi-gain blocks if they are clipping, other we drop the lo-gain blocks
+	unsigned int average_count;
+	if (settings.flags & SETTING_FLAG_HOLD)
+		average_count = 8;                         // HOLD mode, we're only sending the samples to the PC
+	else
+	if (adc_data_clipping[vi_mode])
+		average_count = 1;                         // this block of samplesd are clipping, move to next mode
+	else
+	if (vi_mode <= VI_MODE_AMP_LO_GAIN && !adc_data_clipped[vi_mode])
+		average_count = 1;                         // hi-gain samples were not clipped on the previous run, drop these lo-gain samples
+	else
+		average_count = adc_average_count;         // normal amount of averaging
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 		return;
@@ -1235,7 +1246,12 @@ void process_ADC(const void *buffer)
 	vi_measure_index = vi_index;
 
 	if (vi_index >= VI_MODE_DONE)
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);    // TEST only, LED off
+	{
+		memcpy(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped));   // save result
+		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));                 // reset the flags
+
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);           // TEST only, LED off
+	}
 }
 
 // ***********************************************************
