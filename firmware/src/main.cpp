@@ -1173,7 +1173,7 @@ void process_ADC(const void *buffer)
 
 	// don't continue to accumulate sample blocks if waveform clipping/saturtion has been detected
 	// because we drop clipped sample blocks (not usable)
-	const unsigned int average_count = adc_data_clipping[vi_mode] ? 0 : (settings.flags & SETTING_FLAG_HOLD) ? 8 : adc_average_count;
+	const unsigned int average_count = (settings.flags & SETTING_FLAG_HOLD) ? 8 : adc_data_clipping[vi_mode] ? 0 : adc_average_count;
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 		return;
