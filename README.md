@@ -72,6 +72,14 @@ with Goertzel 128 sample length filter (2 sine cycles), with block averaging ..
 
 <img src="firmware/docs/windows_gui_image_goertzerl_128_sample_filter_length.png" alt="image" style="width:600px;height:auto;">
 
+## How I'm detecting sine wave clipping in HI-gain mode ..
+
+We can simply assume clipping is present if there are any ADC samples near the ADC's min/max (0..4095) range.
+
+The other efficient method is to create a simple histogram of the sample values (per sample block) and look for any spikes in the upper section of the histogram. The histogram method can also very easily detect clipping is occuring in waveforms nowhere near the ADC's maximum range.
+
+<img src="firmware/docs/sine_wave_clipping_detection.png" alt="image" style="width:600px;height:auto;">
+
 ## HPF modification to improve mode switching time
 
 Waveform as seen on TP4/V4 pin (ADC input pin) ..
