@@ -745,45 +745,21 @@ void set_measurement_frequency(const uint32_t Hz)
 	}
 }
 
-/*
-float phase_diff(const t_comp c1, const t_comp c2)
-{
-	// conj multiply
-	const t_comp d = {(c1.re * c2.re) + (c1.im * c2.im), (c1.re * c2.im) - (c1.im * c2.re)};
-
-	// phase
-	const float phase_deg = (d.re != 0.0f) ? atan2f(d.im, d.re) * RAD_TO_DEG : NAN;
-
-	return phase_deg;
-}
-*/
 #if 1
-	float phase_diff(const float phase_deg_1, const float phase_deg_2)
+	float phase_diff(const t_comp c1, const t_comp c2)
 	{
-		t_comp ph1;
-		t_comp ph2;
-		t_comp d;
-
-		{
-			const float phase_rad = phase_deg_1 * DEG_TO_RAD;
-			ph1.re = cosf(phase_rad);
-			ph1.im = sinf(phase_rad);
-		}
-
-		{
-			const float phase_rad = phase_deg_2 * DEG_TO_RAD;
-			ph2.re = cosf(phase_rad);
-			ph2.im = sinf(phase_rad);
-		}
-
 		// conj multiply
-		d.re = (ph1.re * ph2.re) + (ph1.im * ph2.im);
-		d.im = (ph1.re * ph2.im) - (ph1.im * ph2.re);
+		const t_comp d = t_comp((c1.re * c2.re) + (c1.im * c2.im), (c1.re * c2.im) - (c1.im * c2.re));
 
 		// phase
-		const float phase_deg = (d.re != 0) ? atan2f(d.im, d.re) * RAD_TO_DEG : NAN;
+		return (d.re != 0.0f) ? atan2f(d.im, d.re) * RAD_TO_DEG : NAN;  
+	}
 
-		return phase_deg;
+	float phase_diff(const float phase_deg_1, const float phase_deg_2)
+	{
+		const float phi1 = phase_deg_1 * DEG_TO_RAD;
+		const float phi2 = phase_deg_2 * DEG_TO_RAD;
+		return phase_diff(t_comp(cosf(phi1), sinf(phi1)), t_comp(cosf(phi2), sinf(phi2)));
 	}
 #else
 	float phase_diff(float phase_deg_1, float phase_deg_2)
@@ -860,7 +836,7 @@ void process_Goertzel(void)
 		}
 
 		if (!filter || clipped)
-		{	// don't filter the waveform, but do do these ..
+		{	// don't Goertzel DFT filter the waveform, but do do these ..
 			//    remove waveform DC offset
 			//   compute waveform RMS magnitude
 			//   compute waveform phase
@@ -904,7 +880,7 @@ void process_Goertzel(void)
 			}
 		}
 		else
-		{	// use Goertzel dft to filter the waveforms, length of filter is settable
+		{	// use Goertzel DFT to filter the waveforms
 
 			const unsigned int filter_len = GOERTZEL_FILTER_LENGTH;
 
@@ -913,7 +889,7 @@ void process_Goertzel(void)
 				phase_deg[buf_index] = (goertzel.re != 0.0f) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 
-			register t_comp *buf = tmp_buf;            // point to Goertzel dft output samples
+			register t_comp *buf = tmp_buf;            // point to Goertzel dft output buffer
 
 			goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, filter_len, &goertzel);
 
