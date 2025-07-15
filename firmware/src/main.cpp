@@ -1174,20 +1174,20 @@ void process_ADC(const void *buffer)
 
 	// decide which modes need averaging and which can be dropped
 	// we drop the hi-gain blocks if they are clipping, other we drop the lo-gain blocks
-	unsigned int average_count;
+	unsigned int average_count = adc_average_count;  // normal amount of averaging
 	if (settings.flags & SETTING_FLAG_HOLD)
-		average_count = 8;                         // HOLD mode, we're only sending the samples to the PC
+		average_count = 8;                           // HOLD mode, we're only sending the samples to the PC
 	else
 	if (adc_data_clipping[vi_mode])
-		average_count = 1;                         // this block of samplesd are clipping, move to next mode
+		average_count = 1;                           // this block of samplesd are clipping, move to next mode
 	else
 	if (vi_mode <= VI_MODE_AMP_LO_GAIN && !adc_data_clipped[vi_mode])
-		average_count = 1;                         // hi-gain samples were not clipped on the previous run, drop these lo-gain samples
-	else
-		average_count = adc_average_count;         // normal amount of averaging
+		average_count = 1;                           // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
-		return;
+		return;                                      // not yet summed desired number of sample blocks
+
+	// we've now summed the amount of sample blocks (in current VI mode) we wanted ..
 
 	// next measurement mode
 	vi_index++;
@@ -1195,7 +1195,8 @@ void process_ADC(const void *buffer)
 	// set the GS/VI pins ready for the next measurement run
 	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
 
-	{	// fetch & re-scale the averaged ADC samples
+	{	// fetch & re-scale the summed ADC samples to create the average
+
 		register const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
 
 		register float *buf_adc = adc_data[buf_index + 0];
@@ -1207,9 +1208,9 @@ void process_ADC(const void *buffer)
 			buf_afc[i] = adc_buffer_sum[i].afc * scale;        // averaged sample
 		}
 
-		{	// remove the DC offset on the two ADC inputs
+		{	// remove any DC offset on the averaged sample capture
 
-			const float coeff = (frames <= 3) ? 0.9 : 0.3;
+			const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then witch to slower coeff
 
 			if (!adc_data_clipping[vi_mode])   // don't bother if the waveform is being clipped
 			{	// ADC input
@@ -1247,8 +1248,8 @@ void process_ADC(const void *buffer)
 
 	if (vi_index >= VI_MODE_DONE)
 	{
-		memcpy(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped));   // save result
-		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));                 // reset the flags
+		memcpy(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped));   // save the new clip detection flags
+		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));                 // reset ready for next run
 
 		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);           // TEST only, LED off
 	}

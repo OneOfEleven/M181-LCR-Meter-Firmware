@@ -78,7 +78,7 @@ We can simply assume clipping is present if there are any ADC samples near the A
 
 The other efficient method is to create a simple histogram of the sample values (per sample block) and look for any spikes in the upper section of the histogram. This method can also very easily detect clipping in waveforms much before ADC's maximum range (say if an OPAMP output starts clipping before the ADC input does).
 
-There are other methods, such as monitoring the output level of a simple band pass filter centered on double the sine wave frequency, the BPF output level will be near zero if no clipping, but rises sharply once clipping starts.
+There are other methods, such as monitoring the output level of a simple band pass filter (in DSP firmware) centered on double the sine wave frequency, the BPF output level will be near zero if no clipping, but rises sharply once clipping begins.
 
 <img src="firmware/docs/sine_wave_clipping_detection.png" alt="image" style="width:600px;height:auto;">
 
