@@ -64,7 +64,7 @@ IncludeVerInfo=1
 AutoIncBuild=0
 MajorVer=0
 MinorVer=0
-Release=10
+Release=11
 Build=0
 Debug=0
 PreRelease=0
@@ -77,7 +77,7 @@ CodePage=1252
 [Version Info Keys]
 CompanyName=1o11
 FileDescription=
-FileVersion=0.0.10.0
+FileVersion=0.0.11.0
 InternalName=
 LegalCopyright=
 LegalTrademarks=

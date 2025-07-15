@@ -171,10 +171,6 @@ unsigned int          adc_average_count               = DEFAULT_ADC_AVERAGE_COUN
 t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};                        // summing buffer
 unsigned int          adc_buffer_sum_count            = 0;                          // number of sums so far done
 
-// ADC rolling average (DC offset)
-t_comp                adc_dc_offset[8];
-uint32_t              adc_dc_offset_count = 0;
-
 #pragma pack(push, 1)
 float                 adc_data[8][ADC_DATA_LENGTH] = {0};
 #pragma pack(pop)
@@ -798,10 +794,6 @@ void process_Goertzel(void)
 	//
 	// STM32F103CBT6 drop-in replacements .. STM32F303CBT6, STM32L412CBT6, STM32L431CCT6 and STM32L433CBT6
 
-	// start with a fast convergence filter (LPF)
-	// then after we've done a few sample blocks, switch to using to a slower convergence filter from then on
-	const float dc_offset_coeff = (adc_dc_offset_count >= 5) ? 0.5 : 0.9;
-
 	for (unsigned int buf_index = 0; buf_index < ARRAY_SIZE(adc_data); buf_index++)
 	{
 		const unsigned int vi_mode = buf_index >> 1;
@@ -843,27 +835,6 @@ void process_Goertzel(void)
 
 			register float *buf = adc_data[buf_index];   // point to the ADC samples
 
-			if (vi_mode < 2 || !clipped)
-			{	// remove waveform DC offset
-
-				// compute the average (DC offset)
-				register float sum = 0;
-				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
-					sum += buf[k];
-				sum *= 1.0f / ADC_DATA_LENGTH;
-
-				#if 1
-				{	// update a rolling average value (not really needed but hey ho)
-					adc_dc_offset[buf_index].re = ((1.0f - dc_offset_coeff) * adc_dc_offset[buf_index].re) + (dc_offset_coeff * sum);
-					sum = adc_dc_offset[buf_index].re;
-				}
-				#endif
-
-				// remove DC offset using computed average (DC offset)
-				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
-					buf[k] -= sum;
-			}
-
 			{	// compute waveform RMS magnitude
 
 				register float sum = 0;
@@ -891,38 +862,8 @@ void process_Goertzel(void)
 
 			register t_comp *buf = tmp_buf;            // point to Goertzel dft output buffer
 
+			// do it
 			goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, filter_len, &goertzel);
-
-			if (filter_len != (ADC_DATA_LENGTH / 2) && filter_len != ADC_DATA_LENGTH)
-			{	// need to remove DC offset because the Goertzel filter is not a multiple number of sine cycles in length
-
-				// compute the average (DC offset)
-				register t_comp sum = {0, 0};
-				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
-				{
-					register const t_comp samp = buf[k];
-					sum.re += samp.re;
-					sum.im += samp.im;
-				}
-				sum.re *= 1.0f / ADC_DATA_LENGTH;
-				sum.im *= 1.0f / ADC_DATA_LENGTH;
-
-				#if 1
-				{	// update a rolling average value (not really needed but hey ho)
-					adc_dc_offset[buf_index].re = ((1.0f - dc_offset_coeff) * adc_dc_offset[buf_index].re) + (dc_offset_coeff * sum.re);
-					adc_dc_offset[buf_index].im = ((1.0f - dc_offset_coeff) * adc_dc_offset[buf_index].im) + (dc_offset_coeff * sum.im);
-					sum.re = adc_dc_offset[buf_index].re;
-					sum.im = adc_dc_offset[buf_index].im;
-				}
-				#endif
-
-				// remove DC offset using computed average (DC offset)
-				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
-				{
-					buf[k].re -= sum.re;
-					buf[k].im -= sum.im;
-				}
-			}
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
 
@@ -935,11 +876,8 @@ void process_Goertzel(void)
 
 					sum += SQR(samp.re) + SQR(samp.im);
 
-					// '#if 0' to test without goertzel dft filtering
-					#if 1
-						// replace the unfiltered samples with the filtered samples
-						buf_out[k] = samp.re;      // for now, just keep the real (0 deg) output (imag/90-deg is dropped :( )
-					#endif
+					// replace the unfiltered sample with the Goertzel filtered sample
+					buf_out[k] = samp.re;
 				}
 				sum *= 1.0f / ADC_DATA_LENGTH;
 
@@ -948,8 +886,6 @@ void process_Goertzel(void)
 			}
 		}
 	}
-
-	adc_dc_offset_count++;
 }
 
 void combine_afc(float *avg_rms, float *avg_deg)
@@ -1003,7 +939,7 @@ void process_data(void)
 	process_Goertzel();
 
 	#if 1
-	{	// combine all four AFC waves into one - good idea, or not ?
+	{	// combine all used AFC results into one - good idea, or not ?
 
 		float afc_rms;
 		float afc_deg;
@@ -1024,28 +960,11 @@ void process_data(void)
 
 	// *********************
 
-	{	// gain path decision
-		// use the high gain results ONLY if the high gain samples are NOT saturating (clipped)
-		//
-		// good way to detect waveform clipping is to create a histogram of the ADC raw sample values, then look for
-		// any obvious peaks in the histogram.
-		//
-		// any obvious sharp histogram peaks indicate several same valued samples, which of cause non-clipped sine waves don't have.
-		//
-		// the histogram only needs to be performed if the raw ADC sample magnitudes are approaching a level enough to maybe cause clipping
-
-		#if 0
-			// LO gain mode only
-
-			volt_gain_sel = 0;
-			amp_gain_sel  = 0;
-		#else
-			// use LO or HI gain
-
-			volt_gain_sel = adc_data_clipping[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
-			amp_gain_sel  = adc_data_clipping[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
-		#endif
-	}
+	// gain path decision
+	// use the high gain results ONLY if the high gain samples are NOT saturating (clipped)
+	//
+	volt_gain_sel = adc_data_clipping[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
+	amp_gain_sel  = adc_data_clipping[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
 
 	// waveform amplitudes
 	//
@@ -1087,6 +1006,9 @@ void process_data(void)
 	//
 	const float ser_resistive    = system_data.impedance * fabsf(cs);                // Rs
 	const float ser_reactance    = system_data.impedance * fabsf(sn);                // Xs
+
+	if (ser_resistive == 0 || ser_reactance == 0 || omega == 0)
+		return;                                                                      // prevent div-by-0 errors
 
 	const float ser_inductance   = ser_reactance / omega;                            // L = X / ω
 	const float ser_capacitance  = 1.0f / (omega * ser_reactance);                   // C = 1 / (ωX)
@@ -1192,12 +1114,15 @@ void process_ADC(const void *buffer)
 
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
+				// fetch the raw ADC samples
 				register const int16_t adc = (adc_buffer[i].adc - 2048) * adc_sign;
 				register const int16_t afc = (adc_buffer[i].afc - 2048) * afc_sign;
 
+				// add the new samples to the averaging buffer
 				adc_buffer_sum[i].adc += adc;
 				adc_buffer_sum[i].afc += afc;
 
+				// update the histogram with the new hi-gain sample
 				register uint32_t val = (adc < 0) ? -adc : adc;   // 0..2048
 				//val = (val * histo_len) / 2048;                 // 0 to histo_len
 				val = (val * (uint32_t)histo_len) >> 11;          // 0 to histo_len
@@ -1206,18 +1131,18 @@ void process_ADC(const void *buffer)
 			}
 
 			// check to see any clipping/saturation is occuring
-			// we're looking for any spikes in the top quarter of the histogram
+			// we do this by looking for any spikes in the upper part of the sample histogram
 			register uint8_t clipped = 0;
 			register uint8_t p1      = 0;
 			register uint8_t p2      = 0;
 			for (unsigned int i = histo_len - (histo_len >> 2); i < ARRAY_SIZE(histogram) && !clipped; i++) 
 			{
 				#if 0
-					// look at the absolute levels (rather than spikes)
+					// look at the absolute histogram level (rather than spikes)
 					if (histogram[i] >= threshold)
 						clipped = 1;
 				#else
-					// look for spike
+					// look for histogram spike
 					register const uint8_t p0 = histogram[i];
 					register const uint8_t d1 = (p1 >= p0) ? p1 - p0 : 0;
 					register const uint8_t d2 = (p1 >= p2) ? p1 - p2 : 0;
@@ -1237,13 +1162,13 @@ void process_ADC(const void *buffer)
 				adc_buffer_sum[i].adc += (adc_buffer[i].adc - 2048) * adc_sign;
 				adc_buffer_sum[i].afc += (adc_buffer[i].afc - 2048) * afc_sign;
 			}
+			adc_data_clipping[vi_mode] = 0;
 		}
 	}
 
-	// don't continue to accumulate sample blocks if any waveform clipping/saturtion has been detected
+	// don't continue to accumulate sample blocks if waveform clipping/saturtion has been detected
+	// because we drop clipped sample blocks (not usable)
 	const unsigned int average_count = adc_data_clipping[vi_mode] ? 0 : adc_average_count;
-
-//	HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);           // TEST
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 		return;
@@ -1254,10 +1179,9 @@ void process_ADC(const void *buffer)
 	// set the GS/VI pins ready for the next measurement run
 	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
 
-	{	// fetch/scale the averaged ADC samples
+	{	// fetch & re-scale the averaged ADC samples
 		register const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
 
-		// buffers to save the new data into
 		register float *buf_adc = adc_data[buf_index + 0];
 		register float *buf_afc = adc_data[buf_index + 1];
 
@@ -1265,6 +1189,33 @@ void process_ADC(const void *buffer)
 		{
 			buf_adc[i] = adc_buffer_sum[i].adc * scale;        // averaged sample
 			buf_afc[i] = adc_buffer_sum[i].afc * scale;        // averaged sample
+		}
+
+		{	// remove the DC offset on the two ADC inputs
+
+			//const float coeff = 0.8;
+
+			if (!adc_data_clipping[vi_mode])
+			{	// ADC input
+				register float sum = 0;
+				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+					sum += buf_adc[i];
+				sum *= 1.0f / ADC_DATA_LENGTH;
+				//sum = settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
+				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+					buf_adc[i] -= sum;
+			}
+
+			{	// AFC input
+				register float sum = 0;
+				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+					sum += buf_afc[i];
+				sum *= 1.0f / ADC_DATA_LENGTH;
+				//sum = settings.input_offset.afc = ((1.0f - coeff) * settings.input_offset.afc) + (coeff * sum);
+				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+					buf_afc[i] -= sum;
+			}
+
 		}
 	}
 

@@ -1525,7 +1525,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 		const unsigned int waveforms = ARRAY_SIZE(m_values);
 		const unsigned int values    = ARRAY_SIZE(m_values[0]);
 
-		const float peak_value = 2500;
+		const float peak_value = 2100;
 
 		const int x_size = m_bitmap_main->Width / 2;
 		const int y_size = (m_bitmap_main->Height - top_margin - bot_margin) / (waveforms / 4);
