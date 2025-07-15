@@ -19,20 +19,19 @@
 
 #include <stdint.h>
 
-#define _USE_MATH_DEFINES
 #include <math.h>
 
 #include "stm32f1xx_hal.h"
 
 #ifndef DEBUG
-//	#define USE_IWDG                               // useful to reset the CPU if something locks up etc
+	#define USE_IWDG                               // useful to reset the CPU if something locks up etc
 #endif
 
 #ifndef M_PI
-    #define M_PI 3.14159265358979323846
+    #define M_PI                     3.14159265358979323846264338327950288
 #endif
 
-#define FW_VERSION                   0.25
+#define FW_VERSION                   0.3
 
 #define ARRAY_SIZE(x)               (sizeof(x) / sizeof((x)[0]))
 

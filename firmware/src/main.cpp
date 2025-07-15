@@ -745,32 +745,6 @@ void set_measurement_frequency(const uint32_t Hz)
 	}
 }
 
-t_comp serial_to_parallel(const t_comp z)
-{	// convert serial impedance to parallel impedance equivalent
-
-	const float pwr = (z.re * z.re) + (z.im * z.im);
-
-	if (z.re != 0 && z.im != 0)
-		return t_comp(pwr / z.re, pwr / z.im);
-
-	if (z.re != 0 && pwr > 0)
-		return t_comp(pwr / z.re, NAN);
-
-	if (z.re != 0 && pwr < 0)
-		return t_comp(pwr / z.re, NAN);
-
-	if (z.im != 0 && pwr > 0)
-		return t_comp(NAN, pwr / z.re);
-
-	if (z.im != 0 && pwr < 0)
-		return t_comp(NAN, pwr / z.re);
-
-	if (pwr == 0)
-		return t_comp(0, 0);
-
-	return t_comp(NAN, NAN);
-}
-
 /*
 float phase_diff(const t_comp c1, const t_comp c2)
 {
@@ -1047,6 +1021,9 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 void process_data(void)
 {
+	if (settings.flags & SETTING_FLAG_HOLD)
+		return;
+
 	process_Goertzel();
 
 	#if 1
@@ -1124,11 +1101,11 @@ void process_data(void)
 	// **************************
 	// compute the DUT (L, C or R) parameters using the above measurements
 
-	const float omega        = (float)(2 * M_PI) * measurement_Hz;       // angular frequency (in rad/s) .. ω = 2 PI Hz
+	const float omega            = (float)(2 * M_PI) * measurement_Hz;               // angular frequency (in rad/s) .. ω = 2 PI Hz
 
-	const float vi_phase_rad = system_data.vi_phase_deg * DEG_TO_RAD;
-	const float cs           = cosf(vi_phase_rad);
-	const float sn           = sinf(vi_phase_rad);
+	const float vi_phase_rad     = system_data.vi_phase_deg * DEG_TO_RAD;
+	const float cs               = cosf(vi_phase_rad);
+	const float sn               = sinf(vi_phase_rad);
 
 	// TODO: find out if the following 'fabsf()'s should be there or not
 	//
@@ -1145,39 +1122,38 @@ void process_data(void)
 //	const float ser_qf_cap       = 1.0f / (omega * ser_capacitance * ser_resistive); // Q = 1 / (ωCR)
 	const float ser_qf_res       = ser_reactance / ser_resistive;                    // Q = X / R or 1 / D
 
-	system_data.series.inductance  = ser_inductance;
-	system_data.series.capacitance = ser_capacitance;
-	system_data.series.resistance  = system_data.impedance;
-	system_data.series.esr         = ser_esr;
-	system_data.series.tan_delta   = ser_tan_delta;
-//	system_data.series.qf          = ser_qf_ind;
-//	system_data.series.qf          = ser_qf_cap;
-	system_data.series.qf          = ser_qf_res;
+	// series to parallel
+	const float p                = SQR(ser_resistive) + SQR(ser_reactance);
+	const float par_resistive    = p / ser_resistive;
+	const float par_reactance    = p / ser_reactance;
 
-	{	// series to parallel
-		const float p             = SQR(ser_resistive) + SQR(ser_reactance);
-		const float resistive = p / ser_resistive;
-		const float reactance = p / ser_reactance;
+	const float par_inductance   = par_reactance / omega;                            // L = X / ω
+	const float par_capacitance  = 1.0f / (omega * par_reactance);                   // C = 1 / (ωX)
+	const float par_esr          = par_resistive;                                    // R
+	const float par_tan_delta    = par_resistive / par_reactance;                    // D = R / X
 
-		const float inductance   = reactance / omega;                            // L = X / ω
-		const float capacitance  = 1.0f / (omega * reactance);                   // C = 1 / (ωX)
-		const float esr          = resistive;                                    // R
-		const float tan_delta    = resistive / reactance;                        // D = R / X
+	// these are each the same result, just done in a different way
+//	const float par_qf_ind       = (omega * par_inductance) / par_resistive;         // Q = (ωL) / R
+//	const float par_qf_cap       = 1.0f / (omega * par_capacitance * par_resistive); // Q = 1 / (ωCR)
+	const float par_qf_res       = par_reactance / par_resistive;                    // Q = X / R or 1 / D
 
-		// these are each the same result, just done in a different way
-//		const float qf_ind       = (omega * inductance) / resistive;             // Q = (ωL) / R
-//		const float qf_cap       = 1.0f / (omega * capacitance * resistive);     // Q = 1 / (ωCR)
-		const float qf_res       = reactance / resistive;                        // Q = X / R or 1 / D
+	system_data.series.inductance    = ser_inductance;
+	system_data.series.capacitance   = ser_capacitance;
+	system_data.series.resistance    = system_data.impedance;
+	system_data.series.esr           = ser_esr;
+	system_data.series.tan_delta     = ser_tan_delta;
+//	system_data.series.qf            = ser_qf_ind;
+//	system_data.series.qf            = ser_qf_cap;
+	system_data.series.qf            = ser_qf_res;
 
-		system_data.parallel.inductance  = inductance;
-		system_data.parallel.capacitance = capacitance;
-		system_data.parallel.resistance  = system_data.impedance;
-		system_data.parallel.esr         = esr;
-		system_data.parallel.tan_delta   = tan_delta;
-//		system_data.parallel.qf          = qf_ind;
-//		system_data.parallel.qf          = qf_cap;
-		system_data.parallel.qf          = qf_res;
-	}
+	system_data.parallel.inductance  = par_inductance;
+	system_data.parallel.capacitance = par_capacitance;
+	system_data.parallel.resistance  = system_data.impedance;
+	system_data.parallel.esr         = par_esr;
+	system_data.parallel.tan_delta   = par_tan_delta;
+//	system_data.parallel.qf          = par_qf_ind;
+//	system_data.parallel.qf          = par_qf_cap;
+	system_data.parallel.qf          = par_qf_res;
 
 	// **************************
 }
@@ -1511,21 +1487,17 @@ void draw_screen(void)
 				snprintf(buffer_display, sizeof(buffer_display), "%2u kHz", measurement_Hz / 1000);
 			ssd1306_WriteString(buffer_display, Font_7x10, White);
 
+			if (settings.flags & SETTING_FLAG_HOLD)
+			{
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * 7), 0);
+				ssd1306_WriteString("HELD", Font_7x10, White);
+			}
+
 			#if 0
 				// VI phase
 				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * 7), 0);
 				print_sprint(4, system_data.vi_phase_deg, buffer_display, sizeof(buffer_display));
 				ssd1306_WriteString(buffer_display, Font_7x10, White);
-			#elif 1
-			{
-				// show the gain setting for V and I mode
-				buffer_display[0] = volt_gain_sel ? 'H' : 'L';
-				buffer_display[1] = amp_gain_sel  ? 'H' : 'L';
-				buffer_display[2] ='\0';
-				//ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * 7), 0);
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * 7), LINE2_Y + 5);
-				ssd1306_WriteString(buffer_display, Font_7x10, White);
-			}
 			#endif
 
 			// ***************************
@@ -1541,10 +1513,11 @@ void draw_screen(void)
 				#endif
 			#endif
 
-			{
-				// ***************************
-				// Line 2: LCR mode
+			// ***************************
+			// Line 2
 
+			{	// LCR mode
+				
 				float value = 0;
 
 				switch (settings.lcr_mode)
@@ -1632,6 +1605,16 @@ void draw_screen(void)
 						break;
 				}
 			}
+
+			#if 1
+			{	// show gain setting for V and I modes
+				buffer_display[0] = volt_gain_sel ? 'H' : 'L';
+				buffer_display[1] = amp_gain_sel  ? 'H' : 'L';
+				buffer_display[2] ='\0';
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * 7), LINE2_Y + 5);
+				ssd1306_WriteString(buffer_display, Font_7x10, White);
+			}
+			#endif
 
 			// ***************************
 			// Line 3
@@ -2457,9 +2440,6 @@ void process_buttons(void)
 	if (button[0].released)
 	{	// HOLD button
 
-		button[0].released     = 0;
-		button[0].pressed_tick = 0;
-
 		if (button[0].held_ms >= 800)
 		{
 			memset((void *)&calibrate, 0, sizeof(calibrate));
@@ -2469,18 +2449,18 @@ void process_buttons(void)
 		}
 		else
 		{
-//			settings.flags ^= SETTING_FLAG_HOLD;
-			settings.flags ^= SETTING_FLAG_UART_DSO;
+			settings.flags ^= SETTING_FLAG_HOLD;      // toggle HOLD flag
+//			settings.flags ^= SETTING_FLAG_UART_DSO;
 		}
+
+		button[0].released     = 0;
+		button[0].pressed_tick = 0;
 
 		draw_screen();
 	}
 
 	if (button[1].released)
 	{	// S/P button
-
-		button[1].released     = 0;
-		button[1].pressed_tick = 0;
 
 		if (button[1].held_ms >= 800)
 		{
@@ -2497,14 +2477,14 @@ void process_buttons(void)
 			save_settings_timer = SAVE_SETTINGS_MS;
 		}
 
+		button[1].released     = 0;
+		button[1].pressed_tick = 0;
+
 		draw_screen();
 	}
 
 	if (button[2].released)
 	{	// RCL button
-
-		button[2].released     = 0;
-		button[2].pressed_tick = 0;
 
 		if (button[2].held_ms >= 800)
 		{
@@ -2540,6 +2520,9 @@ void process_buttons(void)
 			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
 		}
+
+		button[2].released     = 0;
+		button[2].pressed_tick = 0;
 
 		draw_screen();
 	}
@@ -2785,6 +2768,8 @@ int main(void)
 
 	// fetch saved settings from flash
 	read_settings();
+
+	settings.flags &= ~SETTING_FLAG_HOLD;                      // ensure HOLD flag is cleared
 
 	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 	set_measure_mode_pins(system_data.vi_measure_mode);
