@@ -165,6 +165,8 @@ float                 high_gain         = 101;
 // ADC DMA sample buffer
 t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];      // *2 for DMA double buffering (ADC/DMA is continuously running)
 
+uint32_t              frames  = 0;        // just a frame counter
+
 // ADC sample block averaging buffer
 // we take several sample blocks and average them together to reduce noise/increase dynamic range
 unsigned int          adc_average_count               = DEFAULT_ADC_AVERAGE_COUNT;  // number of blocks to average together
@@ -283,6 +285,8 @@ void reboot(void)
 
 void start_ADC(void)
 {
+	frames = 0;
+
 	// non-stop ADC double buffered sampling
 	#ifdef DUAL_ADC_MODE
 		HAL_ADC_Start(&hadc2);
@@ -1148,7 +1152,8 @@ void process_ADC(const void *buffer)
 					register const uint8_t d2 = (p1 >= p2) ? p1 - p2 : 0;
 					p2 = p1;
 					p1 = p0;
-					clipped = (d1 > threshold && d2 > threshold) ? 1 : clipped;      // spikes leading and trailing edge
+					//clipped = (d1 > threshold && d2 > threshold) ? 1 : clipped;    // spikes leading and trailing edge
+					clipped = (d1 > threshold || d2 > threshold) ? 1 : clipped;      // spikes leading or trailing edge
 					//clipped = (d1 > threshold) ? 1 : clipped;                      // spikes leading edge only
 				#endif
 			}
@@ -1193,15 +1198,15 @@ void process_ADC(const void *buffer)
 
 		{	// remove the DC offset on the two ADC inputs
 
-			//const float coeff = 0.8;
+			const float coeff = (frames <= 3) ? 0.9 : 0.3;
 
-			if (!adc_data_clipping[vi_mode])
+			if (!adc_data_clipping[vi_mode])   // don't bother if the waveform is being clipped
 			{	// ADC input
 				register float sum = 0;
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					sum += buf_adc[i];
 				sum *= 1.0f / ADC_DATA_LENGTH;
-				//sum = settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
+				sum = settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_adc[i] -= sum;
 			}
@@ -1211,7 +1216,7 @@ void process_ADC(const void *buffer)
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					sum += buf_afc[i];
 				sum *= 1.0f / ADC_DATA_LENGTH;
-				//sum = settings.input_offset.afc = ((1.0f - coeff) * settings.input_offset.afc) + (coeff * sum);
+				sum = settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_afc[i] -= sum;
 			}
@@ -2775,6 +2780,8 @@ int main(void)
 			process_uart_send();
 			process_op_mode();
 
+			frames++;
+			
 			vi_measure_index = 0;         // start next data capture
 		}
 		//else

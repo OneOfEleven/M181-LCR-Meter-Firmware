@@ -337,7 +337,7 @@ typedef struct t_settings {
 
 	struct {
 		float    adc[4];              // ADC input offset
-		float    afc;                 // AFC input offset
+		float    afc[4];              // AFC input offset
 	} input_offset;
 
 	struct {
