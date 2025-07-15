@@ -78,6 +78,8 @@ We can simply assume clipping is present if there are any ADC samples near the A
 
 The other efficient method is to create a simple histogram of the sample values (per sample block) and look for any spikes in the upper section of the histogram. The histogram method can also very easily detect clipping is occuring in waveforms nowhere near the ADC's maximum range.
 
+There are other methods, such as monitoring the output level of a simple band pass filter centered on double the sine wave frequency, the BPF output level will be near zero if no clipping, but rises sharply once clipping starts.
+
 <img src="firmware/docs/sine_wave_clipping_detection.png" alt="image" style="width:600px;height:auto;">
 
 ## HPF modification to improve mode switching time
