@@ -91,6 +91,10 @@ Change C8 from 100nF to 18nF.
 
 <img src="firmware/docs/HPF_mod.png" alt="image" style="width:600px;height:auto;">
 
+This is the cause for the DC shift/spike, the transcondutance OPAMP stage has a DC offset error, the x101 gain stage amplifies this to the 1.3V or so spike that we see ..
+
+<img src="firmware/docs/DC_shift_cause.png" alt="image" style="width:600px;height:auto;">
+
 # Original (the seller) firmware mode scanning
 
 The author only fully scans all modes if need be (makes perfect sense) ..
