@@ -753,7 +753,7 @@ void set_measurement_frequency(const uint32_t Hz)
 		const t_comp d = t_comp((c1.re * c2.re) + (c1.im * c2.im), (c1.re * c2.im) - (c1.im * c2.re));
 
 		// phase
-		return (d.re != 0.0f) ? atan2f(d.im, d.re) * RAD_TO_DEG : NAN;  
+		return (d.re != 0.0f) ? atan2f(d.im, d.re) * RAD_TO_DEG : NAN;
 	}
 
 	float phase_diff(const float phase_deg_1, const float phase_deg_2)
@@ -1106,7 +1106,7 @@ void process_ADC(const void *buffer)
 	{	// add the new sample block to the averaging buffer
 
 		// invert the current (I) ADC waveform to counter-act the inverting OP-AMP stage
-		register const int16_t adc_sign = (vi_mode & 1u) ? -1 : 1;
+		register const int16_t adc_sign = (vi_mode == VI_MODE_AMP_LO_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) ? -1 : 1;
 		register const int16_t afc_sign = 1;
 
 		if (vi_mode >= VI_MODE_VOLT_HI_GAIN)
@@ -1114,7 +1114,7 @@ void process_ADC(const void *buffer)
 
 			// for detecting waveform clipping
 			#define HISTOGRAM_SIZE        (2048 / (1 << 5))
-			uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};               // '+1' so we don't try writing beyond the buffer size 
+			uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};               // '+ 1' so we don't try writing beyond the buffer size
 
 			const uint8_t threshold = ADC_DATA_LENGTH / 14;            // histogram spike threshold level
 
@@ -1129,10 +1129,10 @@ void process_ADC(const void *buffer)
 				adc_buffer_sum[i].afc += afc;
 
 				// update the histogram with the sample
-				//register uint32_t val = (adc < 0) ? -adc : adc;      // 0..2048
-				register uint32_t val = (adc < 0) ? ~adc : adc;        // 0..2047
+				//register uint32_t val = (adc < 0) ? -adc : adc;      // 0..2048   two's compliment
+				register uint32_t val = (adc < 0) ? ~adc : adc;        // 0..2047   one's compliment
 				val >>= 5;                                             // 0 to HISTOGRAM_SIZE
-				histogram[val]++;
+				histogram[val]++;                                      // increment the histogram bin
 			}
 
 			// check to see any clipping/saturation is occuring
@@ -1140,7 +1140,7 @@ void process_ADC(const void *buffer)
 			register uint8_t clipped = 0;
 			register uint8_t p0      = 0;
 			register uint8_t p1      = 0;
-			for (unsigned int i = HISTOGRAM_SIZE * 0.7; i < ARRAY_SIZE(histogram) && !clipped; i++) 
+			for (unsigned int i = HISTOGRAM_SIZE * 0.7; i < ARRAY_SIZE(histogram) && !clipped; i++)
 			{
 				#if 0
 					// look at the absolute histogram level (rather than spikes)
@@ -1182,7 +1182,7 @@ void process_ADC(const void *buffer)
 		average_count = 8;                           // yes, we're doing nothing but sending the samples to the PC
 	else
 	if (adc_data_clipping[vi_mode])
-		average_count = 1;                           // this block of samples are clipping, drop it, move on to the next mode
+		average_count = 1;                           // this block of samples are clipping, drop them, move on to the next mode
 	else
 	if (vi_mode <= VI_MODE_AMP_LO_GAIN && !adc_data_clipped[vi_mode])
 		average_count = 1;                           // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples
@@ -1212,7 +1212,7 @@ void process_ADC(const void *buffer)
 			}
 		}
 
-		{	// remove DC offset (there's always some)
+		{	// remove any DC offset (there's always some) from this new averaged block of samples
 
 			const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then switch to slower coeff
 
@@ -1224,6 +1224,8 @@ void process_ADC(const void *buffer)
 					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 						sum += buf_adc[i];
 					sum *= 1.0f / ADC_DATA_LENGTH;
+
+					// LPF
 					settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
 
 					// subtract/remove the DC offset
@@ -1238,8 +1240,10 @@ void process_ADC(const void *buffer)
 				// compute the DC offset
 				register float sum = 0;
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-				sum += buf_afc[i];
+					sum += buf_afc[i];
 				sum *= 1.0f / ADC_DATA_LENGTH;
+
+				// LPF
 				settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
 
 				// subtract/remove the DC offset
@@ -1481,7 +1485,7 @@ void draw_screen(void)
 			// Line 2
 
 			{	// LCR mode
-				
+
 				float value = 0;
 
 				switch (settings.lcr_mode)
