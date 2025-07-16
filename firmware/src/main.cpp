@@ -1113,9 +1113,9 @@ void process_ADC(const void *buffer)
 		{	// include updating the histogram
 
 			// for detecting waveform clipping
-			uint8_t histogram[64 + 2] = {0};
-			const unsigned int histo_len = ARRAY_SIZE(histogram) - 2;
-			const uint8_t      threshold = ADC_DATA_LENGTH / 12;
+			#define HISTOGRAM_SIZE   64                 
+			uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};      // '+1' so we don't try writing beyond the buffer size                     
+			const uint8_t threshold = ADC_DATA_LENGTH / 12;
 
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
@@ -1128,19 +1128,19 @@ void process_ADC(const void *buffer)
 				adc_buffer_sum[i].afc += afc;
 
 				// update the histogram with the new hi-gain sample
-				register uint32_t val = (adc < 0) ? -adc : adc;   // 0..2048
-				//val = (val * histo_len) / 2048;                 // 0 to histo_len
-				val = (val * (uint32_t)histo_len) >> 11;          // 0 to histo_len
-				//val = (val > histo_len) ? histo_len : val;      // clamp
+				register uint32_t val = (adc < 0) ? -adc : adc;        // 0..2048
+				//val = (val * histo_len) / 2048;                      // 0 to histo_len
+				val = (val * HISTOGRAM_SIZE) >> 11;                    // 0 to histo_len (faster effective divide)
+				//val = (val > HISTOGRAM_SIZE) ? HISTOGRAM_SIZE : val; // clamp
 				histogram[val]++;
 			}
 
 			// check to see any clipping/saturation is occuring
-			// we do this by looking for any spikes in the top quarter part of the sample histogram
+			// we do this by looking for any spikes in the last 5th section of the histogram
 			register uint8_t clipped = 0;
 			register uint8_t p1      = 0;
 			register uint8_t p2      = 0;
-			for (unsigned int i = histo_len - (histo_len >> 2); i < ARRAY_SIZE(histogram) && !clipped; i++) 
+			for (unsigned int i = HISTOGRAM_SIZE * 0.8; i < ARRAY_SIZE(histogram) && !clipped; i++) 
 			{
 				#if 0
 					// look at the absolute histogram level (rather than spikes)
@@ -1148,14 +1148,15 @@ void process_ADC(const void *buffer)
 						clipped = 1;
 				#else
 					// look for histogram spike
-					register const uint8_t p0 = histogram[i];
-					register const uint8_t d1 = (p1 >= p0) ? p1 - p0 : 0;
-					register const uint8_t d2 = (p1 >= p2) ? p1 - p2 : 0;
+					register const uint8_t p0         = histogram[i];
+					register const uint8_t lead_edge  = (p1 >= p0) ? p1 - p0 : 0;
+					register const uint8_t trail_edge = (p1 >= p2) ? p1 - p2 : 0;
 					p2 = p1;
 					p1 = p0;
-					//clipped = (d1 > threshold && d2 > threshold) ? 1 : clipped;    // spikes leading and trailing edge
-					clipped = (d1 > threshold || d2 > threshold) ? 1 : clipped;      // spikes leading or trailing edge
-					//clipped = (d1 > threshold) ? 1 : clipped;                      // spikes leading edge only
+					//clipped = (lead_edge > threshold && trail_edge > threshold) ? 1 : clipped; // spikes leading and trailing edge
+					clipped = (lead_edge > threshold || trail_edge > threshold) ? 1 : clipped;   // spikes leading or trailing edge
+					//clipped = (lead_edge > threshold) ? 1 : clipped;                           // spikes leading edge only
+					//clipped = (trail_edge > threshold) ? 1 : clipped;                          // spikes trailing edge only
 				#endif
 			}
 			adc_data_clipping[vi_mode] |= clipped;                // '1' if clipped/saturated samples are present

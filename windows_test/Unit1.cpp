@@ -1188,7 +1188,7 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 			float sum = 0;
 
 			memset(m_waveform_info[i].histogram, 0, sizeof(m_waveform_info[i].histogram));
-			const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].histogram) - 2;
+			const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].histogram) - 1;
 
 			for (unsigned int k = 0; k < len && !except; k++)
 			{
@@ -1209,7 +1209,7 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 						sum += SQR(v);
 
 						// waveform histogram
-						unsigned int s = abs((int)(v * (histo_len - 1) * (1.0f / 2048)));  // 0 to (histo_len - 1)
+						unsigned int s = abs((int)(v * histo_len * (1.0f / 2048)));  // 0 to histo_len
 						s = (s > (histo_len - 1)) ? (histo_len - 1) : s;
 						if (s > 0)	// ignore DC
 							m_waveform_info[i].histogram[s]++;

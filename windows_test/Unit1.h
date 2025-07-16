@@ -253,7 +253,7 @@ private:
 		float        magnitude_rms;
 		float        phase_deg;
 		float        average;
-		unsigned int histogram[66];
+		unsigned int histogram[64 + 1];
 	} m_waveform_info[8];
 
 	void __fastcall loadSettings();
