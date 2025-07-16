@@ -1172,11 +1172,14 @@ void process_ADC(const void *buffer)
 		}
 	}
 
-	// decide which modes need averaging and which can be dropped
-	// we drop the hi-gain blocks if they are clipping, other we drop the lo-gain blocks
+	// decide which modes are useful and which are not
+	//
+	// we drop the hi-gain blocks if they are clipping
+	// we drop the lo-gain blocks if the hi-gain blocks are good (not clipping)
+	//
 	unsigned int average_count = adc_average_count;  // normal amount of averaging
 	if (settings.flags & SETTING_FLAG_HOLD)
-		average_count = 8;                           // HOLD mode, we're only sending the samples to the PC
+		average_count = 8;                           // HOLD mode, we're doing nothing but sending the samples to the PC
 	else
 	if (adc_data_clipping[vi_mode])
 		average_count = 1;                           // this block of samplesd are clipping, move to next mode
@@ -1187,7 +1190,7 @@ void process_ADC(const void *buffer)
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 		return;                                      // not yet summed desired number of sample blocks
 
-	// we've now summed the amount of sample blocks (in current VI mode) we wanted ..
+	// we've now summed the desired number of sample blocks, it's now ready to be re-scaled, saved and DC offset removed for use later on ..
 
 	// next measurement mode
 	vi_index++;
@@ -1195,40 +1198,49 @@ void process_ADC(const void *buffer)
 	// set the GS/VI pins ready for the next measurement run
 	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
 
-	{	// fetch & re-scale the summed ADC samples to create the average
-
-		register const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
+	{	// fetch & re-scale the summed ADC samples to create the average - reduces noise
 
 		register float *buf_adc = adc_data[buf_index + 0];
 		register float *buf_afc = adc_data[buf_index + 1];
 
-		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-		{
-			buf_adc[i] = adc_buffer_sum[i].adc * scale;        // averaged sample
-			buf_afc[i] = adc_buffer_sum[i].afc * scale;        // averaged sample
+		{	// fetch and re-scale
+			register const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
+
+			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+			{
+				buf_adc[i] = adc_buffer_sum[i].adc * scale;
+				buf_afc[i] = adc_buffer_sum[i].afc * scale;
+			}
 		}
 
-		{	// remove any DC offset on the averaged sample capture
+		{	// remove DC offset (there's always some)
 
-			const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then witch to slower coeff
+			const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then switch to slower coeff
 
-			if (!adc_data_clipping[vi_mode])   // don't bother if the waveform is being clipped
 			{	// ADC input
-				register float sum = 0;
-				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-					sum += buf_adc[i];
-				sum *= 1.0f / ADC_DATA_LENGTH;
-				sum = settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
-				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-					buf_adc[i] -= sum;
+				if (!adc_data_clipping[vi_mode])   // don't bother if the samples are being clipped (the block will not be used)
+				{
+					register float sum = 0;
+					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+						sum += buf_adc[i];
+					sum *= 1.0f / ADC_DATA_LENGTH;
+					settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
+					sum = settings.input_offset.adc[vi_mode];
+					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+						buf_adc[i] -= sum;
+				}
 			}
 
 			{	// AFC input
-				register float sum = 0;
-				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+				register float sum;
+				{
+					sum = 0;
+					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					sum += buf_afc[i];
-				sum *= 1.0f / ADC_DATA_LENGTH;
-				sum = settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
+					sum *= 1.0f / ADC_DATA_LENGTH;
+					settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
+				}
+				sum = settings.input_offset.afc[vi_mode];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_afc[i] -= sum;
 			}

@@ -1388,10 +1388,21 @@ void __fastcall TForm1::Timer1Timer(TObject *Sender)
 	{
 		s = "";
 		if (m_serial.port.connected)
-			s.printf(" %0.0f ", m_serial.client.rx.timer.secs(false));
+			s.printf(" last RX %0.0f ", m_serial.client.rx.timer.secs(false));
 		if (StatusBar1->Panels->Items[1]->Text != s)
 		{
 			StatusBar1->Panels->Items[1]->Text = s;
+			StatusBar1->Update();
+		}
+	}
+
+	{
+		s = "";
+		if (m_serial.port.connected)
+			s.printf(" frames %u ", m_frames);
+		if (StatusBar1->Panels->Items[2]->Text != s)
+		{
+			StatusBar1->Panels->Items[2]->Text = s;
 			StatusBar1->Update();
 		}
 	}
@@ -1527,11 +1538,13 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 		const float peak_value = 2100;
 
+		const int y_spacing = (m_bitmap_main->Height - top_margin - bot_margin) / (waveforms / 4);
+
 		const int x_size = m_bitmap_main->Width / 2;
-		const int y_size = (m_bitmap_main->Height - top_margin - bot_margin) / (waveforms / 4);
+		const int y_size = y_spacing - 35;
 
 		const float x_scale = (float)(x_size - left_margin - right_margin) / (values - 1);
-		const float y_scale = (float)((y_size / 2) - 10) / peak_value;
+		const float y_scale = (float)(y_size / 2) / peak_value;
 
 		const float dash_pattern[]  = {5, 5};
 		const float dash_pattern2[] = {2, 2};
@@ -1543,7 +1556,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 		for (unsigned int i = 0; i < waveforms; i++)
 		{
 			const int x = x_size * (i / 4);
-			const int cy = top_margin + (y_size / 2) + (y_size * ((i / 2) % 2));
+			const int cy = top_margin + (y_spacing / 2) + (y_spacing * ((i / 2) % 2));
 
 			float min = m_values[i][0];
 			float max = m_values[i][0];
@@ -1587,6 +1600,38 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				g.DrawLine(&pen, x + left_margin, cy, x + x_size - right_margin, cy);
 			}
 
+			if ((i & 1) == 0)
+			{	// vertical scale
+
+				m_bitmap_main->Canvas->Font->Color = TColor(RGB(160, 160, 160));
+				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
+				m_bitmap_main->Canvas->Brush->Style = bsClear;
+
+				Gdiplus::Pen pen(Gdiplus::Color(8, 255, 255, 255), 1);    // ARGB
+				pen.SetAlignment(Gdiplus::PenAlignmentCenter);
+				//pen.SetDashStyle(Gdiplus::DashStyleDash);
+				pen.SetDashPattern(dash_pattern2, ARRAY_SIZE(dash_pattern2));
+
+				const unsigned int levels = 6;
+
+				for (unsigned int i = 2; i <= levels; i++)
+				{
+					const int level = (peak_value * i) / levels;
+					const int y1    = cy - (int)(level * y_scale);
+					const int y2    = cy + (int)(level * y_scale);
+					g.DrawLine(&pen, x + left_margin, y1, x + x_size - right_margin, y1);
+					g.DrawLine(&pen, x + left_margin, y2, x + x_size - right_margin, y2);
+
+					String s1, s2;
+					s1.printf(" %d ", level);
+					s2.printf(" %d ", -level);
+					const int tx1 = x + left_margin - m_bitmap_main->Canvas->TextWidth(s1);
+					const int tx2 = x + left_margin - m_bitmap_main->Canvas->TextWidth(s2);
+					m_bitmap_main->Canvas->TextOut(tx1, y1 - (text_height / 2), s1);
+					m_bitmap_main->Canvas->TextOut(tx2, y2 - (text_height / 2), s2);
+				}
+			}
+
 			if (HistogramSpeedButton->Down && (i & 1) == 0)
 			{	// histogram
 				const unsigned int histo_len = ARRAY_SIZE(m_waveform_info[i].histogram);
@@ -1621,7 +1666,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 			if (NormaliseTrackBar->Position > 0)
 			{	// normalized waveform (max amplitude)
 				float alpha = (float)NormaliseTrackBar->Position / NormaliseTrackBar->Max;  // 0 to 1.0
-				alpha = alpha * alpha * 255;  // 0 to 255
+				alpha = alpha * alpha * 180;  // 0 to 180
 
 				if ((i & 1) == 0)
 				{
@@ -1644,7 +1689,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 			{	// waveform
 				if ((i & 1) == 0)
 				{
-					Gdiplus::Pen pen(Gdiplus::Color(255, 255, 255, 255), 1);  // ARGB
+					Gdiplus::Pen pen(Gdiplus::Color(180, 255, 255, 255), 1);  // ARGB
 					pen.SetAlignment(Gdiplus::PenAlignmentCenter);
 					g.DrawLines(&pen, &gdi_points[0], gdi_points.size());
 				}
@@ -1682,38 +1727,6 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 				const float pd = phase_diff(m_waveform_info[i + 0].phase_deg, m_waveform_info[i + 1].phase_deg);
 				s.printf(" %0.3f\xb0 ", pd);
 				m_bitmap_main->Canvas->TextOut(x + left_margin - m_bitmap_main->Canvas->TextWidth(s), cy, s);
-			}
-
-			if ((i & 1) == 0)
-			{	// vertical scale
-
-				m_bitmap_main->Canvas->Font->Color = clWhite;
-				//m_bitmap_main->Canvas->Brush->Color = pb->Color;
-				m_bitmap_main->Canvas->Brush->Style = bsClear;
-
-				Gdiplus::Pen pen(Gdiplus::Color(8, 255, 255, 255), 1);    // ARGB
-				pen.SetAlignment(Gdiplus::PenAlignmentCenter);
-				//pen.SetDashStyle(Gdiplus::DashStyleDash);
-				pen.SetDashPattern(dash_pattern2, ARRAY_SIZE(dash_pattern2));
-
-				const unsigned int levels = 8;
-
-				for (unsigned int i = 2; i <= levels; i++)
-				{
-					const int level = (peak_value * i) / levels;
-					const int y1    = cy - (int)(level * y_scale);
-					const int y2    = cy + (int)(level * y_scale);
-					g.DrawLine(&pen, x + left_margin, y1, x + x_size - right_margin, y1);
-					g.DrawLine(&pen, x + left_margin, y2, x + x_size - right_margin, y2);
-
-					String s1, s2;
-					s1.printf(" %d ", level);
-					s2.printf(" %d ", -level);
-					const int tx1 = x + left_margin - m_bitmap_main->Canvas->TextWidth(s1);
-					const int tx2 = x + left_margin - m_bitmap_main->Canvas->TextWidth(s2);
-					m_bitmap_main->Canvas->TextOut(tx1, y1 - (text_height / 2), s1);
-					m_bitmap_main->Canvas->TextOut(tx2, y2 - (text_height / 2), s2);
-				}
 			}
 
 /*
@@ -1769,18 +1782,23 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 		}
 
 		{	// top text
-			s.printf(" frame %u ", m_frames);
-			m_bitmap_main->Canvas->Font->Color = clYellow;
 			m_bitmap_main->Canvas->Brush->Style = bsClear;
-			m_bitmap_main->Canvas->TextOut(left_margin, 5, s);
-		}
+			m_bitmap_main->Canvas->Font->Color  = clWhite;
 
+			s = " LOW Gain ";
+			m_bitmap_main->Canvas->TextOut(         (x_size / 2) - (m_bitmap_main->Canvas->TextWidth(s) / 2), 10, s);
+			s = " HIGH Gain ";
+			m_bitmap_main->Canvas->TextOut(x_size + (x_size / 2) - (m_bitmap_main->Canvas->TextWidth(s) / 2), 10, s);
+		}
+		
+		#if 0
 		{	// min/max limits
 			s.printf(" +-%.0f ", peak_value);
 			m_bitmap_main->Canvas->Font->Color = clYellow;
 			m_bitmap_main->Canvas->Brush->Style = bsClear;
 			m_bitmap_main->Canvas->TextOut(left_margin + 100, 5, s);
 		}
+		#endif
 	}
 
 	// *********************************************************

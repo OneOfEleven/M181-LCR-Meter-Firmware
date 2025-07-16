@@ -5,7 +5,7 @@
 
    Anyway ..
 
-## Original auther of this open source firmware (not the sellers firmware)
+## Original author (not the seller) of this custom open source firmware who very kindly shared their source code
 - Jaishankar M .. https://github.com/Jaishankar872/LCR_Meter_Proto_M181
 
 ## Hardware - M181 LCR Meter
@@ -14,10 +14,11 @@
 <img src="firmware/docs/pcb.png" alt="image" style="width:500px;height:auto;">
 <img src="firmware/docs/pcb_finished.png" alt="image" style="width:500px;height:auto;">
 
-**Note**: Firmware still under development.
-## Tasks to be completed
+## Main tasks to be completed on this firmware
+- [ ] Make use of the saved Open/Short calibration results
 - [ ] Auto calibration option
-- [ ] Update a couple of HW component values to add 10kHz option (see LTspice sims)
+- [ ] Add a fast update mode (though noisier than the current slower averaged mode)
+- [ ] Change a couple of PCB component values to allow/add a 10kHz option (see LTspice sims)
 
 # System Overview ..
 
