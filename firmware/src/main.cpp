@@ -672,7 +672,7 @@ char  unit_conversion(float *value)
 	if (*value < 1e-6f)
 	{	// nano
 		*value *= 1e9f;
-		return 'p';
+		return 'n';
 	}
 
 	if (*value < 1e-3f)
