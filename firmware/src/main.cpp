@@ -1110,12 +1110,13 @@ void process_ADC(const void *buffer)
 		register const int16_t afc_sign = 1;
 
 		if (vi_mode >= VI_MODE_VOLT_HI_GAIN)
-		{	// include updating the histogram
+		{	// only bother doing a histogram for the HIGH gain modes
 
 			// for detecting waveform clipping
-			#define HISTOGRAM_SIZE   64                 
-			uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};      // '+1' so we don't try writing beyond the buffer size                     
-			const uint8_t threshold = ADC_DATA_LENGTH / 12;
+			#define HISTOGRAM_SIZE        (2048 / (1 << 5))
+			uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};               // '+1' so we don't try writing beyond the buffer size 
+
+			const uint8_t threshold = ADC_DATA_LENGTH / 14;            // histogram spike threshold level
 
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
@@ -1127,20 +1128,19 @@ void process_ADC(const void *buffer)
 				adc_buffer_sum[i].adc += adc;
 				adc_buffer_sum[i].afc += afc;
 
-				// update the histogram with the new hi-gain sample
-				register uint32_t val = (adc < 0) ? -adc : adc;        // 0..2048
-				//val = (val * histo_len) / 2048;                      // 0 to histo_len
-				val = (val * HISTOGRAM_SIZE) >> 11;                    // 0 to histo_len (faster effective divide)
-				//val = (val > HISTOGRAM_SIZE) ? HISTOGRAM_SIZE : val; // clamp
+				// update the histogram with the sample
+				//register uint32_t val = (adc < 0) ? -adc : adc;      // 0..2048
+				register uint32_t val = (adc < 0) ? ~adc : adc;        // 0..2047
+				val >>= 5;                                             // 0 to HISTOGRAM_SIZE
 				histogram[val]++;
 			}
 
 			// check to see any clipping/saturation is occuring
-			// we do this by looking for any spikes in the last 5th section of the histogram
+			// we do this by looking for any spikes in the upper section of the histogram
 			register uint8_t clipped = 0;
+			register uint8_t p0      = 0;
 			register uint8_t p1      = 0;
-			register uint8_t p2      = 0;
-			for (unsigned int i = HISTOGRAM_SIZE * 0.8; i < ARRAY_SIZE(histogram) && !clipped; i++) 
+			for (unsigned int i = HISTOGRAM_SIZE * 0.7; i < ARRAY_SIZE(histogram) && !clipped; i++) 
 			{
 				#if 0
 					// look at the absolute histogram level (rather than spikes)
@@ -1148,65 +1148,63 @@ void process_ADC(const void *buffer)
 						clipped = 1;
 				#else
 					// look for histogram spike
-					register const uint8_t p0         = histogram[i];
+					register const uint8_t p2         = histogram[i];
 					register const uint8_t lead_edge  = (p1 >= p0) ? p1 - p0 : 0;
 					register const uint8_t trail_edge = (p1 >= p2) ? p1 - p2 : 0;
-					p2 = p1;
-					p1 = p0;
-					//clipped = (lead_edge > threshold && trail_edge > threshold) ? 1 : clipped; // spikes leading and trailing edge
-					clipped = (lead_edge > threshold || trail_edge > threshold) ? 1 : clipped;   // spikes leading or trailing edge
-					//clipped = (lead_edge > threshold) ? 1 : clipped;                           // spikes leading edge only
-					//clipped = (trail_edge > threshold) ? 1 : clipped;                          // spikes trailing edge only
+					p0 = p1;
+					p1 = p2;
+					//clipped = (lead_edge >= threshold && trail_edge >= threshold) ? 1 : clipped; // spikes leading and trailing edge
+					clipped = (lead_edge >= threshold || trail_edge >= threshold) ? 1 : clipped;   // spikes leading or trailing edge
+					//clipped = (lead_edge >= threshold) ? 1 : clipped;                            // spikes leading edge only
+					//clipped = (trail_edge >= threshold) ? 1 : clipped;                           // spikes trailing edge only
 				#endif
 			}
-			adc_data_clipping[vi_mode] |= clipped;                // '1' if clipped/saturated samples are present
+			adc_data_clipping[vi_mode] |= clipped;                // '1' = detected clipped/saturated samples
 		}
 		else
-		{	// forget updating the histogram
-			// the LOW gain modes never clip/saturate
+		{	// forget doing a histogram in the LOW gain modes as the ADC samples never clip/saturate, so no need to check for that
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
 				adc_buffer_sum[i].adc += (adc_buffer[i].adc - 2048) * adc_sign;
 				adc_buffer_sum[i].afc += (adc_buffer[i].afc - 2048) * afc_sign;
 			}
-			adc_data_clipping[vi_mode] = 0;
+			adc_data_clipping[vi_mode] = 0;                       // '0' = no clipping/saturation detected
 		}
 	}
 
 	// decide which modes are useful and which are not
 	//
-	// we drop the hi-gain blocks if they are clipping
-	// we drop the lo-gain blocks if the hi-gain blocks are good (not clipping)
+	// we drop the hi-gain blocks if they are clipping (the data would useless)
+	// we drop the lo-gain blocks if the hi-gain blocks are usable (no clipping detected)
 	//
 	unsigned int average_count = adc_average_count;  // normal amount of averaging
-	if (settings.flags & SETTING_FLAG_HOLD)
-		average_count = 8;                           // HOLD mode, we're doing nothing but sending the samples to the PC
+	if (settings.flags & SETTING_FLAG_HOLD)          // display HOLD mode ?
+		average_count = 8;                           // yes, we're doing nothing but sending the samples to the PC
 	else
 	if (adc_data_clipping[vi_mode])
-		average_count = 1;                           // this block of samplesd are clipping, move to next mode
+		average_count = 1;                           // this block of samples are clipping, drop it, move on to the next mode
 	else
 	if (vi_mode <= VI_MODE_AMP_LO_GAIN && !adc_data_clipped[vi_mode])
 		average_count = 1;                           // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
-		return;                                      // not yet summed desired number of sample blocks
+		return;                                      // not yet summed the desired number of sample blocks
 
-	// we've now summed the desired number of sample blocks, it's now ready to be re-scaled, saved and DC offset removed for use later on ..
+	// we've now summed the desired number of sample blocks, they're now ready to be re-scaled, saved and DC offset removed for use later use ..
 
-	// next measurement mode
+	// get ready for next measurement VI mode
 	vi_index++;
 
 	// set the GS/VI pins ready for the next measurement run
 	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
 
-	{	// fetch & re-scale the summed ADC samples to create the average - reduces noise
+	{	// fetch & re-scale the summed ADC sample blocks to create an average (reduces noise)
 
 		register float *buf_adc = adc_data[buf_index + 0];
 		register float *buf_afc = adc_data[buf_index + 1];
 
-		{	// fetch and re-scale
+		{	// fetch and re-scale (also converts to 'float' type at the same time)
 			register const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
-
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
 				buf_adc[i] = adc_buffer_sum[i].adc * scale;
@@ -1221,11 +1219,14 @@ void process_ADC(const void *buffer)
 			{	// ADC input
 				if (!adc_data_clipping[vi_mode])   // don't bother if the samples are being clipped (the block will not be used)
 				{
+					// compute the DC offset
 					register float sum = 0;
 					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 						sum += buf_adc[i];
 					sum *= 1.0f / ADC_DATA_LENGTH;
 					settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
+
+					// subtract/remove the DC offset
 					sum = settings.input_offset.adc[vi_mode];
 					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 						buf_adc[i] -= sum;
@@ -1233,14 +1234,15 @@ void process_ADC(const void *buffer)
 			}
 
 			{	// AFC input
-				register float sum;
-				{
-					sum = 0;
-					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-					sum += buf_afc[i];
-					sum *= 1.0f / ADC_DATA_LENGTH;
-					settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
-				}
+
+				// compute the DC offset
+				register float sum = 0;
+				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+				sum += buf_afc[i];
+				sum *= 1.0f / ADC_DATA_LENGTH;
+				settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
+
+				// subtract/remove the DC offset
 				sum = settings.input_offset.afc[vi_mode];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_afc[i] -= sum;

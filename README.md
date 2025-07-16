@@ -5,7 +5,7 @@
 
    Anyway ..
 
-## Original author (not the seller) of this custom open source firmware who very kindly shared their source code
+## Original author (not the seller) of this custom open source firmware who very kindly shared their own source code
 - Jaishankar M .. https://github.com/Jaishankar872/LCR_Meter_Proto_M181
 
 ## Hardware - M181 LCR Meter
