@@ -77,7 +77,7 @@ with Goertzel 128 sample length filter (2 sine cycles), with block averaging ..
 
 We can simply assume clipping is present if there are any ADC samples near the ADC's min/max (0..4095) range.
 
-The other efficient method is to create a simple histogram of the sample values (per sample block) and look for any spikes in the upper section of the histogram. This method can also very easily detect clipping in waveforms much before ADC's maximum range (say if an OPAMP output starts clipping before the ADC input does).
+The other efficient method is to create a simple histogram of the sample values (per sample block) and look for any spikes in the upper section of the histogram. This method is better because it can also easily detect clipping in waveforms that don't reach the ADC's full input range (say if an OPAMP output starts clipping before the ADC input does).
 
 There are other methods, such as monitoring the output level of a simple band pass filter (in DSP firmware) centered on double the sine wave frequency, the BPF output level will be near zero if no clipping, but rises sharply once clipping begins.
 
@@ -87,21 +87,23 @@ There are other methods, such as monitoring the output level of a simple band pa
 
 Waveform as seen on TP4/V4 pin (ADC input pin) ..
 
-Add a 22k resistor across R18.
+Change C8 from 100nF to 18nF.
 
 <img src="firmware/docs/HPF_mod.png" alt="image" style="width:600px;height:auto;">
 
-# Original firmware mode scanning
+# Original (the seller) firmware mode scanning
 
-The auther only scans all modes if need be (makes sense) ..
+The author only fully scans all modes if need be (makes perfect sense) ..
 
 <img src="firmware/docs/m181_mode_switching_original_fw.png" alt="image" style="width:600px;height:auto;">
 
-# PCB bad analog layout design
+# PCB bad analog layout design (plus bad HW design)
 
-The level of leakage getting back into the ADC input, it matches the cheaper 20kHz voltage inverter frequency that the seller is fitting to the board :( ..
+The level of leakage (unwanted noise) getting back into the ADC input, it matches the cheaper 20kHz voltage inverter frequency that the seller is fitting to the board (different to what their schematic states) :( ..
 
 <img src="firmware/docs/m181_cheap_voltage_inverter_leakage_into_ADC.png" alt="image" style="width:600px;height:auto;">
+
+Their design also does not use any kind of anti-alias low pass filtering before the ADC what so ever :(
 
 To reduce this leakage/noise level ..
 
