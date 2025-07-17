@@ -654,60 +654,58 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 
 char  unit_conversion(float *value)
 {
-	if (*value == 0.0f)
-	{	// leave as is
-		return ' ';
-	}
+	const int   sign = (*value < 0.0f) ? -1 : 1;
+	const float val  = fabsf(*value);
 
-//	if (*value < 1e-12f)
+//	if (val < 1e-12f)
 //	{	// femto
-//		*value *= 1e15f;
+//		*value = (val * 1e15f) * sign;
 //		return 'f';
 //	}
 
-	if (*value < 1e-9f)
+	if (val < 1e-9f)
 	{	// pico
-		*value *= 1e12f;
+		*value = (val * 1e12f) * sign;
 		return 'p';
 	}
 
-	if (*value < 1e-6f)
+	if (val < 1e-6f)
 	{	// nano
-		*value *= 1e9f;
+		*value = (val * 1e9f) * sign;
 		return 'n';
 	}
 
-	if (*value < 1e-3f)
+	if (val < 1e-3f)
 	{	// micro
-		*value *= 1e6f;
+		*value = (val * 1e6f) * sign;
 		return 'u';
 	}
 
-	if (*value < 1e0f)
+	if (val < 1e0f)
 	{	// milli
-		*value *= 1e3f;
+		*value = (val * 1e3f) * sign;
 		return 'm';
 	}
 
-	if (*value < 1e3f)
+	if (val < 1e3f)
 	{	// unit
 		return ' ';
 	}
 
-	if (*value < 1e6f)
+	if (val < 1e6f)
 	{	// kilo
-		*value *= 1e-3f;
+		*value = (val * 1e-3f) * sign;
 		return 'k';
 	}
 
-	if (*value < 1e9f)
+	if (val < 1e9f)
 	{	// Mega
-		*value *= 1e-6f;
+		*value = (val * 1e-6f) * sign;
 		return 'M';
 	}
 
 	// Giga
-	*value *= 1e-9f;
+	*value = (val * 1e-9f) * sign;
 	return 'G';
 }
 
@@ -813,25 +811,27 @@ void process_Goertzel(void)
 
 		uint8_t clipped = 0;
 
-		// only filter if we're going to use the data
-		switch (vi_mode)
-		{
-			case VI_MODE_VOLT_LO_GAIN:
-				if (!adc_data_clipped[VI_MODE_VOLT_HI_GAIN])
-					clipped = 1;
-				break;
-			case VI_MODE_AMP_LO_GAIN:
-				if (!adc_data_clipped[VI_MODE_AMP_HI_GAIN])
-					clipped = 1;
-				break;
-			case VI_MODE_VOLT_HI_GAIN:
-				if (adc_data_clipped[VI_MODE_VOLT_HI_GAIN])
-					clipped = 1;
-				break;
-			case VI_MODE_AMP_HI_GAIN:
-				if (adc_data_clipped[VI_MODE_AMP_HI_GAIN])
-					clipped = 1;
-				break;
+		if (op_mode == OP_MODE_MEASURING)
+		{	// don't filter if we're not going to use the data
+			switch (vi_mode)
+			{
+				case VI_MODE_VOLT_LO_GAIN:
+					if (!adc_data_clipped[VI_MODE_VOLT_HI_GAIN])
+						clipped = 1;
+					break;
+				case VI_MODE_AMP_LO_GAIN:
+					if (!adc_data_clipped[VI_MODE_AMP_HI_GAIN])
+						clipped = 1;
+					break;
+				case VI_MODE_VOLT_HI_GAIN:
+					if (adc_data_clipped[VI_MODE_VOLT_HI_GAIN])
+						clipped = 1;
+					break;
+				case VI_MODE_AMP_HI_GAIN:
+					if (adc_data_clipped[VI_MODE_AMP_HI_GAIN])
+						clipped = 1;
+					break;
+			}
 		}
 
 		if (!filter || clipped)
@@ -904,25 +904,28 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 	for (unsigned int mode = 0; mode < 8; mode += 2)
 	{
-		// don't bother using this AFC if any clipping/saturation has been detected on this mode
-		switch (mode >> 1)
+		if (op_mode == OP_MODE_MEASURING)
 		{
-			case VI_MODE_VOLT_LO_GAIN:
-				if (!adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
-					continue;
-				break;
-			case VI_MODE_AMP_LO_GAIN:
-				if (!adc_data_clipping[VI_MODE_AMP_HI_GAIN])
-					continue;
-				break;
-			case VI_MODE_VOLT_HI_GAIN:
-				if (adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
-					continue;
-				break;
-			case VI_MODE_AMP_HI_GAIN:
-				if (adc_data_clipping[VI_MODE_AMP_HI_GAIN])
-					continue;
-				break;
+			// don't bother using this AFC if any clipping/saturation has been detected on this mode
+			switch (mode >> 1)
+			{
+				case VI_MODE_VOLT_LO_GAIN:
+					if (!adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
+						continue;
+					break;
+				case VI_MODE_AMP_LO_GAIN:
+					if (!adc_data_clipping[VI_MODE_AMP_HI_GAIN])
+						continue;
+					break;
+				case VI_MODE_VOLT_HI_GAIN:
+					if (adc_data_clipping[VI_MODE_VOLT_HI_GAIN])
+						continue;
+					break;
+				case VI_MODE_AMP_HI_GAIN:
+					if (adc_data_clipping[VI_MODE_AMP_HI_GAIN])
+						continue;
+					break;
+			}
 		}
 
 		sum_rms += mag_rms[mode + 1];
@@ -975,20 +978,30 @@ void process_data(void)
 
 	// waveform amplitudes
 	//
-	system_data.rms_voltage_adc  = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
-	system_data.rms_voltage_afc  = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
+	system_data.rms_voltage_adc = mag_rms[(volt_gain_sel * 4) + 0];
+	system_data.rms_voltage_afc = mag_rms[(volt_gain_sel * 4) + 1];
 	//
-	system_data.rms_current_adc  = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
-	system_data.rms_current_afc  = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
+	system_data.rms_current_adc = mag_rms[(amp_gain_sel  * 4) + 2];
+	system_data.rms_current_afc = mag_rms[(amp_gain_sel  * 4) + 3];
 
 	if (settings.open_probe_calibration->done)
 	{	// apply open calibrations
 
 		const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
-		//system_data.rms_current_adc -= settings.open_probe_calibration[freq_index].mag_rms[(amp_gain_sel  * 4) + 2];
+		// TEST
+		const float bias = settings.open_probe_calibration[freq_index].mag_rms[(amp_gain_sel * 4) + 2];
+		system_data.rms_current_adc -= bias;
+		system_data.rms_current_adc  = (system_data.rms_current_adc < 0) ? 0 : system_data.rms_current_adc;
+
 		//settings.open_probe_calibration[freq_index].phase_deg[i];
 	}
+
+	system_data.rms_voltage_adc  = adc_to_volts(system_data.rms_voltage_adc);
+	system_data.rms_voltage_afc  = adc_to_volts(system_data.rms_voltage_afc);
+
+	system_data.rms_current_adc  = adc_to_volts(system_data.rms_current_adc);
+	system_data.rms_current_afc  = adc_to_volts(system_data.rms_current_afc);
 
 	system_data.rms_current_adc *= 1.0f / SERIES_RESISTOR;
 	system_data.rms_current_afc *= 1.0f / SERIES_RESISTOR;
@@ -1194,15 +1207,21 @@ void process_ADC(const void *buffer)
 	// we drop the hi-gain blocks if they are clipping (the data would useless)
 	// we drop the lo-gain blocks if the hi-gain blocks are usable (no clipping detected)
 	//
-	unsigned int average_count = (!(settings.flags & SETTING_FLAG_FAST_UPDATES) || op_mode != OP_MODE_MEASURING) ? SLOW_ADC_AVERAGE_COUNT : FAST_ADC_AVERAGE_COUNT;
-	if (display_hold)
-		average_count = 8;                           // display is paused, we're doing nothing but sending the samples to the PC
-	else
-	if (adc_data_clipping[vi_mode])
-		average_count = 1;                           // this block of samples are clipping, drop them, move on to the next mode
-	else
-	if (vi_mode < VI_MODE_VOLT_HI_GAIN && !adc_data_clipped[VI_MODE_VOLT_HI_GAIN + vi_mode])
-		average_count = 1;                           // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples
+	unsigned int average_count = SLOW_ADC_AVERAGE_COUNT;
+	if (op_mode == OP_MODE_MEASURING)
+	{
+		if (display_hold)
+			average_count = 8;                           // display is paused, we're doing nothing but sending the samples to the PC
+		else
+		if (adc_data_clipping[vi_mode])
+			average_count = 1;                           // this block of samples are clipping, drop them, move on to the next mode
+		else
+		if (vi_mode < VI_MODE_VOLT_HI_GAIN && !adc_data_clipped[VI_MODE_VOLT_HI_GAIN + vi_mode])
+			average_count = 1;                           // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples
+		else
+		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
+			average_count = FAST_ADC_AVERAGE_COUNT;
+	}
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 		return;                                      // not yet summed the desired number of sample blocks
@@ -1234,7 +1253,7 @@ void process_ADC(const void *buffer)
 
 			const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then switch to slower coeff
 
-			if (!adc_data_clipping[vi_mode])   // don't bother if the samples are being clipped (the block will not be used)
+			if (!adc_data_clipping[vi_mode] || op_mode != OP_MODE_MEASURING)   // don't bother if the samples are being clipped (the block will not be used)
 			{	// ADC input
 
 				// compute the DC offset
@@ -1642,7 +1661,7 @@ void draw_screen(void)
 				}
 
 				{	// current
-					float value = (system_data.rms_current_afc >= 0) ? system_data.rms_current_afc : 0;
+					float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
 					const char unit = unit_conversion(&value);
 
 					ssd1306_SetCursor(62, LINE3_Y);
@@ -2842,9 +2861,9 @@ int main(void)
 		{	// completed another full measurement cycle
 
 			process_data();
+			process_op_mode();
 			draw_screen();
 			process_uart_send();
-			process_op_mode();
 
 			frames++;
 
