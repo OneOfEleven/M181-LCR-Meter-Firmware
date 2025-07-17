@@ -63,7 +63,8 @@
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
 #define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
 
-#define DEFAULT_ADC_AVERAGE_COUNT    64             // 32  must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
+#define SLOW_ADC_AVERAGE_COUNT       128            // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
+#define FAST_ADC_AVERAGE_COUNT       16             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
 
 //#define GOERTZEL_FILTER_LENGTH     0                       // don't Goertzel filter
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 4)   // 1/2 sine cycle filter length
@@ -321,8 +322,9 @@ enum {
 	VI_MODE_DONE
 };
 
-#define SETTING_FLAG_UART_DSO    (1u << 0)
-#define SETTING_FLAG_PARALLEL    (1u << 1)
+#define SETTING_FLAG_UART_DSO       (1u << 0)   // set if the user wants to send all sampled blocks out the serial port
+#define SETTING_FLAG_PARALLEL       (1u << 1)   // set if the user wants parallel results displayed
+#define SETTING_FLAG_FAST_UPDATES   (1u << 2)   // set if the user wants faster screen updates
 
 // this structure will be stored in flash (emulated EEPROM) so as to remember various things for the user
 //

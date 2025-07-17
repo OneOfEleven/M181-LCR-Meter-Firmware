@@ -158,29 +158,29 @@ void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR
 //  ch      => Character to write
 //  Font    => Font to use
 //  color   => Black or White
-char ssd1306_WriteChar(char ch, FontDef Font, SSD1306_COLOR color)
+char ssd1306_WriteChar(const char ch, const t_font *font, const SSD1306_COLOR color)
 {
-	if (SSD1306_WIDTH <= (SSD1306.CurrentX + Font.FontWidth) || SSD1306_HEIGHT <= (SSD1306.CurrentY + Font.FontHeight))
+	if (SSD1306_WIDTH <= (SSD1306.CurrentX + font->width) || SSD1306_HEIGHT <= (SSD1306.CurrentY + font->height))
 		return 0;    // not enough space on current line
 
-	for (unsigned int i = 0; i < Font.FontHeight; i++)
+	for (unsigned int i = 0; i < font->height; i++)
 	{
-		const unsigned int b = Font.data[(ch - 32) * Font.FontHeight + i];
-		for (unsigned int j = 0; j < Font.FontWidth; j++)
+		const unsigned int b = font->data[(ch - 32) * font->height + i];
+		for (unsigned int j = 0; j < font->width; j++)
 			ssd1306_DrawPixel(SSD1306.CurrentX + j, (SSD1306.CurrentY + i), ((b << j) & 0x8000) ? color : !color);
 	}
 
-	SSD1306.CurrentX += Font.FontWidth;
+	SSD1306.CurrentX += font->width;
 
 	return ch;
 }
 
 //  Write full string to screenbuffer
-char ssd1306_WriteString(const char *str, FontDef Font, SSD1306_COLOR color)
+char ssd1306_WriteString(const char *str, const t_font *font, const SSD1306_COLOR color)
 {
 	while (*str)
 	{
-		if (ssd1306_WriteChar(*str, Font, color) != *str)
+		if (ssd1306_WriteChar(*str, font, color) != *str)
 			return *str;   // Char could not be written
 		str++;
 	}
