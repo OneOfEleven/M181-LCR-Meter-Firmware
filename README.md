@@ -17,7 +17,6 @@
 ## Main tasks to be completed on this firmware
 - [ ] Make use of the saved Open/Short calibration results
 - [ ] Auto calibration option
-- [ ] Add a fast update mode (though noisier than the current slower averaged mode)
 - [ ] Change a couple of PCB component values to allow/add a 10kHz option (see LTspice sims)
 
 # System Overview ..

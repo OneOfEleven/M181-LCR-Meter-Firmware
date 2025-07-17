@@ -1452,7 +1452,6 @@ void draw_screen(void)
 	ssd1306_Fill(Black);
 
 	const uint8_t par  = settings.flags & SETTING_FLAG_PARALLEL;
-	//const uint8_t fast = settings.flags & SETTING_FLAG_FAST_UPDATES
 
 	switch (op_mode)
 	{
@@ -1483,7 +1482,7 @@ void draw_screen(void)
 			if (settings.flags & SETTING_FLAG_FAST_UPDATES)
 			{
 				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * Font_7x10.width), 0);
-				ssd1306_WriteString("FAST", &Font_7x10, White);
+				ssd1306_WriteString("fast", &Font_7x10, White);
 			}
 
 			#if 0
@@ -1828,13 +1827,21 @@ int _write(int file, char *ptr, int len)
 	return len;
 }
 
-void Error_Handler(void)
+void flash_led(const uint32_t ms)
 {
 	__disable_irq();
-	HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
 	while (1)
 	{
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
+		DWT_Delay_us(10);
+		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
+		DWT_Delay_us(ms * 1000);
 	}
+}
+
+void Error_Handler(void)
+{
+	flash_led(1000);
 }
 
 #ifdef USE_FULL_ASSERT
@@ -1852,50 +1859,22 @@ void NMI_Handler(void)
 
 void HardFault_Handler(void)
 {
-	__disable_irq();
-	while (1)
-	{
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
-		DWT_Delay_us(70000);
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
-		DWT_Delay_us(70000);
-	}
+	flash_led(80);
 }
 
 void MemManage_Handler(void)
 {
-	__disable_irq();
-	while (1)
-	{
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
-		DWT_Delay_us(100000);
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
-		DWT_Delay_us(100000);
-	}
+	flash_led(100);
 }
 
 void BusFault_Handler(void)
 {
-	__disable_irq();
-	while (1)
-	{
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
-		DWT_Delay_us(100000);
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
-		DWT_Delay_us(100000);
-	}
+	flash_led(100);
 }
 
 void UsageFault_Handler(void)
 {
-	__disable_irq();
-	while (1)
-	{
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
-		DWT_Delay_us(100000);
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
-		DWT_Delay_us(100000);
-	}
+	flash_led(100);
 }
 
 void SVC_Handler(void)
@@ -1941,14 +1920,14 @@ void SysTick_Handler(void)
 				butt->held_ms      = 0;                             // reset held down time
 				butt->pressed_tick = tick;                          // remember the tick the button was pressed
 			}
-
+			else
 			if (pressed_tick > 0 && debounce <= 0)
 			{	// just released
 				butt->held_ms      = tick - pressed_tick;           // save the time the button was held down for
 				butt->released     = 1;                             // set released flag
 				butt->pressed_tick = 0;                             // reset pressed tick
 			}
-
+			else
 			if (pressed_tick > 0)
 				butt->held_ms      = tick - pressed_tick;           // time the button has been held down for
 		}
