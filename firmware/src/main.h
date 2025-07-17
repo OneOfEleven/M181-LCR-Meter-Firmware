@@ -323,7 +323,6 @@ enum {
 
 #define SETTING_FLAG_UART_DSO    (1u << 0)
 #define SETTING_FLAG_PARALLEL    (1u << 1)
-#define SETTING_FLAG_HOLD        (1u << 2)
 
 // this structure will be stored in flash (emulated EEPROM) so as to remember various things for the user
 //

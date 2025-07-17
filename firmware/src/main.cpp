@@ -149,6 +149,8 @@ float                 measurement_amplitude = 1.0;            // 0.0 = 0%, 1.0 =
 
 unsigned int          op_mode = OP_MODE_MEASURING;
 
+unsigned int          display_hold = 0;                       // '1' to pause the display
+
 // for the calibration modes
 struct {
 	uint16_t          Hz;
@@ -938,7 +940,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 void process_data(void)
 {
-	if (settings.flags & SETTING_FLAG_HOLD)
+	if (display_hold)
 		return;
 
 	process_Goertzel();
@@ -1178,8 +1180,8 @@ void process_ADC(const void *buffer)
 	// we drop the lo-gain blocks if the hi-gain blocks are usable (no clipping detected)
 	//
 	unsigned int average_count = adc_average_count;  // normal amount of averaging
-	if (settings.flags & SETTING_FLAG_HOLD)          // display HOLD mode ?
-		average_count = 8;                           // yes, we're doing nothing but sending the samples to the PC
+	if (display_hold)
+		average_count = 8;                           // display is paused, we're doing nothing but sending the samples to the PC
 	else
 	if (adc_data_clipping[vi_mode])
 		average_count = 1;                           // this block of samples are clipping, drop them, move on to the next mode
@@ -1212,7 +1214,8 @@ void process_ADC(const void *buffer)
 			}
 		}
 
-		{	// remove any DC offset (there's always some) from this new averaged block of samples
+		{
+			// remove any DC offset (there's always some) from this new averaged block of samples
 
 			const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then switch to slower coeff
 
@@ -1228,10 +1231,12 @@ void process_ADC(const void *buffer)
 					// LPF
 					settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
 
-					// subtract/remove the DC offset
-					sum = settings.input_offset.adc[vi_mode];
-					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-						buf_adc[i] -= sum;
+					if (!display_hold)                              // don't do offset removable if display HOLD mode is active   
+					{	// subtract/remove the DC offset
+						sum = settings.input_offset.adc[vi_mode];
+						for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+							buf_adc[i] -= sum;
+					}
 				}
 			}
 
@@ -1246,10 +1251,12 @@ void process_ADC(const void *buffer)
 				// LPF
 				settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
 
-				// subtract/remove the DC offset
-				sum = settings.input_offset.afc[vi_mode];
-				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-					buf_afc[i] -= sum;
+				if (!display_hold)                            // don't do offset removable if display HOLD mode is active   
+				{	// subtract/remove the DC offset
+					sum = settings.input_offset.afc[vi_mode];
+					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+						buf_afc[i] -= sum;
+				}
 			}
 
 		}
@@ -1455,10 +1462,10 @@ void draw_screen(void)
 				snprintf(buffer_display, sizeof(buffer_display), "%2u kHz", measurement_Hz / 1000);
 			ssd1306_WriteString(buffer_display, Font_7x10, White);
 
-			if (settings.flags & SETTING_FLAG_HOLD)
+			if (display_hold)
 			{
 				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * 7), 0);
-				ssd1306_WriteString("HELD", Font_7x10, White);
+				ssd1306_WriteString("HOLD", Font_7x10, White);
 			}
 
 			#if 0
@@ -2417,7 +2424,7 @@ void process_buttons(void)
 		}
 		else
 		{
-			settings.flags ^= SETTING_FLAG_HOLD;      // toggle HOLD flag
+			display_hold ^= 1u;                         // toggle HOLD flag
 //			settings.flags ^= SETTING_FLAG_UART_DSO;
 		}
 
@@ -2736,8 +2743,6 @@ int main(void)
 
 	// fetch saved settings from flash
 	read_settings();
-
-	settings.flags &= ~SETTING_FLAG_HOLD;                      // ensure HOLD flag is cleared
 
 	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 	set_measure_mode_pins(system_data.vi_measure_mode);
