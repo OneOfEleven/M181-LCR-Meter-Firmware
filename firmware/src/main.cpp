@@ -45,7 +45,7 @@ typedef struct t_comp {
 	float re;
 	float im;
 
-	t_comp(void)
+	t_comp()
 	{
 		re = 0.0f;
 		im = 0.0f;
@@ -69,8 +69,8 @@ typedef struct {
 		uint8_t  crc_b[sizeof(uint16_t)];
 	};
 	union {
-		float   data[ADC_DATA_LENGTH * 8];
-		uint8_t data_b[sizeof(float) * ADC_DATA_LENGTH * 8];
+		float    data[ADC_DATA_LENGTH * 8];
+		uint8_t  data_b[sizeof(float) * ADC_DATA_LENGTH * 8];
 	};
 } t_packet;
 #pragma pack(pop)
@@ -110,7 +110,7 @@ static const uint16_t omega_11x18[] = {
 };
 
 #if defined(USE_IWDG) && defined(HAL_IWDG_MODULE_ENABLED)
-	IWDG_HandleTypeDef hiwdg      = {0};
+	IWDG_HandleTypeDef hiwdg          = {0};
 #endif
 UART_HandleTypeDef     huart1         = {0};
 DMA_HandleTypeDef      hdma_usart1_tx = {0};
@@ -975,11 +975,23 @@ void process_data(void)
 
 	// waveform amplitudes
 	//
-	system_data.rms_voltage_adc = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
-	system_data.rms_voltage_afc = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
+	system_data.rms_voltage_adc  = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 0]);
+	system_data.rms_voltage_afc  = adc_to_volts(mag_rms[(volt_gain_sel * 4) + 1]);
 	//
-	system_data.rms_current_adc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]) * (1.0f / SERIES_RESISTOR);
-	system_data.rms_current_afc = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]) * (1.0f / SERIES_RESISTOR);
+	system_data.rms_current_adc  = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 2]);
+	system_data.rms_current_afc  = adc_to_volts(mag_rms[(amp_gain_sel  * 4) + 3]);
+
+	if (settings.open_probe_calibration->done)
+	{	// apply open calibrations
+
+		const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+
+		//system_data.rms_current_adc -= settings.open_probe_calibration[freq_index].mag_rms[(amp_gain_sel  * 4) + 2];
+		//settings.open_probe_calibration[freq_index].phase_deg[i];
+	}
+
+	system_data.rms_current_adc *= 1.0f / SERIES_RESISTOR;
+	system_data.rms_current_afc *= 1.0f / SERIES_RESISTOR;
 
 	// TODO: calibrate the 'high_gain' value by computing the actual gain from the calibration results
 
@@ -999,6 +1011,9 @@ void process_data(void)
 	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);   // phase difference between ADC and AFC waves
 	//
 	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);             // phase difference between voltage and current waves
+
+	if (op_mode != OP_MODE_MEASURING)
+		return;
 
 	// **************************
 	// compute the DUT (L, C or R) parameters using the above measurements
@@ -1179,7 +1194,7 @@ void process_ADC(const void *buffer)
 	// we drop the hi-gain blocks if they are clipping (the data would useless)
 	// we drop the lo-gain blocks if the hi-gain blocks are usable (no clipping detected)
 	//
-	unsigned int average_count = (settings.flags & SETTING_FLAG_FAST_UPDATES) ? FAST_ADC_AVERAGE_COUNT : SLOW_ADC_AVERAGE_COUNT;
+	unsigned int average_count = (!(settings.flags & SETTING_FLAG_FAST_UPDATES) || op_mode != OP_MODE_MEASURING) ? SLOW_ADC_AVERAGE_COUNT : FAST_ADC_AVERAGE_COUNT;
 	if (display_hold)
 		average_count = 8;                           // display is paused, we're doing nothing but sending the samples to the PC
 	else
@@ -2413,6 +2428,8 @@ void process_buttons(void)
 
 		if (button[0].held_ms >= 800)
 		{
+			display_hold = 0;
+
 			memset((void *)&calibrate, 0, sizeof(calibrate));
 			calibrate.Hz = 100;
 
@@ -2435,6 +2452,8 @@ void process_buttons(void)
 
 		if (button[1].held_ms >= 800)
 		{
+			display_hold = 0;
+
 			memset((void *)&calibrate, 0, sizeof(calibrate));
 			calibrate.Hz = 100;
 
@@ -2442,6 +2461,8 @@ void process_buttons(void)
 		}
 		else
 		{
+			display_hold = 0;
+
 			settings.flags ^= SETTING_FLAG_PARALLEL;    // toggle Serial/Parallel display
 
 			// save settings
@@ -2459,6 +2480,8 @@ void process_buttons(void)
 
 		if (button[2].held_ms >= 800)
 		{
+			display_hold = 0;
+
 			// cycle the frequency
 			switch (settings.measurement_Hz)
 			{
@@ -2481,6 +2504,8 @@ void process_buttons(void)
 		}
 		else
 		{
+			display_hold = 0;
+			
 			// cycle through the LCR modes (inc SLOW/FAST mode)
 			settings.flags ^= SETTING_FLAG_FAST_UPDATES;
 			if (!(settings.flags & SETTING_FLAG_FAST_UPDATES))
@@ -2715,12 +2740,12 @@ int main(void)
 	button[2].gpio_pin  = BUTT_RCL_Pin;
 
 	// defaults
-	settings.measurement_Hz     = 1000;
-//	settings.lcr_mode           = LCR_MODE_INDUCTANCE;
-//	settings.lcr_mode           = LCR_MODE_CAPACITANCE;
-	settings.lcr_mode           = LCR_MODE_RESISTANCE;
-//	settings.flags              = 0;
-	settings.flags             |= SETTING_FLAG_UART_DSO;   // send ADC data via the serial port
+	settings.measurement_Hz = 1000;
+//	settings.lcr_mode       = LCR_MODE_INDUCTANCE;
+//	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
+	settings.lcr_mode       = LCR_MODE_RESISTANCE;
+//	settings.flags          = 0;
+	settings.flags         |= SETTING_FLAG_UART_DSO;   // send ADC data via the serial port
 
 	DWT_Delay_Init();
 	HAL_Init();
