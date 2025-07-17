@@ -940,7 +940,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 void process_data(void)
 {
-	if (display_hold || gain_changed)
+	if (display_hold)
 		return;
 
 	process_Goertzel();
@@ -1219,24 +1219,23 @@ void process_ADC(const void *buffer)
 
 			const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then switch to slower coeff
 
+			if (!adc_data_clipping[vi_mode])   // don't bother if the samples are being clipped (the block will not be used)
 			{	// ADC input
-				if (!adc_data_clipping[vi_mode])   // don't bother if the samples are being clipped (the block will not be used)
-				{
-					// compute the DC offset
-					register float sum = 0;
+
+				// compute the DC offset
+				register float sum = 0;
+				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+					sum += buf_adc[i];
+				sum *= 1.0f / ADC_DATA_LENGTH;
+
+				// LPF
+				settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
+
+				if (!display_hold)                            // don't remove offset if display HOLD is active   
+				{	// subtract/remove the DC offset
+					sum = settings.input_offset.adc[vi_mode];
 					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-						sum += buf_adc[i];
-					sum *= 1.0f / ADC_DATA_LENGTH;
-
-					// LPF
-					settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
-
-					if (!display_hold)                              // don't do offset removable if display HOLD mode is active   
-					{	// subtract/remove the DC offset
-						sum = settings.input_offset.adc[vi_mode];
-						for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-							buf_adc[i] -= sum;
-					}
+						buf_adc[i] -= sum;
 				}
 			}
 
@@ -1251,7 +1250,7 @@ void process_ADC(const void *buffer)
 				// LPF
 				settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
 
-				if (!display_hold)                            // don't do offset removable if display HOLD mode is active   
+				if (!display_hold)                            // don't remove offset if display HOLD is active   
 				{	// subtract/remove the DC offset
 					sum = settings.input_offset.afc[vi_mode];
 					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
