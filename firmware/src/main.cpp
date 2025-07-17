@@ -659,11 +659,11 @@ char  unit_conversion(float *value)
 		return ' ';
 	}
 
-	if (*value < 1e-12f)
-	{	// femto
-		*value *= 1e15f;
-		return 'f';
-	}
+//	if (*value < 1e-12f)
+//	{	// femto
+//		*value *= 1e15f;
+//		return 'f';
+//	}
 
 	if (*value < 1e-9f)
 	{	// pico
@@ -1334,40 +1334,40 @@ void print_sprint(const unsigned int digit, const float value, char *output_char
 
 		case 3:
 			// TODO: fix
-	        if (v < 1e-3f)
-    	        snprintf(output_char, out_max_size, "%3.0fu", value * 1e6f); // 123u
-			else
-	        if (v < 1e0f)
-    	        snprintf(output_char, out_max_size, "%3.0fm", value * 1e3f); // 123m
-			else
+//	        if (v < 1e-3f)
+//				snprintf(output_char, out_max_size, "%3.0fu", value * 1e6f); // 123u
+//			else
+//	        if (v < 1e0f)
+//				snprintf(output_char, out_max_size, "%3.0fm", value * 1e3f); // 123m
+//			else
 	        if (v < 10)
-    	        snprintf(output_char, out_max_size, "%3.2f", value); // 1.23
+				snprintf(output_char, out_max_size, "%3.2f", value); // 1.23
         	else
 			if (v < 100)
-            	snprintf(output_char, out_max_size, "%3.1f", value); // 12.3
+				snprintf(output_char, out_max_size, "%3.1f", value); // 12.3
 	        else
-    	        snprintf(output_char, out_max_size, "%3.0f", value); // 123 (no dp)
+				snprintf(output_char, out_max_size, "%3.0f", value); // 123 (no dp)
 			break;
 
 		default:
 		case 4:
 			// TODO: fix
-	        if (v < 1e-3f)
-    	        snprintf(output_char, out_max_size, "%4.0fu", value * 1e6f); // 123u
-			else
-	        if (v < 1e0f)
-    	        snprintf(output_char, out_max_size, "%4.0fm", value * 1e3f); // 123m
-			else
+//	        if (v < 1e-3f)
+//				snprintf(output_char, out_max_size, "%4.0fu", value * 1e6f); // 123u
+//			else
+//	        if (v < 1e0f)
+//				snprintf(output_char, out_max_size, "%4.0fm", value * 1e3f); // 123m
+//			else
 	        if (v < 10)
-    	        snprintf(output_char, out_max_size, "%4.3f", value); // 1.234
+				snprintf(output_char, out_max_size, "%4.3f", value); // 1.234
         	else
 			if (v < 100)
-    	        snprintf(output_char, out_max_size, "%4.2f", value); // 12.34
+				snprintf(output_char, out_max_size, "%4.2f", value); // 12.34
 			else
 			if (v < 1000)
-            	snprintf(output_char, out_max_size, "%4.1f", value); // 123.4
+				snprintf(output_char, out_max_size, "%4.1f", value); // 123.4
 	        else
-    	        snprintf(output_char, out_max_size, "%4.0f", value); // 1234 (no dp)
+				snprintf(output_char, out_max_size, "%4.0f", value); // 1234 (no dp)
 			break;
     }
 }
