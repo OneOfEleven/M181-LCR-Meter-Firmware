@@ -843,12 +843,10 @@ void process_Goertzel(void)
 			register float *buf = adc_data[buf_index];   // point to the ADC samples
 
 			{	// compute waveform RMS magnitude
-
 				register float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 					sum += SQR(buf[k]);
 				sum *= 1.0f / ADC_DATA_LENGTH;
-
 				mag_rms[buf_index] = sqrtf(sum);
 			}
 
@@ -858,38 +856,29 @@ void process_Goertzel(void)
 			}
 		}
 		else
-		{	// use Goertzel DFT to filter the waveforms
+		{	// use Goertzel DFT to filter the waveform
 
-			const unsigned int filter_len = GOERTZEL_FILTER_LENGTH;
-
-			{	// compute waveform phase
-				goertzel_block(adc_data[buf_index], ADC_DATA_LENGTH, &goertzel);
-				phase_deg[buf_index] = (goertzel.re != 0.0f) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : NAN;
-			}
-
-			register t_comp *buf = tmp_buf;            // point to Goertzel dft output buffer
+			register t_comp *buf = tmp_buf;           // point to Goertzel dft output buffer
 
 			// do it
-			goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, filter_len, &goertzel);
+			goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel);
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
-
 				register float *buf_out = adc_data[buf_index];
-
 				register float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
 					register const t_comp samp = buf[k];
-
 					sum += SQR(samp.re) + SQR(samp.im);
-
-					// replace the unfiltered sample with the Goertzel filtered sample
-					buf_out[k] = samp.re;
+					buf_out[k] = samp.re;             // replace the unfiltered sample with the Goertzel filtered sample
 				}
 				sum *= 1.0f / ADC_DATA_LENGTH;
-
-				// save the RMS magnitude
 				mag_rms[buf_index] = sqrtf(sum);
+			}
+
+			{	// compute waveform phase
+				goertzel_block(adc_data[buf_index], ADC_DATA_LENGTH, &goertzel);
+				phase_deg[buf_index] = (goertzel.re != 0.0f) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 		}
 	}
@@ -984,20 +973,14 @@ void process_data(void)
 	system_data.rms_current_adc = mag_rms[(amp_gain_sel  * 4) + 2];
 	system_data.rms_current_afc = mag_rms[(amp_gain_sel  * 4) + 3];
 
-	system_data.rms_voltage_adc  = adc_to_volts(system_data.rms_voltage_adc);
-	system_data.rms_voltage_afc  = adc_to_volts(system_data.rms_voltage_afc);
-
-	system_data.rms_current_adc  = adc_to_volts(system_data.rms_current_adc);
-	system_data.rms_current_afc  = adc_to_volts(system_data.rms_current_afc);
-
 	system_data.rms_current_adc *= 1.0f / SERIES_RESISTOR;
 	system_data.rms_current_afc *= 1.0f / SERIES_RESISTOR;
 
 	// TODO: calibrate the 'high_gain' value by computing the actual gain from the calibration results
 
-	const float vi_scale = 1.0f / high_gain;
-	const float v_scale  = volt_gain_sel ? vi_scale : 1.0f;
-	const float i_scale  = amp_gain_sel  ? vi_scale : 1.0f;
+	const float high_scale = 1.0f / high_gain;
+	const float v_scale    = volt_gain_sel ? high_scale : 1.0f;
+	const float i_scale    = amp_gain_sel  ? high_scale : 1.0f;
 
 	// scale according to which gain path is being used
 	system_data.rms_voltage_adc *= v_scale;
@@ -1015,7 +998,7 @@ void process_data(void)
 		const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
 		const float v_cal_rms_lo = settings.open_probe_calibration[freq_index].mag_rms[0];
-		const float i_cal_rms_hi = settings.open_probe_calibration[freq_index].mag_rms[6] * (1.0f / SERIES_RESISTOR) * vi_scale;
+		const float i_cal_rms_hi = settings.open_probe_calibration[freq_index].mag_rms[6] * (1.0f / SERIES_RESISTOR) * high_scale;
 /*
 		{	// slowly track the open probe levels
 			const float coeff = 0.5f;
@@ -1028,6 +1011,7 @@ void process_data(void)
 		}
 */
 	 	const float imp_cal = v_cal_rms_lo / i_cal_rms_hi;
+
 		system_data.impedance = (imp_cal * system_data.impedance) / (imp_cal - system_data.impedance);
 	}
 
@@ -1583,17 +1567,72 @@ void draw_screen(void)
 
 				ssd1306_MoveCursor(10, 0);    // move right
 
-				const char unit = unit_conversion(&value);
+				char unit = unit_conversion(&value);
 
-				print_sprint(4, value, buffer_display, sizeof(buffer_display));
+				switch (settings.lcr_mode)
+				{
+					case LCR_MODE_INDUCTANCE:
+						if (unit == 'p')
+						{
+							unit = 'u';
+							value *= 1e-6f; // uH
+							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
+						}
+						else
+						if (unit == 'n')
+						{
+							unit = 'u';
+							value *= 1e-3f; // uH
+							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
+						}
+						else
+							print_sprint(4, value, buffer_display, sizeof(buffer_display));
+						break;
+					case LCR_MODE_CAPACITANCE:
+						if (unit == 'p')
+							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
+						else
+							print_sprint(4, value, buffer_display, sizeof(buffer_display));
+						break;
+					case LCR_MODE_RESISTANCE:
+						if (unit == 'p')
+						{
+							unit = 'm';
+							value *= 1e-9f; // mR
+							snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
+						}
+						else
+						if (unit == 'n')
+						{
+							unit = 'm';
+							value *= 1e-6f; // mR
+							snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
+						}
+						else
+						if (unit == 'u')
+						{
+							unit = 'm';
+							value *= 1e-3f; // mR
+							snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
+						}
+						else
+						if (unit == 'm')
+							snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
+						else
+							print_sprint(4, value, buffer_display, sizeof(buffer_display));
+						break;
+					case LCR_MODE_AUTO:
+						break;
+				}
+
 				ssd1306_WriteString(buffer_display, &Font_11x18, White);
+
+				ssd1306_MoveCursor(6, 0);    // move right
 
 				switch (settings.lcr_mode)
 				{
 					case LCR_MODE_INDUCTANCE:
 					{
-						ssd1306_MoveCursor(6, 0);    // move right
-
 						unsigned int i = 0;
 						if (unit != ' ')
 							buffer_display[i++] = unit;
@@ -1605,8 +1644,6 @@ void draw_screen(void)
 
 					case LCR_MODE_CAPACITANCE:
 					{
-						ssd1306_MoveCursor(6, 0);    // move right
-
 						unsigned int i = 0;
 						if (unit != ' ')
 							buffer_display[i++] = unit;
@@ -1620,8 +1657,6 @@ void draw_screen(void)
 					{
 						if (unit != ' ')
 						{
-							ssd1306_MoveCursor(6, 0);    // move right
-
 							buffer_display[0] = unit;
 							buffer_display[1] = '\0';
 							ssd1306_WriteString(buffer_display, &Font_11x18, White);
@@ -1659,6 +1694,7 @@ void draw_screen(void)
 
 				{	// voltage
 					float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
+					value = adc_to_volts(value);
 					const char unit = unit_conversion(&value);
 
 					ssd1306_SetCursor(OFFSET_X, LINE3_Y);
@@ -1673,6 +1709,7 @@ void draw_screen(void)
 
 				{	// current
 					float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
+					value = adc_to_volts(value);
 					const char unit = unit_conversion(&value);
 
 					ssd1306_SetCursor(62, LINE3_Y);
