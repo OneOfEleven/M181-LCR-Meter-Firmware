@@ -929,6 +929,11 @@ void combine_afc(float *avg_rms, float *avg_deg)
 	*avg_deg = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
 }
 
+int compare_float(const void *a, const void *b)
+{
+	return (*(float *)a - *(float *)b);
+}
+
 void process_data(void)
 {
 	if (display_hold)
@@ -957,17 +962,13 @@ void process_data(void)
 	#endif
 
 	// *********************
+	// median filtering to improve display reading stabilisation
 
-	#if 1
-	{	// median filtering to improve display reading stabilisation
+	#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
 
+	{	// mag_rms median
 
-		// TODO: also do this for the phase results
-
-
-		#define MEDIAN_SIZE     3u       // ODD length only (median uses the center value)
-
-		static float mag_rms_median_buffer[8][MEDIAN_SIZE]      = {0};
+		static float mag_rms_median_fifo_buffer[8][MEDIAN_SIZE] = {0};
 		static float mag_rms_median_sort_buffer[8][MEDIAN_SIZE] = {0};
 
 		// shift buffer and add new 
@@ -975,27 +976,31 @@ void process_data(void)
 		{
 			for (unsigned int m = 0; m < 8; m++)
 			{
-				memmove(mag_rms_median_buffer[m], &mag_rms_median_buffer[m][1], sizeof(mag_rms_median_buffer[m]) - sizeof(mag_rms_median_buffer[m][0]));
-				mag_rms_median_buffer[m][MEDIAN_SIZE - 1] = mag_rms[m];
+				memmove(mag_rms_median_fifo_buffer[m], &mag_rms_median_fifo_buffer[m][1], sizeof(mag_rms_median_fifo_buffer[m]) - sizeof(mag_rms_median_fifo_buffer[m][0]));
+				mag_rms_median_fifo_buffer[m][MEDIAN_SIZE - 1] = mag_rms[m];
 
 				// sort
-				memcpy(mag_rms_median_sort_buffer[m], mag_rms_median_buffer[m], sizeof(mag_rms_median_sort_buffer[m]));
-				for (unsigned int i = 0; i < (MEDIAN_SIZE - 1); i++)
-				{
-					register float v1 = mag_rms_median_sort_buffer[m][i];
-					for (unsigned int k = i + 1; k < MEDIAN_SIZE; k++)
+				memcpy(mag_rms_median_sort_buffer[m], mag_rms_median_fifo_buffer[m], sizeof(mag_rms_median_sort_buffer[m]));
+				#if 1
+					qsort(mag_rms_median_sort_buffer[m], MEDIAN_SIZE, sizeof(float), compare_float);
+				#else
+					for (unsigned int i = 0; i < (MEDIAN_SIZE - 1); i++)
 					{
-						register float v2 = mag_rms_median_sort_buffer[m][k];
-						if (v2 <= v1)
-						{	// swap
-							const float v = v2;
-							v2 = v1;
-							v1 = v;
-							mag_rms_median_sort_buffer[m][k] = v2;
+						register float v1 = mag_rms_median_sort_buffer[m][i];
+						for (unsigned int k = i + 1; k < MEDIAN_SIZE; k++)
+						{
+							register float v2 = mag_rms_median_sort_buffer[m][k];
+							if (v2 < v1)
+							{	// swap
+								const float v = v2;
+								v2 = v1;
+								v1 = v;
+								mag_rms_median_sort_buffer[m][k] = v2;
+							}
 						}
+						mag_rms_median_sort_buffer[m][i] = v1;
 					}
-					mag_rms_median_sort_buffer[m][i] = v1;
-				}
+				#endif
 
 				// fetch the median
 				mag_rms[m] = mag_rms_median_sort_buffer[m][MEDIAN_SIZE / 2];
@@ -1004,10 +1009,21 @@ void process_data(void)
 		else
 		{
 			for (unsigned int m = 0; m < 8; m++)
+			{
+				const float val = mag_rms[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
-					mag_rms_median_buffer[m][i] = mag_rms[m];
+					mag_rms_median_fifo_buffer[m][i] = val;
+			}
 		}
 	}
+
+	{	// phase_deg median
+
+
+		// TODO:
+
+	}
+
 	#endif
 
 	// *********************
