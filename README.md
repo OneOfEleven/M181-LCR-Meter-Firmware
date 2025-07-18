@@ -24,11 +24,11 @@
 - Press the HOLD button to hold/pause the display
 - Press the S/P to toggle between serial and parallel mode
 - Press the RCL button to cycle through the R, L and C modes (inc their fast modes)
-
+-
 - Hold down HOLD button to perform the OPEN    probe calibration
 - Hold down S/P  button to perform the SHORTED probe calibration (not yet used)
-- Hold down RCL  button to cycle through the measurement frequencies
-- Hold down HOLD and S/P buttons together to clear all settings (inc cals) and reboot
+- Hold down RCL  button to cycle through the measurement frequencies (currently 100Hz, 300Hz and 1kHz)
+- Hold down HOLD and S/P buttons at the same time to clear all settings (inc calibs) and reboot
 
 # System Overview ..
 
