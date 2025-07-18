@@ -650,9 +650,8 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 }
 
 // ***********************************************************
-// DSP stuff
 
-char  unit_conversion(float *value)
+char unit_conversion(float *value)
 {
 	const int   sign = (*value < 0.0f) ? -1 : 1;
 	const float val  = fabsf(*value);
@@ -993,7 +992,9 @@ void process_data(void)
 	if (settings.open_probe_calibration->done)
 	{	// apply open calibration
 
-		// TEST
+		// TODO:
+
+		// TEST ..
 		
 		const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
@@ -1015,10 +1016,53 @@ void process_data(void)
 		system_data.impedance = (imp_cal * system_data.impedance) / (imp_cal - system_data.impedance);
 	}
 
+	if (settings.shorted_probe_calibration->done)
+	{	// apply short calibration
+
+		// TODO:
+
+	}
+
 	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
 	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);   // phase difference between ADC and AFC waves
 	//
 	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);             // phase difference between voltage and current waves
+
+	{	// short median filtering to improve display reading stabilisation .. just TESTING atm
+
+
+		// TODO: also do this to the phase results
+
+
+		static float imp_buffer[3]        = {0};
+		static float imp_median_buffer[3] = {0};
+
+		// shift buffer and add new 
+		memmove(imp_buffer, &imp_buffer[1], sizeof(imp_buffer) - sizeof(imp_buffer[0]));
+		imp_buffer[ARRAY_SIZE(imp_buffer) - 1] = system_data.impedance;
+
+		// sort
+		memcpy(imp_median_buffer, imp_buffer, sizeof(imp_median_buffer));
+		for (unsigned int i = 0; i < ARRAY_SIZE(imp_median_buffer) - 1; i++)
+		{
+			float v1 = imp_median_buffer[i];
+			for (unsigned int k = i + 1; k < ARRAY_SIZE(imp_median_buffer); k++)
+			{
+				float v2 = imp_median_buffer[k];
+				if (v2 <= v1)
+				{	// swap
+					const float v = v2;
+					v2 = v1;
+					v1 = v;
+					imp_median_buffer[k] = v2;
+				}
+			}
+			imp_median_buffer[i] = v1;
+		}
+
+		// median
+		system_data.impedance = imp_median_buffer[(ARRAY_SIZE(imp_median_buffer) + 1) / 2];
+	}
 
 	if (op_mode != OP_MODE_MEASURING)
 		return;
@@ -1356,47 +1400,47 @@ void print_sprint(const unsigned int digit, const float value, char *output_char
 	{
 		case 2:
 	        if (v < 10)
-    	        snprintf(output_char, out_max_size, "%2.1f", value); // 1.2
+    	        snprintf(output_char, out_max_size, "%0.1f", value); // 1.2
         	else
-            	snprintf(output_char, out_max_size, "%2.0f", value); // 12 (no dp)
+            	snprintf(output_char, out_max_size, "%0.0f", value); // 12 (no dp)
 			break;
 
 		case 3:
 			// TODO: fix
 //	        if (v < 1e-3f)
-//				snprintf(output_char, out_max_size, "%3.0fu", value * 1e6f); // 123u
+//				snprintf(output_char, out_max_size, "%0.0fu", value * 1e6f); // 123u
 //			else
 //	        if (v < 1e0f)
-//				snprintf(output_char, out_max_size, "%3.0fm", value * 1e3f); // 123m
+//				snprintf(output_char, out_max_size, "%0.0fm", value * 1e3f); // 123m
 //			else
 	        if (v < 10)
-				snprintf(output_char, out_max_size, "%3.2f", value); // 1.23
+				snprintf(output_char, out_max_size, "%0.2f", value); // 1.23
         	else
 			if (v < 100)
-				snprintf(output_char, out_max_size, "%3.1f", value); // 12.3
+				snprintf(output_char, out_max_size, "%0.1f", value); // 12.3
 	        else
-				snprintf(output_char, out_max_size, "%3.0f", value); // 123 (no dp)
+				snprintf(output_char, out_max_size, "%0.0f", value); // 123 (no dp)
 			break;
 
 		default:
 		case 4:
 			// TODO: fix
 //	        if (v < 1e-3f)
-//				snprintf(output_char, out_max_size, "%4.0fu", value * 1e6f); // 123u
+//				snprintf(output_char, out_max_size, "%0.0fu", value * 1e6f); // 123u
 //			else
 //	        if (v < 1e0f)
-//				snprintf(output_char, out_max_size, "%4.0fm", value * 1e3f); // 123m
+//				snprintf(output_char, out_max_size, "%0.0fm", value * 1e3f); // 123m
 //			else
 	        if (v < 10)
-				snprintf(output_char, out_max_size, "%4.3f", value); // 1.234
+				snprintf(output_char, out_max_size, "%0.3f", value); // 1.234
         	else
 			if (v < 100)
-				snprintf(output_char, out_max_size, "%4.2f", value); // 12.34
+				snprintf(output_char, out_max_size, "%0.2f", value); // 12.34
 			else
 			if (v < 1000)
-				snprintf(output_char, out_max_size, "%4.1f", value); // 123.4
+				snprintf(output_char, out_max_size, "%0.1f", value); // 123.4
 	        else
-				snprintf(output_char, out_max_size, "%4.0f", value); // 1234 (no dp)
+				snprintf(output_char, out_max_size, "%0.0f", value); // 1234 (no dp)
 			break;
     }
 }
@@ -1575,52 +1619,54 @@ void draw_screen(void)
 						if (unit == 'p')
 						{
 							unit = 'u';
-							value *= 1e-6f; // uH
-							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
+							value *= 1e-6f;
 						}
 						else
 						if (unit == 'n')
 						{
 							unit = 'u';
-							value *= 1e-3f; // uH
-							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
+							value *= 1e-3f;
 						}
+
+						if (unit == 'u')
+							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
 						else
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
 						break;
+
 					case LCR_MODE_CAPACITANCE:
 						if (unit == 'p')
 							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
 						else
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
 						break;
+
 					case LCR_MODE_RESISTANCE:
 						if (unit == 'p')
 						{
 							unit = 'm';
-							value *= 1e-9f; // mR
-							snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
+							value *= 1e-9f;
 						}
 						else
 						if (unit == 'n')
 						{
 							unit = 'm';
-							value *= 1e-6f; // mR
-							snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
+							value *= 1e-6f;
 						}
 						else
 						if (unit == 'u')
 						{
 							unit = 'm';
-							value *= 1e-3f; // mR
-							snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
+							value *= 1e-3f;
 						}
-						else
+
 						if (unit == 'm')
-							snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
+							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
+							//snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
 						else
 							print_sprint(4, value, buffer_display, sizeof(buffer_display));
 						break;
+
 					case LCR_MODE_AUTO:
 						break;
 				}
