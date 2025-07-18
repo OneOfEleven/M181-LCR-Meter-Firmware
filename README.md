@@ -24,7 +24,7 @@
 - Hold down HOLD button to perform the OPEN    probe calibration
 - Hold down S/P  button to perform the SHORTED probe calibration
 - Hold down RCL  button to cycle through the measurement frequencies
-- Hold down HOLD and S/P buttons together to reboot the firmware
+- Hold down HOLD and S/P buttons together to clear all settings (inc cals) and reboot
 
 # System Overview ..
 
