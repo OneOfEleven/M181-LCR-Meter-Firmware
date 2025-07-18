@@ -938,65 +938,63 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 	void median_filter(void)
 	{
-		static unsigned int median_fifo_index = 0;
+		static int median_buffer_index = -1;
 
-		static float mag_rms_fifo_buffer[8][MEDIAN_SIZE]   = {0};
-		static float phase_deg_fifo_buffer[8][MEDIAN_SIZE] = {0};
+		static float mag_rms_median_buffer[8][MEDIAN_SIZE];
+		static float phase_deg_median_buffer[8][MEDIAN_SIZE];
 
-		if (!gain_changed)
-		{	// do median filters
+		if (!gain_changed && median_buffer_index >= 0)
+		{	// median filters
 
 			for (unsigned int m = 0; m < 8; m++)
 			{
 				float sort_buffer[MEDIAN_SIZE];
 
-				// ****************
-				// mag_rms median
+				{	// mag_rms median
 
-				// add new value into the circular buffer 
-				mag_rms_fifo_buffer[m][median_fifo_index] = mag_rms[m];
+					// add new value into the circular buffer
+					mag_rms_median_buffer[m][median_buffer_index] = mag_rms[m];
 
-				// sort
-				memcpy(sort_buffer, mag_rms_fifo_buffer[m], sizeof(sort_buffer));
-				qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
+					// sort
+					memcpy(sort_buffer, mag_rms_median_buffer[m], sizeof(sort_buffer));
+					qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
 
-				// fetch the median
-				mag_rms[m] = sort_buffer[MEDIAN_SIZE / 2];
+					// save the median
+					mag_rms[m] = sort_buffer[MEDIAN_SIZE / 2];
+				}
 
-				// ****************
-				// phase_deg median
+				{	// phase_deg median
 
-				const float deg = phase_deg[m];
+					const float deg = phase_deg[m];
 
-				// add new value into the circular buffer 
-				phase_deg_fifo_buffer[m][median_fifo_index] = deg;
+					// add new value into the circular buffer
+					phase_deg_median_buffer[m][median_buffer_index] = deg;
 
-				// sort - has to take into account that angles wrap-a-round 0-360/360-0
-				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
-					sort_buffer[i] = phase_diff(deg, phase_deg_fifo_buffer[m][i]);
-				qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
+					// sort - has to take into account that angles wrap-a-round 0-360/360-0
+					for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
+						sort_buffer[i] = phase_diff(deg, phase_deg_median_buffer[m][i]);
+					qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
 
-				// fetch the median
-				phase_deg[m] = deg + sort_buffer[MEDIAN_SIZE / 2];
-
-				// ****************
+					// save the median
+					phase_deg[m] = deg + sort_buffer[MEDIAN_SIZE / 2];
+				}
 
 				// update buffer 'write' index
-				if (++median_fifo_index >= MEDIAN_SIZE)
-					median_fifo_index = 0;
+				if (++median_buffer_index >= (int)MEDIAN_SIZE)
+					median_buffer_index = 0;
 			}
 		}
 		else
 		{	// reset fifo buffers
-			median_fifo_index = 0;
+			median_buffer_index = 0;
 			for (unsigned int m = 0; m < 8; m++)
 			{
 				const float mag = mag_rms[m];
 				const float deg = phase_deg[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
 				{
-					mag_rms_fifo_buffer[m][i]   = mag;
-					phase_deg_fifo_buffer[m][i] = deg;
+					mag_rms_median_buffer[m][i]   = mag;
+					phase_deg_median_buffer[m][i] = deg;
 				}
 			}
 		}
@@ -1032,12 +1030,12 @@ void process_data(void)
 	#endif
 
 	#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
-		// median filtering to improve display reading stabilisation
+		// median filter to improve display reading stabilisation
 		median_filter();
 	#endif
 
 	// gain path decision
-	// use the high gain results ONLY if the high gain samples are NOT saturating (clipped)
+	// use the high gain samples only if they aren't clipping/saturating
 	//
 //	volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
 //	amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;  // '0' = LO gain mode   '1' = HI gain mode
@@ -1073,7 +1071,7 @@ void process_data(void)
 		// TODO:
 
 		// TEST ..
-		
+
 		const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
 		const float v_cal_rms_lo = settings.open_probe_calibration[freq_index].mag_rms[0];
@@ -1346,7 +1344,7 @@ void process_ADC(const void *buffer)
 				// LPF
 				settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
 
-				if (!display_hold)                            // don't remove offset if display HOLD is active   
+				if (!display_hold)                            // don't remove offset if display HOLD is active
 				{	// subtract/remove the DC offset
 					sum = settings.input_offset.adc[vi_mode];
 					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
@@ -1365,7 +1363,7 @@ void process_ADC(const void *buffer)
 				// LPF
 				settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
 
-				if (!display_hold)                            // don't remove offset if display HOLD is active   
+				if (!display_hold)                            // don't remove offset if display HOLD is active
 				{	// subtract/remove the DC offset
 					sum = settings.input_offset.afc[vi_mode];
 					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
@@ -1396,7 +1394,7 @@ void process_ADC(const void *buffer)
 		if (!display_hold && gain_changed)
 		{
 			// gain path decision
-			// use the high gain results only if the high gain samples are NOT clipped/saturated
+			// use the high gain samples only if they aren't clipping/saturating
 			//
 			volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;  // '0' = LOW gain mode   '1' = HIGH gain mode
 			amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;  // '0' = LOW gain mode   '1' = HIGH gain mode
@@ -1934,30 +1932,38 @@ void draw_screen(void)
 			break;
 
 		case OP_MODE_OPEN_PROBE_CALIBRATION:
-			snprintf(buffer_display, sizeof(buffer_display), " OPEN cal %-2d", CALIBRATE_COUNT - calibrate.count - 1);
-			ssd1306_SetCursor(OFFSET_X, LINE2_Y);
-			ssd1306_WriteString(buffer_display, &Font_7x10, White);
+			snprintf(buffer_display, sizeof(buffer_display), "OPEN cal %d", CALIBRATE_COUNT - calibrate.count - 1);
+			//ssd1306_SetCursor(OFFSET_X, LINE2_Y);
+			ssd1306_SetCursor(OFFSET_X, 5);
+			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
+			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			if (calibrate.Hz < 1000)
 				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", calibrate.Hz);
 			else
 				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", calibrate.Hz / 1000);
-			ssd1306_SetCursor(OFFSET_X, LINE2_Y + 14);
-			ssd1306_WriteString(buffer_display, &Font_7x10, White);
+			//ssd1306_SetCursor(OFFSET_X, LINE2_Y + 14);
+			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
+			ssd1306_SetCursor(OFFSET_X, LINE3_Y - 5);
+			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			break;
 
 		case OP_MODE_SHORTED_PROBE_CALIBRATION:
-			snprintf(buffer_display, sizeof(buffer_display), " SHORTED cal %-2d", CALIBRATE_COUNT - calibrate.count - 1);
-			ssd1306_SetCursor(OFFSET_X, LINE2_Y);
-			ssd1306_WriteString(buffer_display, &Font_7x10, White);
+			snprintf(buffer_display, sizeof(buffer_display), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
+			//ssd1306_SetCursor(OFFSET_X, LINE2_Y);
+			ssd1306_SetCursor(OFFSET_X, 5);
+			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
+			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			if (calibrate.Hz < 1000)
-			snprintf(buffer_display, sizeof(buffer_display), " %u Hz", calibrate.Hz);
+				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", calibrate.Hz);
 			else
 				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", calibrate.Hz / 1000);
-			ssd1306_SetCursor(OFFSET_X, LINE2_Y + 14);
-			ssd1306_WriteString(buffer_display, &Font_7x10, White);
+			//ssd1306_SetCursor(OFFSET_X, LINE2_Y + 14);
+			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
+			ssd1306_SetCursor(OFFSET_X, LINE3_Y - 5);
+			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			break;
 	}
@@ -2660,7 +2666,7 @@ void process_buttons(void)
 		else
 		{
 			display_hold = 0;
-			
+
 			// cycle through the LCR modes (inc SLOW/FAST mode)
 			settings.flags ^= SETTING_FLAG_FAST_UPDATES;
 			if (!(settings.flags & SETTING_FLAG_FAST_UPDATES))

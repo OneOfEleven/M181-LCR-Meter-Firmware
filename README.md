@@ -19,6 +19,13 @@
 - [ ] Auto calibration option
 - [ ] Change a couple of PCB component values to allow/add a 10kHz option (see LTspice sims)
 
+## Buttons ..
+
+- Hold down HOLD button to perform the OPEN    probe calibration
+- Hold down S/P  button to perform the SHORTED probe calibration
+- Hold down RCL  button to cycle through the measurement frequencies
+- Hold down HOLD and S/P buttons together to reboot the firmware
+
 # System Overview ..
 
 ## RPI MCU programming
