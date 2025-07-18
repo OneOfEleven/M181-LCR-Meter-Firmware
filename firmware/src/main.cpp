@@ -929,44 +929,17 @@ void combine_afc(float *avg_rms, float *avg_deg)
 	*avg_deg = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
 }
 
-int compare_float(const void *a, const void *b)
-{
-	return (*(float *)a - *(float *)b);
-}
+#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
 
-void process_data(void)
-{
-	if (display_hold)
-		return;
-
-	process_Goertzel();
-
-	#if 1
-	{	// combine all used AFC results into one - good idea, or not ?
-
-		float afc_rms;
-		float afc_deg;
-
-		combine_afc(&afc_rms, &afc_deg);
-
-		mag_rms[1]   = afc_rms;
-		mag_rms[3]   = afc_rms;
-		mag_rms[5]   = afc_rms;
-		mag_rms[7]   = afc_rms;
-
-		phase_deg[1] = afc_deg;
-		phase_deg[3] = afc_deg;
-		phase_deg[5] = afc_deg;
-		phase_deg[7] = afc_deg;
+	int compare_float(const void *a, const void *b)
+	{
+		return (*(float *)a - *(float *)b);
 	}
-	#endif
 
-	// *********************
-	// median filtering to improve display reading stabilisation
-
-	#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
-
-	{	// mag_rms median
+	void median_filter(void)
+	{
+		// ****************
+		// mag_rms median
 
 		static float mag_rms_median_fifo_buffer[8][MEDIAN_SIZE] = {0};
 		static float mag_rms_median_sort_buffer[8][MEDIAN_SIZE] = {0};
@@ -996,9 +969,9 @@ void process_data(void)
 					mag_rms_median_fifo_buffer[m][i] = val;
 			}
 		}
-	}
 
-	{	// phase_deg median
+		// ****************
+		// phase_deg median
 
 		static float phase_deg_median_fifo_buffer[8][MEDIAN_SIZE] = {0};
 		static float phase_deg_median_sort_buffer[8][MEDIAN_SIZE] = {0};
@@ -1031,11 +1004,43 @@ void process_data(void)
 					phase_deg_median_fifo_buffer[m][i] = deg;
 			}
 		}
+
+		// ****************
 	}
 
+#endif
+
+void process_data(void)
+{
+	if (display_hold)
+		return;
+
+	process_Goertzel();
+
+	#if 1
+	{	// combine all used AFC results into one - good idea, or not ?
+
+		float afc_rms;
+		float afc_deg;
+
+		combine_afc(&afc_rms, &afc_deg);
+
+		mag_rms[1]   = afc_rms;
+		mag_rms[3]   = afc_rms;
+		mag_rms[5]   = afc_rms;
+		mag_rms[7]   = afc_rms;
+
+		phase_deg[1] = afc_deg;
+		phase_deg[3] = afc_deg;
+		phase_deg[5] = afc_deg;
+		phase_deg[7] = afc_deg;
+	}
 	#endif
 
-	// *********************
+	#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
+		// median filtering to improve display reading stabilisation
+		median_filter();
+	#endif
 
 	// gain path decision
 	// use the high gain results ONLY if the high gain samples are NOT saturating (clipped)
