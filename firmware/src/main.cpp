@@ -958,6 +958,60 @@ void process_data(void)
 
 	// *********************
 
+	#if 1
+	{	// median filtering to improve display reading stabilisation
+
+
+		// TODO: also do this for the phase results
+
+
+		#define MEDIAN_SIZE     3u       // ODD length only (median uses the center value)
+
+		static float mag_rms_median_buffer[8][MEDIAN_SIZE]      = {0};
+		static float mag_rms_median_sort_buffer[8][MEDIAN_SIZE] = {0};
+
+		// shift buffer and add new 
+		if (!gain_changed)
+		{
+			for (unsigned int m = 0; m < 8; m++)
+			{
+				memmove(mag_rms_median_buffer[m], &mag_rms_median_buffer[m][1], sizeof(mag_rms_median_buffer[m]) - sizeof(mag_rms_median_buffer[m][0]));
+				mag_rms_median_buffer[m][MEDIAN_SIZE - 1] = mag_rms[m];
+
+				// sort
+				memcpy(mag_rms_median_sort_buffer[m], mag_rms_median_buffer[m], sizeof(mag_rms_median_sort_buffer[m]));
+				for (unsigned int i = 0; i < (MEDIAN_SIZE - 1); i++)
+				{
+					register float v1 = mag_rms_median_sort_buffer[m][i];
+					for (unsigned int k = i + 1; k < MEDIAN_SIZE; k++)
+					{
+						register float v2 = mag_rms_median_sort_buffer[m][k];
+						if (v2 <= v1)
+						{	// swap
+							const float v = v2;
+							v2 = v1;
+							v1 = v;
+							mag_rms_median_sort_buffer[m][k] = v2;
+						}
+					}
+					mag_rms_median_sort_buffer[m][i] = v1;
+				}
+
+				// fetch the median
+				mag_rms[m] = mag_rms_median_sort_buffer[m][MEDIAN_SIZE / 2];
+			}
+		}
+		else
+		{
+			for (unsigned int m = 0; m < 8; m++)
+				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
+					mag_rms_median_buffer[m][i] = mag_rms[m];
+		}
+	}
+	#endif
+
+	// *********************
+
 	// gain path decision
 	// use the high gain results ONLY if the high gain samples are NOT saturating (clipped)
 	//
@@ -1027,42 +1081,6 @@ void process_data(void)
 	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);   // phase difference between ADC and AFC waves
 	//
 	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);             // phase difference between voltage and current waves
-
-	{	// short median filtering to improve display reading stabilisation .. just TESTING atm
-
-
-		// TODO: also do this to the phase results
-
-
-		static float imp_buffer[3]        = {0};
-		static float imp_median_buffer[3] = {0};
-
-		// shift buffer and add new 
-		memmove(imp_buffer, &imp_buffer[1], sizeof(imp_buffer) - sizeof(imp_buffer[0]));
-		imp_buffer[ARRAY_SIZE(imp_buffer) - 1] = system_data.impedance;
-
-		// sort
-		memcpy(imp_median_buffer, imp_buffer, sizeof(imp_median_buffer));
-		for (unsigned int i = 0; i < ARRAY_SIZE(imp_median_buffer) - 1; i++)
-		{
-			float v1 = imp_median_buffer[i];
-			for (unsigned int k = i + 1; k < ARRAY_SIZE(imp_median_buffer); k++)
-			{
-				float v2 = imp_median_buffer[k];
-				if (v2 <= v1)
-				{	// swap
-					const float v = v2;
-					v2 = v1;
-					v1 = v;
-					imp_median_buffer[k] = v2;
-				}
-			}
-			imp_median_buffer[i] = v1;
-		}
-
-		// median
-		system_data.impedance = imp_median_buffer[(ARRAY_SIZE(imp_median_buffer) + 1) / 2];
-	}
 
 	if (op_mode != OP_MODE_MEASURING)
 		return;
