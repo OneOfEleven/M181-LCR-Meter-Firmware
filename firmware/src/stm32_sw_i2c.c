@@ -10,7 +10,8 @@
 #define I2C_SET_SCL       HAL_GPIO_WritePin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin, GPIO_PIN_SET);
 
 //#define I2C_DELAY         DWT_Delay_ns(50);
-#define I2C_DELAY         DWT_Delay_ns(0);
+//#define I2C_DELAY         DWT_Delay_ns(1);
+#define I2C_DELAY         __NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();
 
 void I2C_bus_init(void)
 {
@@ -45,7 +46,9 @@ void I2C_start_cond(void)
 	I2C_SET_SCL
 	I2C_SET_SDA
 	I2C_DELAY
+	I2C_DELAY
 	I2C_CLEAR_SDA
+	I2C_DELAY
 	I2C_DELAY
 	I2C_CLEAR_SCL
 	I2C_DELAY
@@ -55,7 +58,9 @@ void I2C_stop_cond(void)
 {
 	I2C_CLEAR_SDA
 	I2C_DELAY
+	I2C_DELAY
 	I2C_SET_SCL
+	I2C_DELAY
 	I2C_DELAY
 	I2C_SET_SDA
 	I2C_DELAY
@@ -67,9 +72,12 @@ void I2C_write_bit(uint8_t b)
 		I2C_SET_SDA
 	else
 		I2C_CLEAR_SDA
-
 	I2C_DELAY
 	I2C_SET_SCL
+	I2C_DELAY
+	I2C_DELAY
+	I2C_DELAY
+	I2C_DELAY
 	I2C_DELAY
 	I2C_CLEAR_SCL
 }
@@ -78,7 +86,10 @@ uint8_t I2C_read_bit(void)
 {
 	I2C_SET_SDA
 	I2C_DELAY
+	I2C_DELAY
 	I2C_SET_SCL
+	I2C_DELAY
+	I2C_DELAY
 	I2C_DELAY
 	const uint8_t b = I2C_read_SDA();
 	I2C_CLEAR_SCL
@@ -90,8 +101,21 @@ uint8_t I2C_write_byte(uint8_t B, const uint8_t start, const uint8_t stop)
 	if (start)
 		I2C_start_cond();
 
-	for (unsigned int i = 0; i < 8; i++)
 	{
+		I2C_write_bit(B & 0x80); // write the most-significant bit
+		B <<= 1;
+		I2C_write_bit(B & 0x80); // write the most-significant bit
+		B <<= 1;
+		I2C_write_bit(B & 0x80); // write the most-significant bit
+		B <<= 1;
+		I2C_write_bit(B & 0x80); // write the most-significant bit
+		B <<= 1;
+		I2C_write_bit(B & 0x80); // write the most-significant bit
+		B <<= 1;
+		I2C_write_bit(B & 0x80); // write the most-significant bit
+		B <<= 1;
+		I2C_write_bit(B & 0x80); // write the most-significant bit
+		B <<= 1;
 		I2C_write_bit(B & 0x80); // write the most-significant bit
 		B <<= 1;
 	}
@@ -106,12 +130,17 @@ uint8_t I2C_write_byte(uint8_t B, const uint8_t start, const uint8_t stop)
 
 uint8_t I2C_read_byte(const uint8_t ack, const uint8_t stop)
 {
-	uint8_t B = 0;
+	register uint8_t B = 0;
 
-	for (unsigned int i = 0; i < 8; i++)
 	{
-		B <<= 1;
-		B |= I2C_read_bit();
+		B = (B << 1) | I2C_read_bit();
+		B = (B << 1) | I2C_read_bit();
+		B = (B << 1) | I2C_read_bit();
+		B = (B << 1) | I2C_read_bit();
+		B = (B << 1) | I2C_read_bit();
+		B = (B << 1) | I2C_read_bit();
+		B = (B << 1) | I2C_read_bit();
+		B = (B << 1) | I2C_read_bit();
 	}
 
 	I2C_write_bit(ack ? 0 : 1);
