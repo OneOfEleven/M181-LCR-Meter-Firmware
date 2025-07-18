@@ -140,6 +140,8 @@ char                  buffer_display[26] = {0};
 
 t_button              button[3] = {0};
 
+float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;
+
 const uint16_t        DAC_resolution                  = 256;  // 8-bit
 volatile unsigned int sine_table_index                = 0;    //
 uint8_t               sine_table[ADC_DATA_LENGTH / 2] = {0};  // length is matched with the ADC sampling (length = one sine cycle)
@@ -940,19 +942,19 @@ void combine_afc(float *avg_rms, float *avg_deg)
 	{
 		static int median_buffer_index = -1;
 
-		static float mag_rms_median_buffer[8][MEDIAN_SIZE];
-		static float phase_deg_median_buffer[8][MEDIAN_SIZE];
+		static float mag_rms_median_buffer[ARRAY_SIZE(mag_rms)][MEDIAN_SIZE];
+		static float phase_deg_median_buffer[ARRAY_SIZE(phase_deg)][MEDIAN_SIZE];
 
 		if (!gain_changed && median_buffer_index >= 0)
 		{	// median filters
 
-			for (unsigned int m = 0; m < 8; m++)
+			for (unsigned int m = 0; m < ARRAY_SIZE(mag_rms); m++)
 			{
 				float sort_buffer[MEDIAN_SIZE];
 
 				{	// mag_rms median
 
-					// add new value into the circular buffer
+					// add new value into the input buffer
 					mag_rms_median_buffer[m][median_buffer_index] = mag_rms[m];
 
 					// sort
@@ -967,7 +969,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 					const float deg = phase_deg[m];
 
-					// add new value into the circular buffer
+					// add new value into the input buffer
 					phase_deg_median_buffer[m][median_buffer_index] = deg;
 
 					// sort - has to take into account that angles wrap-a-round 0-360/360-0
@@ -985,17 +987,21 @@ void combine_afc(float *avg_rms, float *avg_deg)
 			}
 		}
 		else
-		{	// reset fifo buffers
+		{	// reset input buffers
 			median_buffer_index = 0;
-			for (unsigned int m = 0; m < 8; m++)
+
+			for (unsigned int m = 0; m < ARRAY_SIZE(mag_rms); m++)
 			{
 				const float mag = mag_rms[m];
+				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
+					mag_rms_median_buffer[m][i] = mag;
+			}
+
+			for (unsigned int m = 0; m < ARRAY_SIZE(phase_deg); m++)
+			{
 				const float deg = phase_deg[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
-				{
-					mag_rms_median_buffer[m][i]   = mag;
 					phase_deg_median_buffer[m][i] = deg;
-				}
 			}
 		}
 	}
@@ -1048,8 +1054,8 @@ void process_data(void)
 	system_data.rms_current_adc = mag_rms[(amp_gain_sel  * 4) + 2];
 	system_data.rms_current_afc = mag_rms[(amp_gain_sel  * 4) + 3];
 
-	system_data.rms_current_adc *= 1.0f / SERIES_RESISTOR;
-	system_data.rms_current_afc *= 1.0f / SERIES_RESISTOR;
+	system_data.rms_current_adc *= inv_series_ohms;
+	system_data.rms_current_afc *= inv_series_ohms;
 
 	// TODO: calibrate the 'high_gain' value by computing the actual gain from the calibration results
 
@@ -1065,38 +1071,31 @@ void process_data(void)
 
 	system_data.impedance = system_data.rms_voltage_adc / system_data.rms_current_adc;
 
-	if (settings.open_probe_calibration->done)
-	{	// apply open calibration
+	if (op_mode == OP_MODE_MEASURING)
+	{
+		if (settings.open_probe_calibration->done)
+		{	// apply open probe calibration
 
-		// TODO:
+			const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
-		// TEST ..
+			const float v_cal_rms_lo = settings.open_probe_calibration[freq_index].mag_rms[0];
+			const float i_cal_rms_hi = settings.open_probe_calibration[freq_index].mag_rms[6] * inv_series_ohms * high_scale;
 
-		const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+		 	const float imp_cal = v_cal_rms_lo / i_cal_rms_hi;
 
-		const float v_cal_rms_lo = settings.open_probe_calibration[freq_index].mag_rms[0];
-		const float i_cal_rms_hi = settings.open_probe_calibration[freq_index].mag_rms[6] * (1.0f / SERIES_RESISTOR) * high_scale;
-/*
-		{	// slowly track the open probe levels
-			const float coeff = 0.5f;
-			const float upper_diff = v_cal_rms_lo / mag_rms[0];
-			const float lower_diff = i_cal_rms_hi / mag_rms[6];
-			if (fabsf(1.0f - upper_diff) < 0.95f && fabsf(1.0f - lower_diff) < 0.9f)
-			{
-
-			}
+			system_data.impedance = (imp_cal * system_data.impedance) / (imp_cal - system_data.impedance);
 		}
-*/
-	 	const float imp_cal = v_cal_rms_lo / i_cal_rms_hi;
 
-		system_data.impedance = (imp_cal * system_data.impedance) / (imp_cal - system_data.impedance);
-	}
+		if (settings.shorted_probe_calibration->done)
+		{	// apply shorted probe calibration
 
-	if (settings.shorted_probe_calibration->done)
-	{	// apply short calibration
 
-		// TODO:
 
+			// TODO:
+
+
+
+		}
 	}
 
 	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
@@ -1105,7 +1104,7 @@ void process_data(void)
 	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);             // phase difference between voltage and current waves
 
 	if (op_mode != OP_MODE_MEASURING)
-		return;
+		return;                          // doing the open/short calibration runs, no need to go any further here
 
 	// **************************
 	// compute the DUT (L, C or R) parameters using the above measurements
@@ -1299,11 +1298,11 @@ void process_ADC(const void *buffer)
 			average_count = 1;                           // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples
 		else
 		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-			average_count = FAST_ADC_AVERAGE_COUNT;
+			average_count = FAST_ADC_AVERAGE_COUNT;      // user has selected faster display updates
 	}
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
-		return;                                      // not yet summed the desired number of sample blocks
+		return;                                          // not yet summed the desired number of sample blocks
 
 	// we've now summed the desired number of sample blocks, they're now ready to be re-scaled, saved and DC offset removed for use later use ..
 
@@ -2901,6 +2900,7 @@ int main(void)
 	button[2].gpio_pin  = BUTT_RCL_Pin;
 
 	// defaults
+	settings.series_ohms    = SERIES_RESISTOR_OHMS;    // this can be calibrated using a DUT with a known resistance value
 	settings.measurement_Hz = 1000;
 //	settings.lcr_mode       = LCR_MODE_INDUCTANCE;
 //	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
@@ -2929,6 +2929,8 @@ int main(void)
 
 	// fetch saved settings from flash
 	read_settings();
+
+	inv_series_ohms = 1.0f / settings.series_ohms;
 
 	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 	set_measure_mode_pins(system_data.vi_measure_mode);

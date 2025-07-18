@@ -21,7 +21,7 @@
 
 ## Buttons ..
 
-- Press the HOLD button to hold/pause the display
+- Press the HOLD button to toggle display hold/pause
 - Press the S/P to toggle between serial and parallel mode
 - Press the RCL button to cycle through the R, L and C modes (inc their fast modes)
 -

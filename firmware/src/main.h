@@ -58,7 +58,7 @@
 
 #define DUAL_ADC_MODE                               // comment out to use single ADC dual channel mode
 
-#define SERIES_RESISTOR              1000           // series impedance of the DUT feed voltage
+#define SERIES_RESISTOR_OHMS         1000           // the value of the resistor in series with the DUT
 
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
 #define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
@@ -333,6 +333,8 @@ enum {
 #pragma pack(push, 1)
 typedef struct t_settings {
 	uint32_t     marker;              // settings marker - so we can find this saved block in flash area
+
+	float        series_ohms;         // the exact value of the series resistor
 
 	uint16_t     measurement_Hz;      // the sine wave measurement frequency the user is using
 	uint8_t      lcr_mode;            // the LCR mode the user is using
