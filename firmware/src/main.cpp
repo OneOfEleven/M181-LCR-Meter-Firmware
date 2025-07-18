@@ -1014,12 +1014,20 @@ void process_data(void)
 		
 		const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
-		const float v_cal = adc_to_volts(settings.open_probe_calibration[freq_index].mag_rms[0]);
-		float i_cal = adc_to_volts(settings.open_probe_calibration[freq_index].mag_rms[6]);
-		i_cal *= 1.0f / SERIES_RESISTOR;
-		i_cal *= 1.0f / high_gain;
-	 	const float imp_cal = v_cal / i_cal;
+		const float v_cal_rms_lo = settings.open_probe_calibration[freq_index].mag_rms[0];
+		const float i_cal_rms_hi = settings.open_probe_calibration[freq_index].mag_rms[6] * (1.0f / SERIES_RESISTOR) * vi_scale;
+/*
+		{	// slowly track the open probe levels
+			const float coeff = 0.5f;
+			const float upper_diff = v_cal_rms_lo / mag_rms[0];
+			const float lower_diff = i_cal_rms_hi / mag_rms[6];
+			if (fabsf(1.0f - upper_diff) < 0.95f && fabsf(1.0f - lower_diff) < 0.9f)
+			{
 
+			}
+		}
+*/
+	 	const float imp_cal = v_cal_rms_lo / i_cal_rms_hi;
 		system_data.impedance = (imp_cal * system_data.impedance) / (imp_cal - system_data.impedance);
 	}
 
