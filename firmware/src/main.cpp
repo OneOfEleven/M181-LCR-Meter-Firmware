@@ -984,19 +984,6 @@ void process_data(void)
 	system_data.rms_current_adc = mag_rms[(amp_gain_sel  * 4) + 2];
 	system_data.rms_current_afc = mag_rms[(amp_gain_sel  * 4) + 3];
 
-	if (settings.open_probe_calibration->done)
-	{	// apply open calibrations
-
-		const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
-
-		// TEST
-		const float bias = settings.open_probe_calibration[freq_index].mag_rms[(amp_gain_sel * 4) + 2];
-		system_data.rms_current_adc -= bias;
-		system_data.rms_current_adc  = (system_data.rms_current_adc < 0) ? 0 : system_data.rms_current_adc;
-
-		//settings.open_probe_calibration[freq_index].phase_deg[i];
-	}
-
 	system_data.rms_voltage_adc  = adc_to_volts(system_data.rms_voltage_adc);
 	system_data.rms_voltage_afc  = adc_to_volts(system_data.rms_voltage_afc);
 
@@ -1008,18 +995,34 @@ void process_data(void)
 
 	// TODO: calibrate the 'high_gain' value by computing the actual gain from the calibration results
 
-	{	// scale according to which gain path is being used
-		const float   scale = 1.0f / high_gain;
-		const float v_scale = volt_gain_sel ? scale : 1.0f;
-		const float i_scale = amp_gain_sel  ? scale : 1.0f;
-		system_data.rms_voltage_adc *= v_scale;
-		system_data.rms_voltage_afc *= v_scale;
-		system_data.rms_current_adc *= i_scale;
-		system_data.rms_current_afc *= i_scale;
+	const float vi_scale = 1.0f / high_gain;
+	const float v_scale  = volt_gain_sel ? vi_scale : 1.0f;
+	const float i_scale  = amp_gain_sel  ? vi_scale : 1.0f;
+
+	// scale according to which gain path is being used
+	system_data.rms_voltage_adc *= v_scale;
+	system_data.rms_voltage_afc *= v_scale;
+	system_data.rms_current_adc *= i_scale;
+	system_data.rms_current_afc *= i_scale;
+
+	system_data.impedance = system_data.rms_voltage_adc / system_data.rms_current_adc;
+
+	if (settings.open_probe_calibration->done)
+	{	// apply open calibration
+
+		// TEST
+		
+		const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+
+		const float v_cal = adc_to_volts(settings.open_probe_calibration[freq_index].mag_rms[0]);
+		float i_cal = adc_to_volts(settings.open_probe_calibration[freq_index].mag_rms[6]);
+		i_cal *= 1.0f / SERIES_RESISTOR;
+		i_cal *= 1.0f / high_gain;
+	 	const float imp_cal = v_cal / i_cal;
+
+		system_data.impedance = (imp_cal * system_data.impedance) / (imp_cal - system_data.impedance);
 	}
 
-	system_data.impedance         = system_data.rms_voltage_adc / system_data.rms_current_adc;
-	//
 	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
 	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);   // phase difference between ADC and AFC waves
 	//
