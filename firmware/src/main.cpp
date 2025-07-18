@@ -971,36 +971,17 @@ void process_data(void)
 		static float mag_rms_median_fifo_buffer[8][MEDIAN_SIZE] = {0};
 		static float mag_rms_median_sort_buffer[8][MEDIAN_SIZE] = {0};
 
-		// shift buffer and add new 
 		if (!gain_changed)
 		{
 			for (unsigned int m = 0; m < 8; m++)
 			{
-				memmove(mag_rms_median_fifo_buffer[m], &mag_rms_median_fifo_buffer[m][1], sizeof(mag_rms_median_fifo_buffer[m]) - sizeof(mag_rms_median_fifo_buffer[m][0]));
+				// shift fifo buffer then add new alue 
+				memmove(&mag_rms_median_fifo_buffer[m][0], &mag_rms_median_fifo_buffer[m][1], sizeof(mag_rms_median_fifo_buffer[m][0]) * (MEDIAN_SIZE - 1));
 				mag_rms_median_fifo_buffer[m][MEDIAN_SIZE - 1] = mag_rms[m];
 
 				// sort
 				memcpy(mag_rms_median_sort_buffer[m], mag_rms_median_fifo_buffer[m], sizeof(mag_rms_median_sort_buffer[m]));
-				#if 1
-					qsort(mag_rms_median_sort_buffer[m], MEDIAN_SIZE, sizeof(float), compare_float);
-				#else
-					for (unsigned int i = 0; i < (MEDIAN_SIZE - 1); i++)
-					{
-						register float v1 = mag_rms_median_sort_buffer[m][i];
-						for (unsigned int k = i + 1; k < MEDIAN_SIZE; k++)
-						{
-							register float v2 = mag_rms_median_sort_buffer[m][k];
-							if (v2 < v1)
-							{	// swap
-								const float v = v2;
-								v2 = v1;
-								v1 = v;
-								mag_rms_median_sort_buffer[m][k] = v2;
-							}
-						}
-						mag_rms_median_sort_buffer[m][i] = v1;
-					}
-				#endif
+				qsort(mag_rms_median_sort_buffer[m], MEDIAN_SIZE, sizeof(float), compare_float);
 
 				// fetch the median
 				mag_rms[m] = mag_rms_median_sort_buffer[m][MEDIAN_SIZE / 2];
