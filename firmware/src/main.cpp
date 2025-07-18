@@ -938,76 +938,68 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 	void median_filter(void)
 	{
-		// ****************
-		// mag_rms median
+		static unsigned int median_fifo_index = 0;
 
-		static float mag_rms_median_fifo_buffer[8][MEDIAN_SIZE] = {0};
+		static float mag_rms_fifo_buffer[8][MEDIAN_SIZE]   = {0};
+		static float phase_deg_fifo_buffer[8][MEDIAN_SIZE] = {0};
 
 		if (!gain_changed)
-		{
+		{	// do median filters
+
 			for (unsigned int m = 0; m < 8; m++)
 			{
 				float sort_buffer[MEDIAN_SIZE];
 
-				// shift fifo buffer and add new value 
-				memmove(&mag_rms_median_fifo_buffer[m][0], &mag_rms_median_fifo_buffer[m][1], sizeof(mag_rms_median_fifo_buffer[m][0]) * (MEDIAN_SIZE - 1));
-				mag_rms_median_fifo_buffer[m][MEDIAN_SIZE - 1] = mag_rms[m];
+				// ****************
+				// mag_rms median
+
+				// add new value into the circular buffer 
+				mag_rms_fifo_buffer[m][median_fifo_index] = mag_rms[m];
 
 				// sort
-				memcpy(sort_buffer, mag_rms_median_fifo_buffer[m], sizeof(sort_buffer));
+				memcpy(sort_buffer, mag_rms_fifo_buffer[m], sizeof(sort_buffer));
 				qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
 
 				// fetch the median
 				mag_rms[m] = sort_buffer[MEDIAN_SIZE / 2];
-			}
-		}
-		else
-		{	// reset median
-			for (unsigned int m = 0; m < 8; m++)
-			{
-				const float mag = mag_rms[m];
-				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
-					mag_rms_median_fifo_buffer[m][i] = mag;
-			}
-		}
 
-		// ****************
-		// phase_deg median
-
-		static float phase_deg_median_fifo_buffer[8][MEDIAN_SIZE] = {0};
-
-		if (!gain_changed)
-		{
-			for (unsigned int m = 0; m < 8; m++)
-			{
-				float sort_buffer[MEDIAN_SIZE];
+				// ****************
+				// phase_deg median
 
 				const float deg = phase_deg[m];
 
-				// shift fifo buffer and add new value 
-				memmove(&phase_deg_median_fifo_buffer[m][0], &phase_deg_median_fifo_buffer[m][1], sizeof(phase_deg_median_fifo_buffer[m][0]) * (MEDIAN_SIZE - 1));
-				phase_deg_median_fifo_buffer[m][MEDIAN_SIZE - 1] = deg;
+				// add new value into the circular buffer 
+				phase_deg_fifo_buffer[m][median_fifo_index] = deg;
 
-				// sort - has to take into account that angles can cross the 0-360 boundry
+				// sort - has to take into account that angles wrap-a-round 0-360/360-0
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
-					sort_buffer[i] = phase_diff(deg, phase_deg_median_fifo_buffer[m][i]);
+					sort_buffer[i] = phase_diff(deg, phase_deg_fifo_buffer[m][i]);
 				qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
 
 				// fetch the median
 				phase_deg[m] = deg + sort_buffer[MEDIAN_SIZE / 2];
+
+				// ****************
+
+				// update buffer 'write' index
+				if (++median_fifo_index >= MEDIAN_SIZE)
+					median_fifo_index = 0;
 			}
 		}
 		else
-		{	// reset median
+		{	// reset fifo buffers
+			median_fifo_index = 0;
 			for (unsigned int m = 0; m < 8; m++)
 			{
+				const float mag = mag_rms[m];
 				const float deg = phase_deg[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
-					phase_deg_median_fifo_buffer[m][i] = deg;
+				{
+					mag_rms_fifo_buffer[m][i]   = mag;
+					phase_deg_fifo_buffer[m][i] = deg;
+				}
 			}
 		}
-
-		// ****************
 	}
 
 #endif
