@@ -640,6 +640,9 @@ int goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned i
 		out_samples[k].im = im * scale;
 	
 		// exit if a button is pressed
+		//
+		// servicing user input is paramount
+		//
 		for (unsigned int b = 0; b < BUTTON_NUM; b++)
 			if (button[b].pressed_tick > 0 || button[b].released)
 				return -1;
@@ -802,7 +805,7 @@ void set_measurement_frequency(const uint32_t Hz)
 // input is real
 // output is complex (I/Q)
 //
-void process_Goertzel(void)
+int process_Goertzel(void)
 {
 	// the Goertzel DFT is used for creating I/Q output, phase computation and filtering (if desired)
 
@@ -877,7 +880,7 @@ void process_Goertzel(void)
 
 			// do it
 			if (goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
-				return;
+				return -1;
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
 				register float *buf_out = adc_data[buf_index];
@@ -898,6 +901,8 @@ void process_Goertzel(void)
 			}
 		}
 	}
+
+	return 0;
 }
 
 void combine_afc(float *avg_rms, float *avg_deg)
@@ -1028,7 +1033,8 @@ void process_data(void)
 	if (display_hold)
 		return;
 
-	process_Goertzel();
+	if (process_Goertzel() < 0)
+		return;
 
 	#if 1
 	{	// combine all used AFC results into one - good idea, or not ?
@@ -2134,7 +2140,7 @@ void SysTick_Handler(void)
 			else
 			if (pressed_tick > 0) // && butt->processed == 0)
 			{
-				butt->held_ms          = tick - pressed_tick;           // time the button has been held down for
+				butt->held_ms      = tick - pressed_tick;               // time the button has been held down for
 			}
 			else
 			if (butt->processed)
@@ -2612,7 +2618,7 @@ void GPIO_init(void)
 
 void process_buttons(void)
 {
-	// both HOLD and S/P buttons held down then released
+	// both HOLD and S/P buttons held down
 	if (button[BUTTON_HOLD].pressed_tick > 0 && button[BUTTON_SP].pressed_tick > 0 && button[BUTTON_RCL].pressed_tick == 0)
 	{
 		if (button[BUTTON_HOLD].held_ms >= 800 && button[BUTTON_SP].held_ms >= 800)
@@ -2628,9 +2634,8 @@ void process_buttons(void)
 
 		// ignore any button presses during calibration
 		for (unsigned int i = 0; i < BUTTON_NUM; i++)
-			if (button[i].released || button[i].pressed_tick > 0)
-				button[i].processed = 1;
-				
+			button[i].processed = 1;
+
 		return;	
 	}
 
