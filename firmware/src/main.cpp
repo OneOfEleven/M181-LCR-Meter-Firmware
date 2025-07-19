@@ -614,7 +614,7 @@ void goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 	g->im = im * scale;
 }
 
-void goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
+int goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
 {
 	const float scale = 2.0f / g_len;  // for correcting the output amplitude
 
@@ -638,7 +638,14 @@ void goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned 
 		// correct the output sample amplitude
 		out_samples[k].re = re * scale;
 		out_samples[k].im = im * scale;
+	
+		// exit if a button is pressed
+		for (unsigned int b = 0; b < BUTTON_NUM; b++)
+			if (button[b].pressed_tick > 0 || button[b].released)
+				return -1;
 	}
+
+	return 0;  // completed
 }
 
 // create the Goertzel filter coeffs
@@ -869,7 +876,8 @@ void process_Goertzel(void)
 			register t_comp *buf = tmp_buf;           // point to Goertzel dft output buffer
 
 			// do it
-			goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel);
+			if (goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
+				return;
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
 				register float *buf_out = adc_data[buf_index];
@@ -2606,80 +2614,22 @@ void process_buttons(void)
 	}
 
 	if (op_mode != OP_MODE_MEASURING)
-	{	// busy calibrating
-/*		for (unsigned int i = 0; i < BUTTON_NUM; i++)
-		{
-			if (button[i].released)
-			{	// reset button data
-				button[i].pressed_tick = 0;
-				button[i].held_ms      = 0;
-				button[i].processed    = 0;
-				button[i].released     = 0;
-			}
-		}
-*/		return;
-	}
+		return;	       // busy calibrating
 
+	// *************
 	// HOLD button
+
 	if (button[BUTTON_HOLD].pressed_tick > 0 && button[BUTTON_SP].pressed_tick == 0 && button[BUTTON_RCL].pressed_tick == 0)
 	{
 		if (button[BUTTON_HOLD].held_ms >= 500 && button[BUTTON_HOLD].processed == 0)
 		{	// HOLD held down
 			button[BUTTON_HOLD].processed = 1;
+
 			display_hold = 0;
 			memset((void *)&calibrate, 0, sizeof(calibrate));
 			calibrate.Hz = 100;
 			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
-		}
-		return;
-	}
-
-	// S/P button
-	if (button[BUTTON_HOLD].pressed_tick == 0 && button[BUTTON_SP].pressed_tick > 0 && button[BUTTON_RCL].pressed_tick == 0)
-	{
-		if (button[BUTTON_SP].held_ms >= 500 && button[BUTTON_SP].processed == 0)
-		{	// S/P held down
-			button[BUTTON_SP].processed = 1;
-			display_hold = 0;
-			memset((void *)&calibrate, 0, sizeof(calibrate));
-			calibrate.Hz = 100;
-			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
-		}
-		else
-		{
-
-		}
-		return;
-	}
-
-	// RCL button
-	if (button[BUTTON_HOLD].pressed_tick == 0 && button[BUTTON_SP].pressed_tick == 0 && button[BUTTON_RCL].pressed_tick > 0)
-	{
-		if (button[BUTTON_RCL].held_ms >= 500 && button[BUTTON_RCL].processed == 0)
-		{	// RCL held down
-			button[BUTTON_RCL].processed = 1;
-
-			display_hold = 0;
-
-			// cycle the frequency
-			switch (settings.measurement_Hz)
-			{
-				case 100:
-					settings.measurement_Hz = 300;
-					break;
-				default:
-				case 300:
-					settings.measurement_Hz = 1000;
-					break;
-				case 1000:
-					settings.measurement_Hz = 100;
-					break;
-			}
-
-			set_measurement_frequency(settings.measurement_Hz);
-
-			// save settings
-			save_settings_timer = SAVE_SETTINGS_MS;
+			draw_screen();
 		}
 		return;
 	}
@@ -2693,8 +2643,27 @@ void process_buttons(void)
 		}
 		button[BUTTON_HOLD].released     = 0;
 		button[BUTTON_HOLD].pressed_tick = 0;
+		button[BUTTON_HOLD].held_ms      = 0;
 		button[BUTTON_HOLD].processed    = 0;
 		draw_screen();
+	}
+
+	// *************
+	// S/P button
+
+	if (button[BUTTON_HOLD].pressed_tick == 0 && button[BUTTON_SP].pressed_tick > 0 && button[BUTTON_RCL].pressed_tick == 0)
+	{
+		if (button[BUTTON_SP].held_ms >= 500 && button[BUTTON_SP].processed == 0)
+		{	// S/P held down
+			button[BUTTON_SP].processed = 1;
+
+			display_hold = 0;
+			memset((void *)&calibrate, 0, sizeof(calibrate));
+			calibrate.Hz = 100;
+			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
+			draw_screen();
+		}
+		return;
 	}
 
 	if (button[BUTTON_SP].released)
@@ -2707,14 +2676,48 @@ void process_buttons(void)
 		}
 		button[BUTTON_SP].released     = 0;
 		button[BUTTON_SP].pressed_tick = 0;
+		button[BUTTON_SP].held_ms      = 0;
 		button[BUTTON_SP].processed    = 0;
 		draw_screen();
+	}
+
+	// *************
+	// RCL button
+
+	if (button[BUTTON_HOLD].pressed_tick == 0 && button[BUTTON_SP].pressed_tick == 0 && button[BUTTON_RCL].pressed_tick > 0)
+	{
+		if (button[BUTTON_RCL].held_ms >= 500 && button[BUTTON_RCL].processed == 0)
+		{	// RCL held down
+			button[BUTTON_RCL].processed = 1;
+
+			display_hold = 0;
+
+			// cycle the frequency
+			switch (settings.measurement_Hz)
+			{
+				default:
+				case 100:
+					settings.measurement_Hz = 1000;
+					break;
+				case 1000:
+					settings.measurement_Hz = 100;
+					break;
+			}
+
+			set_measurement_frequency(settings.measurement_Hz);
+
+			// save settings
+			save_settings_timer = SAVE_SETTINGS_MS;
+	
+			draw_screen();
+		}
+		return;
 	}
 
 	if (button[BUTTON_RCL].released)
 	{
 		if (button[BUTTON_RCL].processed == 0)
-		{
+		{			
 			display_hold = 0;
 
 			// cycle through the LCR modes (inc SLOW/FAST mode)
@@ -2734,10 +2737,13 @@ void process_buttons(void)
 
 		button[BUTTON_RCL].released     = 0;
 		button[BUTTON_RCL].pressed_tick = 0;
+		button[BUTTON_RCL].held_ms      = 0;
 		button[BUTTON_RCL].processed    = 0;
 
 		draw_screen();
 	}
+
+	// *************
 }
 
 void process_uart_send(void)
