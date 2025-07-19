@@ -2133,7 +2133,17 @@ void SysTick_Handler(void)
 			}
 			else
 			if (pressed_tick > 0) // && butt->processed == 0)
+			{
 				butt->held_ms          = tick - pressed_tick;           // time the button has been held down for
+			}
+			else
+			if (butt->processed)
+			{
+				butt->held_ms      = 0;
+				butt->released     = 0;
+				butt->pressed_tick = 0;
+				butt->processed    = 0;
+			}
 		}
 	}
 
@@ -2614,7 +2624,15 @@ void process_buttons(void)
 	}
 
 	if (op_mode != OP_MODE_MEASURING)
-		return;	       // busy calibrating
+	{	// busy calibrating
+
+		// ignore any button presses during calibration
+		for (unsigned int i = 0; i < BUTTON_NUM; i++)
+			if (button[i].released || button[i].pressed_tick > 0)
+				button[i].processed = 1;
+				
+		return;	
+	}
 
 	// *************
 	// HOLD button
@@ -2638,14 +2656,14 @@ void process_buttons(void)
 	{
 		if (button[BUTTON_HOLD].processed == 0)
 		{
+			button[BUTTON_HOLD].processed = 1;
+
 			display_hold ^= 1u;                         // toggle HOLD flag
 			//settings.flags ^= SETTING_FLAG_UART_DSO;
+
+			draw_screen();
 		}
-		button[BUTTON_HOLD].released     = 0;
-		button[BUTTON_HOLD].pressed_tick = 0;
-		button[BUTTON_HOLD].held_ms      = 0;
-		button[BUTTON_HOLD].processed    = 0;
-		draw_screen();
+		return;
 	}
 
 	// *************
@@ -2670,15 +2688,15 @@ void process_buttons(void)
 	{
 		if (button[BUTTON_SP].processed == 0)
 		{
+			button[BUTTON_SP].processed = 1;
+
 			display_hold = 0;
 			settings.flags ^= SETTING_FLAG_PARALLEL;    // toggle Serial/Parallel display
 			save_settings_timer = SAVE_SETTINGS_MS;     // save settings
+
+			draw_screen();
 		}
-		button[BUTTON_SP].released     = 0;
-		button[BUTTON_SP].pressed_tick = 0;
-		button[BUTTON_SP].held_ms      = 0;
-		button[BUTTON_SP].processed    = 0;
-		draw_screen();
+		return;
 	}
 
 	// *************
@@ -2718,6 +2736,8 @@ void process_buttons(void)
 	{
 		if (button[BUTTON_RCL].processed == 0)
 		{			
+			button[BUTTON_RCL].processed = 1;
+
 			display_hold = 0;
 
 			// cycle through the LCR modes (inc SLOW/FAST mode)
@@ -2733,14 +2753,10 @@ void process_buttons(void)
 
 			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
+
+			draw_screen();
 		}
-
-		button[BUTTON_RCL].released     = 0;
-		button[BUTTON_RCL].pressed_tick = 0;
-		button[BUTTON_RCL].held_ms      = 0;
-		button[BUTTON_RCL].processed    = 0;
-
-		draw_screen();
+		return;
 	}
 
 	// *************
