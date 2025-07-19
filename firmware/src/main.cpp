@@ -22,6 +22,13 @@
 
 // ***********************************************************
 
+enum {
+	BUTTON_HOLD = 0,
+	BUTTON_SP,
+	BUTTON_RCL,
+	BUTTON_NUM
+};
+
 typedef struct {
 	GPIO_TypeDef     *gpio_port;
 	uint16_t          gpio_pin;
@@ -29,6 +36,7 @@ typedef struct {
 	volatile uint32_t pressed_tick;    // tick value when button was pressed
 	volatile uint8_t  released;        // true when button is released
 	volatile uint32_t held_ms;         // number of ms the button is/was held for
+	uint8_t           processed;       // set once we've delt with this button
 } t_button;
 
 typedef struct {
@@ -138,9 +146,7 @@ struct {
 uint32_t              draw_screen_count  = 0;
 char                  buffer_display[26] = {0};
 
-t_button              button[3] = {0};
-
-float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;
+t_button              button[BUTTON_NUM] = {0};
 
 const uint16_t        DAC_resolution                  = 256;  // 8-bit
 volatile unsigned int sine_table_index                = 0;    //
@@ -161,11 +167,12 @@ struct {
 	t_comp            phase_sum[8];
 } calibrate = {0};
 
-const float           hi_gain_threshold = 1500;
-unsigned int          volt_gain_sel     = 0;
-unsigned int          amp_gain_sel      = 0;
-float                 high_gain         = 101;
-unsigned int          gain_changed      = 0;
+unsigned int          volt_gain_sel   = 0;
+unsigned int          amp_gain_sel    = 0;
+unsigned int          gain_changed    = 0;
+
+float                 high_gain       = 101;
+float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;
 
 // ADC DMA sample buffer
 t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];      // *2 for DMA double buffering (ADC/DMA is continuously running)
@@ -184,7 +191,7 @@ float                 adc_data[8][ADC_DATA_LENGTH] = {0};
 // non-zero if waveform clipping/saturation is detected (per block)
 // we use the histogram method to detect clipped/saturate samples
 uint8_t               adc_data_clipping[4] = {0};
-uint8_t               adc_data_clipped[4] = {0};
+uint8_t               adc_data_clipped[4]  = {0};
 
 float                 mag_rms[8]   = {0};
 float                 phase_deg[8] = {0};
@@ -1036,8 +1043,8 @@ void process_data(void)
 	#endif
 
 	#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
-		// median filter to improve display reading stabilisation
-		median_filter();
+		if (op_mode == OP_MODE_MEASURING)
+			median_filter();                          // median filter to improve display reading stabilisation
 	#endif
 
 	// gain path decision
@@ -1071,32 +1078,34 @@ void process_data(void)
 
 	system_data.impedance = system_data.rms_voltage_adc / system_data.rms_current_adc;
 
-	if (op_mode == OP_MODE_MEASURING)
-	{
-		if (settings.open_probe_calibration->done)
-		{	// apply open probe calibration
+	#if 1
+		if (op_mode == OP_MODE_MEASURING)
+		{
+			if (settings.open_probe_calibration->done)
+			{	// apply open probe calibration
 
-			const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+				const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
-			const float v_cal_rms_lo = settings.open_probe_calibration[freq_index].mag_rms[0];
-			const float i_cal_rms_hi = settings.open_probe_calibration[freq_index].mag_rms[6] * inv_series_ohms * high_scale;
+				const float v_cal_rms_lo = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_VOLT_LO_GAIN * 2];
+				const float i_cal_rms_hi = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_AMP_HI_GAIN  * 2] * inv_series_ohms * high_scale;
 
-		 	const float imp_cal = v_cal_rms_lo / i_cal_rms_hi;
+			 	const float imp_cal = v_cal_rms_lo / i_cal_rms_hi;
 
-			system_data.impedance = (imp_cal * system_data.impedance) / (imp_cal - system_data.impedance);
+				system_data.impedance = (imp_cal * system_data.impedance) / (imp_cal - system_data.impedance);
+			}
+
+			if (settings.shorted_probe_calibration->done)
+			{	// apply shorted probe calibration
+
+
+
+				// TODO:
+
+
+
+			}
 		}
-
-		if (settings.shorted_probe_calibration->done)
-		{	// apply shorted probe calibration
-
-
-
-			// TODO:
-
-
-
-		}
-	}
+	#endif
 
 	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
 	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);   // phase difference between ADC and AFC waves
@@ -1332,6 +1341,7 @@ void process_ADC(const void *buffer)
 			const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then switch to slower coeff
 
 			if (!adc_data_clipping[vi_mode] || op_mode != OP_MODE_MEASURING)   // don't bother if the samples are being clipped (the block will not be used)
+//			if (!adc_data_clipping[vi_mode] && op_mode == OP_MODE_MEASURING)   // don't bother if the samples are being clipped (the block will not be used)
 			{	// ADC input
 
 				// compute the DC offset
@@ -1385,18 +1395,19 @@ void process_ADC(const void *buffer)
 
 	if (vi_index >= VI_MODE_DONE)
 	{
-		gain_changed = (memcmp(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped)) != 0) ? 1 : 0; // '1' if gain selection changed
+		gain_changed = (memcmp(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped)) != 0) ? 1 : 0;    // '1' if gain selection changed
 
 		memcpy(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped));   // save the new clip detection flags
 		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));                 // reset ready for next run
 
-		if (!display_hold && gain_changed)
+//		if (!display_hold && gain_changed)
+		if (!display_hold)
 		{
 			// gain path decision
 			// use the high gain samples only if they aren't clipping/saturating
 			//
-			volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;  // '0' = LOW gain mode   '1' = HIGH gain mode
-			amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;  // '0' = LOW gain mode   '1' = HIGH gain mode
+			volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;      // '0' = LOW gain mode   '1' = HIGH gain mode
+			amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;      // '0' = LOW gain mode   '1' = HIGH gain mode
 		}
 
 		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);           // TEST only, LED off
@@ -2073,7 +2084,7 @@ void SysTick_Handler(void)
 
 		const int16_t debounce_ms = 30;
 
-		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
+		for (unsigned int i = 0; i < BUTTON_NUM; i++)
 		{
 			t_button *butt = &button[i];
 			if (butt->gpio_port == NULL)
@@ -2090,20 +2101,31 @@ void SysTick_Handler(void)
 
 			if (pressed_tick == 0 && debounce >= debounce_ms)
 			{	// just pressed
-				butt->released     = 0;                             // clear released flag
-				butt->held_ms      = 0;                             // reset held down time
-				butt->pressed_tick = tick;                          // remember the tick the button was pressed
+				butt->released         = 0;                             // clear released flag
+				butt->held_ms          = 0;                             // reset held down time
+				butt->processed        = 0;                             // clear flag
+				butt->pressed_tick     = tick;                          // remember the tick the button was pressed
 			}
 			else
 			if (pressed_tick > 0 && debounce <= 0)
 			{	// just released
-				butt->held_ms      = tick - pressed_tick;           // save the time the button was held down for
-				butt->released     = 1;                             // set released flag
-				butt->pressed_tick = 0;                             // reset pressed tick
+				if (butt->processed)
+				{
+					butt->held_ms      = 0;
+					butt->released     = 0;
+					butt->pressed_tick = 0;
+					butt->processed    = 0;
+				}
+				else
+				{
+					butt->held_ms      = tick - pressed_tick;           // save the time the button was held down for
+					butt->released     = 1;                             // set released flag
+					butt->pressed_tick = 0;                             // reset pressed tick
+				}
 			}
 			else
-			if (pressed_tick > 0)
-				butt->held_ms      = tick - pressed_tick;           // time the button has been held down for
+			if (pressed_tick > 0) // && butt->processed == 0)
+				butt->held_ms          = tick - pressed_tick;           // time the button has been held down for
 		}
 	}
 
@@ -2573,9 +2595,9 @@ void GPIO_init(void)
 void process_buttons(void)
 {
 	// both HOLD and S/P buttons held down then released
-	if (button[0].pressed_tick > 0 && button[1].pressed_tick > 0 && button[2].pressed_tick == 0)
+	if (button[BUTTON_HOLD].pressed_tick > 0 && button[BUTTON_SP].pressed_tick > 0 && button[BUTTON_RCL].pressed_tick == 0)
 	{
-		if (button[0].held_ms >= 800 && button[1].held_ms >= 800)
+		if (button[BUTTON_HOLD].held_ms >= 800 && button[BUTTON_SP].held_ms >= 800)
 		{	// clear all saved settings (inc open/short calibrations), then reboot
 			clear_settings();
 			reboot();
@@ -2583,63 +2605,60 @@ void process_buttons(void)
 		return;
 	}
 
-	if (button[0].released)
-	{	// HOLD button
-
-		if (button[0].held_ms >= 800)
+	if (op_mode != OP_MODE_MEASURING)
+	{	// busy calibrating
+/*		for (unsigned int i = 0; i < BUTTON_NUM; i++)
 		{
-			display_hold = 0;
-
-			memset((void *)&calibrate, 0, sizeof(calibrate));
-			calibrate.Hz = 100;
-
-			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
+			if (button[i].released)
+			{	// reset button data
+				button[i].pressed_tick = 0;
+				button[i].held_ms      = 0;
+				button[i].processed    = 0;
+				button[i].released     = 0;
+			}
 		}
-		else
-		{
-			display_hold ^= 1u;                         // toggle HOLD flag
-//			settings.flags ^= SETTING_FLAG_UART_DSO;
-		}
-
-		button[0].released     = 0;
-		button[0].pressed_tick = 0;
-
-		draw_screen();
+*/		return;
 	}
 
-	if (button[1].released)
-	{	// S/P button
-
-		if (button[1].held_ms >= 800)
-		{
+	// HOLD button
+	if (button[BUTTON_HOLD].pressed_tick > 0 && button[BUTTON_SP].pressed_tick == 0 && button[BUTTON_RCL].pressed_tick == 0)
+	{
+		if (button[BUTTON_HOLD].held_ms >= 500 && button[BUTTON_HOLD].processed == 0)
+		{	// HOLD held down
+			button[BUTTON_HOLD].processed = 1;
 			display_hold = 0;
-
 			memset((void *)&calibrate, 0, sizeof(calibrate));
 			calibrate.Hz = 100;
+			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
+		}
+		return;
+	}
 
+	// S/P button
+	if (button[BUTTON_HOLD].pressed_tick == 0 && button[BUTTON_SP].pressed_tick > 0 && button[BUTTON_RCL].pressed_tick == 0)
+	{
+		if (button[BUTTON_SP].held_ms >= 500 && button[BUTTON_SP].processed == 0)
+		{	// S/P held down
+			button[BUTTON_SP].processed = 1;
+			display_hold = 0;
+			memset((void *)&calibrate, 0, sizeof(calibrate));
+			calibrate.Hz = 100;
 			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
 		}
 		else
 		{
-			display_hold = 0;
 
-			settings.flags ^= SETTING_FLAG_PARALLEL;    // toggle Serial/Parallel display
-
-			// save settings
-			save_settings_timer = SAVE_SETTINGS_MS;
 		}
-
-		button[1].released     = 0;
-		button[1].pressed_tick = 0;
-
-		draw_screen();
+		return;
 	}
 
-	if (button[2].released)
-	{	// RCL button
+	// RCL button
+	if (button[BUTTON_HOLD].pressed_tick == 0 && button[BUTTON_SP].pressed_tick == 0 && button[BUTTON_RCL].pressed_tick > 0)
+	{
+		if (button[BUTTON_RCL].held_ms >= 500 && button[BUTTON_RCL].processed == 0)
+		{	// RCL held down
+			button[BUTTON_RCL].processed = 1;
 
-		if (button[2].held_ms >= 800)
-		{
 			display_hold = 0;
 
 			// cycle the frequency
@@ -2662,7 +2681,39 @@ void process_buttons(void)
 			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
 		}
-		else
+		return;
+	}
+
+	if (button[BUTTON_HOLD].released)
+	{
+		if (button[BUTTON_HOLD].processed == 0)
+		{
+			display_hold ^= 1u;                         // toggle HOLD flag
+			//settings.flags ^= SETTING_FLAG_UART_DSO;
+		}
+		button[BUTTON_HOLD].released     = 0;
+		button[BUTTON_HOLD].pressed_tick = 0;
+		button[BUTTON_HOLD].processed    = 0;
+		draw_screen();
+	}
+
+	if (button[BUTTON_SP].released)
+	{
+		if (button[BUTTON_SP].processed == 0)
+		{
+			display_hold = 0;
+			settings.flags ^= SETTING_FLAG_PARALLEL;    // toggle Serial/Parallel display
+			save_settings_timer = SAVE_SETTINGS_MS;     // save settings
+		}
+		button[BUTTON_SP].released     = 0;
+		button[BUTTON_SP].pressed_tick = 0;
+		button[BUTTON_SP].processed    = 0;
+		draw_screen();
+	}
+
+	if (button[BUTTON_RCL].released)
+	{
+		if (button[BUTTON_RCL].processed == 0)
 		{
 			display_hold = 0;
 
@@ -2681,8 +2732,9 @@ void process_buttons(void)
 			save_settings_timer = SAVE_SETTINGS_MS;
 		}
 
-		button[2].released     = 0;
-		button[2].pressed_tick = 0;
+		button[BUTTON_RCL].released     = 0;
+		button[BUTTON_RCL].pressed_tick = 0;
+		button[BUTTON_RCL].processed    = 0;
 
 		draw_screen();
 	}

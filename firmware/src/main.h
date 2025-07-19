@@ -70,10 +70,10 @@
 
 //#define GOERTZEL_FILTER_LENGTH     0                       // don't Goertzel filter
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 4)   // 1/2 sine cycle filter length
-//#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
-#define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH         // two sine cycle filter length (takes slightly longer)
+#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
+//#define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH         // two sine cycle filter length (takes slightly longer)
 
-#define CALIBRATE_COUNT              5              // number of results to average when doing the open/short calibration
+#define CALIBRATE_COUNT              3              // number of results to average when doing the open/short calibration
 
 #define SAVE_SETTINGS_MS             5000           // ms we wait till we save new settings (helps reduce number of flash writes)
 
