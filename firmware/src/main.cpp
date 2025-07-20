@@ -30,13 +30,13 @@ enum {
 };
 
 typedef struct {
-	GPIO_TypeDef     *gpio_port;
-	uint16_t          gpio_pin;
-	int16_t           debounce;        // counter for debounce
-	volatile uint32_t pressed_tick;    // tick value when button was pressed
-	volatile uint8_t  released;        // true when button is released
-	volatile uint32_t held_ms;         // number of ms the button is/was held for
-	uint8_t           processed;       // set once we've delt with this button
+	GPIO_TypeDef     *gpio_port;       // the GPIO port for the button
+	uint16_t          gpio_pin;        // the GPIO pin for the button
+	int16_t           debounce;        // counter for debouncing (switches always become more noisy after time)
+	volatile uint32_t pressed_ms;      // milli-sec tick when the button was initially pressed
+	volatile uint32_t held_ms;         // number of ms the button has/was held pressed for
+	volatile uint8_t  released;        // set to '1' when the user releases the button
+	volatile uint8_t  processed;       // set to '1' by the exec once it's delt with the new button press
 } t_button;
 
 typedef struct {
@@ -644,7 +644,7 @@ int goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned i
 		// servicing user input is paramount
 		//
 		for (unsigned int b = 0; b < BUTTON_NUM; b++)
-			if (button[b].pressed_tick > 0 || button[b].released)
+			if (button[b].pressed_ms > 0 || button[b].released)
 				return -1;
 	}
 
@@ -1218,7 +1218,7 @@ void process_ADC(const void *buffer)
 
 		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
 
-		// reset the clipping detected flags
+		// reset the waveform clip/saturation detection flags (one for each VI mode)
 		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
 
 		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);        // TEST only, LED on
@@ -1226,8 +1226,6 @@ void process_ADC(const void *buffer)
 
 	// each time the HW VI mode is changed, the ADC input sees a large unwanted spike/DC-offset that takes time to settle :(
 	// so we simply discard a number of sample blocks after each HW VI mode change
-	//
-	// actually, the spike only appears to occur after the GS pin (gain setting) is changed
 
 	// skip less blocks if the gain pin hasn't changed
 //	const unsigned int skip_block_count = ((vi_mode >> 1) == (prev_vi_mode >> 1)) ? MODE_SWITCH_BLOCK_WAIT_SHORT : MODE_SWITCH_BLOCK_WAIT_LONG;
@@ -1305,14 +1303,14 @@ void process_ADC(const void *buffer)
 
 	// decide which modes are useful and which are not
 	//
-	// we drop the hi-gain blocks if they are clipping (the data would useless)
-	// we drop the lo-gain blocks if the hi-gain blocks are usable (no clipping detected)
+	// we drop the hi-gain blocks if they are clipped (makes the data useless)
+	// we drop the lo-gain blocks if the hi-gain blocks are usable (no high-gain clipping detected)
 	//
 	unsigned int average_count = SLOW_ADC_AVERAGE_COUNT;
 	if (op_mode == OP_MODE_MEASURING)
 	{
 		if (display_hold)
-			average_count = 8;                           // display is paused, we're doing nothing but sending the samples to the PC
+			average_count = 8;                           // display is paused, we're doing nothing but sending the samples to the PC (average any number of blocks you want here)
 		else
 		if (adc_data_clipping[vi_mode])
 			average_count = 1;                           // this block of samples are clipping, drop them, move on to the next mode
@@ -1321,13 +1319,15 @@ void process_ADC(const void *buffer)
 			average_count = 1;                           // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples
 		else
 		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-			average_count = FAST_ADC_AVERAGE_COUNT;      // user has selected faster display updates
+			average_count = FAST_ADC_AVERAGE_COUNT;      // user has selected faster display updates, which just means we average less blocks together
 	}
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 		return;                                          // not yet summed the desired number of sample blocks
 
-	// we've now summed the desired number of sample blocks, they're now ready to be re-scaled, saved and DC offset removed for use later use ..
+
+
+	// we've now summed the desired number of sample blocks, so are ready to be re-scaled, saved and DC offset removed ..
 
 	// get ready for next measurement VI mode
 	vi_index++;
@@ -1335,7 +1335,7 @@ void process_ADC(const void *buffer)
 	// set the GS/VI pins ready for the next measurement run
 	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
 
-	{	// fetch & re-scale the summed ADC sample blocks to create an average (reduces noise)
+	{	// fetch & re-scale the summed ADC sample blocks to create an averaged single block (reduces noise)
 
 		register float *buf_adc = adc_data[buf_index + 0];
 		register float *buf_afc = adc_data[buf_index + 1];
@@ -1354,8 +1354,7 @@ void process_ADC(const void *buffer)
 
 			const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then switch to slower coeff
 
-			if (!adc_data_clipping[vi_mode] || op_mode != OP_MODE_MEASURING)   // don't bother if the samples are being clipped (the block will not be used)
-//			if (!adc_data_clipping[vi_mode] && op_mode == OP_MODE_MEASURING)   // don't bother if the samples are being clipped (the block will not be used)
+			if (!adc_data_clipping[vi_mode] || op_mode != OP_MODE_MEASURING)   // don't bother if the samples are clipped (makes the block useless)
 			{	// ADC input
 
 				// compute the DC offset
@@ -1365,17 +1364,19 @@ void process_ADC(const void *buffer)
 				sum *= 1.0f / ADC_DATA_LENGTH;
 
 				// LPF
-				settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
+				if (!adc_data_clipping[vi_mode])
+					settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
 
-				if (!display_hold)                            // don't remove offset if display HOLD is active
+				if (!display_hold)                            // don't bother remove offset if display HOLD is active
 				{	// subtract/remove the DC offset
-					sum = settings.input_offset.adc[vi_mode];
+					if (!adc_data_clipping[vi_mode])
+						sum = settings.input_offset.adc[vi_mode];
 					for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 						buf_adc[i] -= sum;
 				}
 			}
 
-			{	// AFC input
+			{	// AFC input (samples never ever clips)
 
 				// compute the DC offset
 				register float sum = 0;
@@ -2111,43 +2112,43 @@ void SysTick_Handler(void)
 			debounce   = (debounce < 0) ? 0 : (debounce > debounce_ms) ? debounce_ms : debounce;
 			butt->debounce = debounce;
 
-			const uint32_t pressed_tick = butt->pressed_tick;
+			const uint32_t pressed_ms = butt->pressed_ms;
 
-			if (pressed_tick == 0 && debounce >= debounce_ms)
+			if (pressed_ms == 0 && debounce >= debounce_ms)
 			{	// just pressed
 				butt->released         = 0;                             // clear released flag
 				butt->held_ms          = 0;                             // reset held down time
 				butt->processed        = 0;                             // clear flag
-				butt->pressed_tick     = tick;                          // remember the tick the button was pressed
+				butt->pressed_ms     = tick;                          // remember the tick the button was pressed
 			}
 			else
-			if (pressed_tick > 0 && debounce <= 0)
+			if (pressed_ms > 0 && debounce <= 0)
 			{	// just released
 				if (butt->processed)
 				{
 					butt->held_ms      = 0;
 					butt->released     = 0;
-					butt->pressed_tick = 0;
+					butt->pressed_ms = 0;
 					butt->processed    = 0;
 				}
 				else
 				{
-					butt->held_ms      = tick - pressed_tick;           // save the time the button was held down for
+					butt->held_ms      = tick - pressed_ms;           // save the time the button was held down for
 					butt->released     = 1;                             // set released flag
-					butt->pressed_tick = 0;                             // reset pressed tick
+					butt->pressed_ms = 0;                             // reset pressed tick
 				}
 			}
 			else
-			if (pressed_tick > 0) // && butt->processed == 0)
+			if (pressed_ms > 0) // && butt->processed == 0)
 			{
-				butt->held_ms      = tick - pressed_tick;               // time the button has been held down for
+				butt->held_ms      = tick - pressed_ms;               // time the button has been held down for
 			}
 			else
 			if (butt->processed)
 			{
 				butt->held_ms      = 0;
 				butt->released     = 0;
-				butt->pressed_tick = 0;
+				butt->pressed_ms = 0;
 				butt->processed    = 0;
 			}
 		}
@@ -2619,7 +2620,7 @@ void GPIO_init(void)
 void process_buttons(void)
 {
 	// both HOLD and S/P buttons held down
-	if (button[BUTTON_HOLD].pressed_tick > 0 && button[BUTTON_SP].pressed_tick > 0 && button[BUTTON_RCL].pressed_tick == 0)
+	if (button[BUTTON_HOLD].pressed_ms > 0 && button[BUTTON_SP].pressed_ms > 0 && button[BUTTON_RCL].pressed_ms == 0)
 	{
 		if (button[BUTTON_HOLD].held_ms >= 800 && button[BUTTON_SP].held_ms >= 800)
 		{	// clear all saved settings (inc open/short calibrations), then reboot
@@ -2642,7 +2643,7 @@ void process_buttons(void)
 	// *************
 	// HOLD button
 
-	if (button[BUTTON_HOLD].pressed_tick > 0 && button[BUTTON_SP].pressed_tick == 0 && button[BUTTON_RCL].pressed_tick == 0)
+	if (button[BUTTON_HOLD].pressed_ms > 0 && button[BUTTON_SP].pressed_ms == 0 && button[BUTTON_RCL].pressed_ms == 0)
 	{
 		if (button[BUTTON_HOLD].held_ms >= 500 && button[BUTTON_HOLD].processed == 0)
 		{	// HOLD held down
@@ -2674,7 +2675,7 @@ void process_buttons(void)
 	// *************
 	// S/P button
 
-	if (button[BUTTON_HOLD].pressed_tick == 0 && button[BUTTON_SP].pressed_tick > 0 && button[BUTTON_RCL].pressed_tick == 0)
+	if (button[BUTTON_HOLD].pressed_ms == 0 && button[BUTTON_SP].pressed_ms > 0 && button[BUTTON_RCL].pressed_ms == 0)
 	{
 		if (button[BUTTON_SP].held_ms >= 500 && button[BUTTON_SP].processed == 0)
 		{	// S/P held down
@@ -2707,7 +2708,7 @@ void process_buttons(void)
 	// *************
 	// RCL button
 
-	if (button[BUTTON_HOLD].pressed_tick == 0 && button[BUTTON_SP].pressed_tick == 0 && button[BUTTON_RCL].pressed_tick > 0)
+	if (button[BUTTON_HOLD].pressed_ms == 0 && button[BUTTON_SP].pressed_ms == 0 && button[BUTTON_RCL].pressed_ms > 0)
 	{
 		if (button[BUTTON_RCL].held_ms >= 500 && button[BUTTON_RCL].processed == 0)
 		{	// RCL held down
@@ -2982,8 +2983,8 @@ int main(void)
 	settings.series_ohms    = SERIES_RESISTOR_OHMS;    // this can be calibrated using a DUT with a known resistance value
 	settings.measurement_Hz = 1000;
 //	settings.lcr_mode       = LCR_MODE_INDUCTANCE;
-//	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
-	settings.lcr_mode       = LCR_MODE_RESISTANCE;
+	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
+//	settings.lcr_mode       = LCR_MODE_RESISTANCE;
 //	settings.flags          = 0;
 	settings.flags         |= SETTING_FLAG_UART_DSO;   // send ADC data via the serial port
 
@@ -3021,7 +3022,10 @@ int main(void)
 
 	printf("\r\nrebooted m181 LCR Meter v%.2f\r\n", FW_VERSION);
 
-	{	// wait until all buttons have been released for at least 500ms
+	// *************************************
+	
+	{	// wait until the user has released all buttons (for at least 500ms)
+
 		uint32_t butt_tick = HAL_GetTick();
 
 		while (1)
@@ -3047,11 +3051,13 @@ int main(void)
 		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
 		{
 			button[i].debounce     = 0;
-			button[i].pressed_tick = 0;
+			button[i].pressed_ms = 0;
 			button[i].released     = 0;
 			button[i].held_ms      = 0;
 		}
 	}
+
+	// *************************************
 
 	// start sampling
 	start_ADC();

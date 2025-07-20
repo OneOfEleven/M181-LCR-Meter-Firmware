@@ -10,8 +10,7 @@
 #define I2C_SET_SCL       HAL_GPIO_WritePin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin, GPIO_PIN_SET);
 
 //#define I2C_DELAY         DWT_Delay_ns(50);
-//#define I2C_DELAY         DWT_Delay_ns(1);
-#define I2C_DELAY         __NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();
+#define I2C_DELAY         __NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();
 
 void I2C_bus_init(void)
 {
@@ -25,6 +24,13 @@ void I2C_bus_init(void)
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
 	GPIO_InitStruct.Pin   = SW_I2C_SDA_Pin;
 	HAL_GPIO_Init(SW_I2C_SDA_GPIO_Port, &GPIO_InitStruct);
+
+	// the I2C bus is not shared in this app, so just go with push-pull output type
+	GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull  = GPIO_NOPULL;
+	//GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_OD;
+	//GPIO_InitStruct.Pull  = GPIO_PULLUP;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	GPIO_InitStruct.Pin   = SW_I2C_SCL_Pin;
 	HAL_GPIO_Init(SW_I2C_SCL_GPIO_Port, &GPIO_InitStruct);
 }
@@ -66,9 +72,9 @@ void I2C_stop_cond(void)
 	I2C_DELAY
 }
 
-void I2C_write_bit(uint8_t b)
+void I2C_write_bit(const uint8_t b)
 {
-	if (b > 0)
+	if (b)
 		I2C_SET_SDA
 	else
 		I2C_CLEAR_SDA
@@ -96,29 +102,19 @@ uint8_t I2C_read_bit(void)
 	return b;
 }
 
-uint8_t I2C_write_byte(uint8_t B, const uint8_t start, const uint8_t stop)
+uint8_t I2C_write_byte(const uint8_t B, const uint8_t start, const uint8_t stop)
 {
 	if (start)
 		I2C_start_cond();
 
-	{
-		I2C_write_bit(B & 0x80); // write the most-significant bit
-		B <<= 1;
-		I2C_write_bit(B & 0x80); // write the most-significant bit
-		B <<= 1;
-		I2C_write_bit(B & 0x80); // write the most-significant bit
-		B <<= 1;
-		I2C_write_bit(B & 0x80); // write the most-significant bit
-		B <<= 1;
-		I2C_write_bit(B & 0x80); // write the most-significant bit
-		B <<= 1;
-		I2C_write_bit(B & 0x80); // write the most-significant bit
-		B <<= 1;
-		I2C_write_bit(B & 0x80); // write the most-significant bit
-		B <<= 1;
-		I2C_write_bit(B & 0x80); // write the most-significant bit
-		B <<= 1;
-	}
+	I2C_write_bit(B & 0b10000000);
+	I2C_write_bit(B & 0b01000000);
+	I2C_write_bit(B & 0b00100000);
+	I2C_write_bit(B & 0b00010000);
+	I2C_write_bit(B & 0b00001000);
+	I2C_write_bit(B & 0b00000100);
+	I2C_write_bit(B & 0b00000010);
+	I2C_write_bit(B & 0b00000001);
 
 	const uint8_t ack = I2C_read_bit();
 
@@ -130,18 +126,15 @@ uint8_t I2C_write_byte(uint8_t B, const uint8_t start, const uint8_t stop)
 
 uint8_t I2C_read_byte(const uint8_t ack, const uint8_t stop)
 {
-	register uint8_t B = 0;
-
-	{
-		B = (B << 1) | I2C_read_bit();
-		B = (B << 1) | I2C_read_bit();
-		B = (B << 1) | I2C_read_bit();
-		B = (B << 1) | I2C_read_bit();
-		B = (B << 1) | I2C_read_bit();
-		B = (B << 1) | I2C_read_bit();
-		B = (B << 1) | I2C_read_bit();
-		B = (B << 1) | I2C_read_bit();
-	}
+	register uint8_t B;
+	B  = I2C_read_bit() << 7;
+	B |= I2C_read_bit() << 6;
+	B |= I2C_read_bit() << 5;
+	B |= I2C_read_bit() << 4;
+	B |= I2C_read_bit() << 3;
+	B |= I2C_read_bit() << 2;
+	B |= I2C_read_bit() << 1;
+	B |= I2C_read_bit();
 
 	I2C_write_bit(ack ? 0 : 1);
 
