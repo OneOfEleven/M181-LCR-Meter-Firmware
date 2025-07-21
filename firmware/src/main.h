@@ -8,8 +8,10 @@
 
 #include <stdint.h>
 
-#ifndef __FAST_MATH__
-	#define __FAST_MATH__
+#ifndef DEBUG
+	#ifndef __FAST_MATH__
+		#define __FAST_MATH__
+	#endif
 #endif
 #include <math.h>
 
@@ -40,7 +42,7 @@
     #define M_PI                     3.14159265358979323846264338327950288
 #endif
 
-#define FW_VERSION                   0.3
+#define FW_VERSION                   0.41
 
 #define ARRAY_SIZE(x)               (sizeof(x) / sizeof((x)[0]))
 
@@ -57,11 +59,9 @@
 #define UART_BAUDRATE                921600
 //#define UART_BAUDRATE              1843200      // max rate the CH340N can do
 
-//#define UART_BIG_ENDIAN                           // use this if you want your uart data sent in big endian order
-
 #define PACKET_MARKER                0x19621996     // 32-bit marker to indicate 'start of packet' for the receiver (windows GUI etc)
 
-#define SETTINGS_MARKER              0x19961962     // 32-bit marker to indicate 'start of settings'
+#define SETTINGS_MARKER              0x19961962     // 32-bit marker to indicate 'start of settings' - so we can find them in flash
 
 #define ADC_DATA_LENGTH              128            // 2^n
 
@@ -72,7 +72,7 @@
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
 #define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
 
-#define MEDIAN_SIZE                  3u             // ODD length only (median uses the center value)
+#define MEDIAN_SIZE                  3u             // ODD length only (median uses the center value of a sorted list)
 
 #define SLOW_ADC_AVERAGE_COUNT       128            // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
 #define FAST_ADC_AVERAGE_COUNT       16             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
@@ -80,7 +80,7 @@
 //#define GOERTZEL_FILTER_LENGTH     0                       // don't Goertzel filter
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 4)   // 1/2 sine cycle filter length
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
-#define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH         // two sine cycle filter length (takes slightly longer)
+#define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH         // two sine cycle filter length (slightly longer)
 
 #define CALIBRATE_COUNT              3              // number of results to average when doing the open/short calibration
 

@@ -272,7 +272,7 @@ int start_UART_TX_DMA(const void *data, const unsigned int size)
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
 		return -3;      // still busy sending
 
-	// clear all flags
+	// clear all TX DMA flags
 	LL_DMA_ClearFlag_GI4(DMA1);
 
 	// tell the DMA the TX buffers mem address
@@ -1550,8 +1550,8 @@ void bootup_screen(void)
 	ssd1306_SetCursor(0, 0);
 	ssd1306_WriteString("M181", &Font_7x10, White);
 
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * Font_7x10.width), 0);
 	sprintf(buffer_display, "v%.2f", FW_VERSION);
+	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(buffer_display) * Font_7x10.width), 0);
 	ssd1306_WriteString(buffer_display, &Font_7x10, White);
 
 	ssd1306_SetCursor(16, 14);
@@ -2381,6 +2381,8 @@ void MX_USART1_UART_Init(void)
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOA);
 	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
 
+	LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
+
 	GPIO_InitStruct.Pin        = UART1_TXD_Pin;
 	GPIO_InitStruct.Mode       = LL_GPIO_MODE_ALTERNATE;
 	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_LOW;
@@ -2392,13 +2394,22 @@ void MX_USART1_UART_Init(void)
 	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
 	LL_GPIO_Init(UART1_RXD_GPIO_Port, &GPIO_InitStruct);
 
-	LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_4, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-	LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_4, LL_DMA_PRIORITY_LOW);
-	LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_4, LL_DMA_MODE_NORMAL);
-	LL_DMA_SetPeriphIncMode(        DMA1, LL_DMA_CHANNEL_4, LL_DMA_PERIPH_NOINCREMENT);
-	LL_DMA_SetMemoryIncMode(        DMA1, LL_DMA_CHANNEL_4, LL_DMA_MEMORY_INCREMENT);
-	LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_4, LL_DMA_PDATAALIGN_BYTE);
-	LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_4, LL_DMA_MDATAALIGN_BYTE);
+	{	// TX DMA
+		LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_4, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+		LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_4, LL_DMA_PRIORITY_LOW);
+		LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_4, LL_DMA_MODE_NORMAL);
+		LL_DMA_SetPeriphIncMode(        DMA1, LL_DMA_CHANNEL_4, LL_DMA_PERIPH_NOINCREMENT);
+		LL_DMA_SetMemoryIncMode(        DMA1, LL_DMA_CHANNEL_4, LL_DMA_MEMORY_INCREMENT);
+		LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_4, LL_DMA_PDATAALIGN_BYTE);
+		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_4, LL_DMA_MDATAALIGN_BYTE);
+
+		LL_DMA_ClearFlag_GI4(DMA1);
+		LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_4);
+		LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_4);
+
+		NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
+		NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+	}
 
 	USART_InitStruct.BaudRate            = UART_BAUDRATE;
 	USART_InitStruct.DataWidth           = LL_USART_DATAWIDTH_8B;
@@ -2412,29 +2423,23 @@ void MX_USART1_UART_Init(void)
 	LL_USART_ConfigAsyncMode(USART1);
 
 	LL_USART_EnableDMAReq_TX(USART1);
+	//LL_USART_EnableDMAReq_RX(USART1);
 
-	LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
+	// clear RX error flags .. clearing any one of these also clears all the others
+	LL_USART_ClearFlag_ORE(USART1);    // OverRun Error Flag
+	//LL_USART_ClearFlag_PE(USART1);   // Parity Error Flag
+	//LL_USART_ClearFlag_NE(USART1);   // Noise detected Flag
+	//LL_USART_ClearFlag_FE(USART1);   // Framing Error Flag
+	//LL_USART_ClearFlag_IDLE(USART1); // IDLE line detected Flag
 
-	LL_DMA_ClearFlag_GI4(DMA1);
-
-	LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_4);
-	LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_4);
-
-	NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
-	NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+	// RX isn't done by DMA
+	LL_USART_ClearFlag_RXNE(USART1);
+	LL_USART_EnableIT_RXNE(USART1);
 
 	NVIC_SetPriority(USART1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
 	NVIC_EnableIRQ(USART1_IRQn);
 
 	LL_USART_Enable(USART1);
-/*
-	// tell the DMA the TX buffers mem address
-	LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_4, (uint32_t)data, LL_USART_DMA_GetRegAddr(USART1), LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-	LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_4, size);
-
-	// tell the DMA to start sending the TX data
-	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_4);
-*/
 }
 
 void MX_GPIO_Init(void)
@@ -3162,7 +3167,7 @@ int main(void)
 
 	MX_GPIO_Init();
 	MX_USART1_UART_Init();
-	
+
 	{	// setup the goertzel filter
 		const float normalized_freq = 2.0f / ADC_DATA_LENGTH;  // 2 cycles spanning the sample buffer
 		goertzel_init(&goertzel, normalized_freq);
