@@ -269,14 +269,14 @@ int start_UART_TX_DMA(const void *data, const unsigned int size)
 	if (!LL_USART_IsEnabled(USART1))
 		return -2;      // serial/uart port is disabled
 
-//	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
-//		return -3;      // still busy sending
+	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+		return -3;      // still busy sending
 
 	// clear all flags
 	LL_DMA_ClearFlag_GI4(DMA1);
 
 	// tell the DMA the TX buffers mem address
-	LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_4, LL_USART_DMA_GetRegAddr(USART1), (uint32_t)data, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_4, (uint32_t)data, LL_USART_DMA_GetRegAddr(USART1), LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
 	LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_4, size);
 
 	// tell the DMA to start sending the TX data
@@ -2429,25 +2429,12 @@ void MX_USART1_UART_Init(void)
 	LL_USART_Enable(USART1);
 /*
 	// tell the DMA the TX buffers mem address
-	LL_DMA_ConfigAddresses(ser->dma, ser->dma_channel, LL_USART_DMA_GetRegAddr(ser->device), (uint32_t)&ser->tx.buffer, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-	LL_DMA_SetDataLength(  ser->dma, ser->dma_channel, size);
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_4, (uint32_t)data, LL_USART_DMA_GetRegAddr(USART1), LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_4, size);
 
 	// tell the DMA to start sending the TX data
-	LL_DMA_EnableChannel(ser->dma, ser->dma_tx_channel);
+	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_4);
 */
-}
-
-void MX_DMA_Init(void)
-{
-//	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
-
-	// ADC DMA
-//	NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
-//	NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-
-	// UART TX DMA
-//	NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
-//	NVIC_EnableIRQ(DMA1_Channel4_IRQn);
 }
 
 void MX_GPIO_Init(void)
@@ -2727,9 +2714,9 @@ void DMA1_Channel1_IRQHandler(void)
 // UART TX DMA
 void DMA1_Channel4_IRQHandler(void)
 {
-	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+//	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
 	{
-		if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
+//		if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
 		{
 			LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
 			LL_DMA_ClearFlag_TE4(DMA1);
@@ -2740,32 +2727,24 @@ void DMA1_Channel4_IRQHandler(void)
 
 void ADC1_2_IRQHandler(void)
 {
-/*	if (LL_ADC_IsActiveFlag_EOS(ADC1))
-	{
-		LL_ADC_ClearFlag_EOS(ADC1);
-	}
-
-	if (LL_ADC_IsActiveFlag_OVR(ADC1))
+/*	if (LL_ADC_IsActiveFlag_OVR(ADC1))
 	{
 		LL_ADC_ClearFlag_OVR(ADC1);
-//		AdcGrpRegularOverrunError_Callback();
+
+
 	}
 	else
-	//if (LL_ADC_IsActiveFlag_EOCS(ADC1))
+	if (LL_ADC_IsActiveFlag_EOS(ADC1))
 	{
-		LL_ADC_ClearFlag_EOCS(ADC1);
-		AdcGrpRegularSequenceConvComplete_Callback();
+		LL_ADC_ClearFlag_EOS(ADC1);
+
+
 	}
 */
 }
 
 void TIM3_IRQHandler(void)
 {
-//	if (LL_TIM_IsActiveFlag_TRIG(TIM3))
-//	{
-//		LL_TIM_ClearFlag_TRIG(TIM3);
-//	}
-
 	if (LL_TIM_IsActiveFlag_UPDATE(TIM3))
 	{
 		LL_TIM_ClearFlag_UPDATE(TIM3);
@@ -3183,8 +3162,7 @@ int main(void)
 
 	MX_GPIO_Init();
 	MX_USART1_UART_Init();
-	MX_DMA_Init();
-
+	
 	{	// setup the goertzel filter
 		const float normalized_freq = 2.0f / ADC_DATA_LENGTH;  // 2 cycles spanning the sample buffer
 		goertzel_init(&goertzel, normalized_freq);
