@@ -273,22 +273,24 @@ int start_UART_TX_DMA(const void *data, const unsigned int size)
 	// clear all TX DMA flags
 	LL_DMA_ClearFlag_GI4(DMA1);
 
-	// tell the DMA the TX buffers mem address
+	// give the DMA the data and data size details
 	LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_4, (uint32_t)data, LL_USART_DMA_GetRegAddr(USART1), LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
 	LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_4, size);
 
-	// tell the DMA to start sending the TX data
+	// start sending
 	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_4);
 
-	return 0;
+	return 0; // OK
 }
 
 int _write(int file, char *ptr, int len)
 {
-	const uint32_t tick = sys_tick;
-	while ((sys_tick - tick) < 100 && start_UART_TX_DMA(ptr, len) < 0)
-		__WFI();
-
+	if (ptr != NULL && len > 0)
+	{
+		const uint32_t tick = sys_tick;
+		while ((sys_tick - tick) < 200 && start_UART_TX_DMA(ptr, len) < 0)
+			__WFI();
+	}
 	return len;
 }
 
@@ -2957,6 +2959,13 @@ void process_uart_send(void)
 	#endif
 }
 
+void wait_tx(const uint32_t ms)
+{
+	const uint32_t tick = sys_tick;
+	while (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4) && (sys_tick - tick) < ms)
+		__WFI();
+}
+
 // process any received serial command lines
 void process_serial_command(char *cmd, unsigned int len)
 {
@@ -2986,11 +2995,48 @@ void process_serial_command(char *cmd, unsigned int len)
 	// **********
 	// process the command
 
+	if (strcmp("help", cmd) == 0 || strcmp("?", cmd) == 0)
+	{
+		dprintf(0, "\r\ncommands ..\r\n");
+		wait_tx(10);
+		dprintf(0, "  help or ?   .. this help\r\n");
+		wait_tx(10);
+		dprintf(0, "  reboot      .. reboot this unit\r\n");
+		wait_tx(10);
+		dprintf(0, "  opencal     .. perform an open probe calbration\r\n");
+		wait_tx(10);
+		dprintf(0, "  shortcal    .. perform a shorted probe calbration\r\n");
+		wait_tx(10);
+		dprintf(0, "  dataoff     .. disable live data send\r\n");
+		wait_tx(10);
+		dprintf(0, "  dataon      .. enable live data send\r\n");
+		wait_tx(10);
+		dprintf(0, "  hold        .. toggle display hold\r\n");
+		wait_tx(10);
+		dprintf(0, "  ver         .. show unit version\r\n");
+		wait_tx(10);
+		return;
+	}
+
 	if (strcmp("reboot", cmd) == 0)
 	{
 		dprintf(0, "\r\nrebooting ..\r\n");
 		LL_mDelay(100);
 		reboot();
+	}
+	
+	if (strcmp("ver", cmd) == 0 || strcmp("version", cmd) == 0)
+	{
+		dprintf(0, "\r\nM181 LCR Meter v%0.2f %s %s %s %s %s %s %s\r\n",
+			FW_VERSION,
+			reset_cause.por    ? "POR"    : "por",
+			reset_cause.pin    ? "PIN"    : "pin",
+			reset_cause.sft    ? "SFT"    : "sft",
+			reset_cause.iwdg   ? "IWDG"   : "iwdg",
+			reset_cause.wwdg   ? "WWDG"   : "wwdg",
+			reset_cause.lpwr   ? "LPWR"   : "lpwr",
+			reset_cause.lsirdy ? "LSIRDY" : "lsirdy");
+		return;
 	}
 
 	if (strcmp("opencal", cmd) == 0)
