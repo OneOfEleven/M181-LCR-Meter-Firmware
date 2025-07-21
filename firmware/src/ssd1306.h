@@ -9,7 +9,6 @@
 
 #include <string.h>
 
-#include "stm32f1xx_hal.h"
 #include "fonts.h"
 
 #ifndef SSD1306_I2C_ADDR

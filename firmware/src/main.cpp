@@ -1,6 +1,6 @@
 /**
  ******************************************************************************
- * @file           : main.c
+ * @file           : main.cpp
  * @brief          : Main program body
  ******************************************************************************
  * @attention
@@ -31,8 +31,8 @@ enum {
 
 typedef struct {
 	GPIO_TypeDef     *gpio_port;       // the GPIO port for the button
-	uint16_t          gpio_pin;        // the GPIO pin for the button
-	int16_t           debounce;        // counter for debouncing (switches always become more noisy after time)
+	uint32_t          gpio_pin;        // the GPIO pin for the button
+	volatile int16_t  debounce;        // counter for debouncing (switches always become more noisy after time)
 	volatile uint32_t pressed_ms;      // milli-sec tick when the button was initially pressed
 	volatile uint32_t held_ms;         // number of ms the button has/was held pressed for
 	volatile uint8_t  released;        // set to '1' when the user releases the button
@@ -67,21 +67,22 @@ typedef struct t_comp {
 } t_comp;
 
 #pragma pack(push, 1)
-typedef struct {
-	union {
-		uint32_t marker;
-		uint8_t  marker_b[sizeof(uint32_t)];
-	};
-	union {
-		uint16_t crc;
-		uint8_t  crc_b[sizeof(uint16_t)];
-	};
-	union {
-		float    data[ADC_DATA_LENGTH * 8];
-		uint8_t  data_b[sizeof(float) * ADC_DATA_LENGTH * 8];
-	};
-} t_packet;
+	typedef struct {
+		union {
+			uint32_t marker;
+			uint8_t  marker_b[sizeof(uint32_t)];
+		};
+		union {
+			uint16_t crc;
+			uint8_t  crc_b[sizeof(uint16_t)];
+		};
+		union {
+			float    data[ADC_DATA_LENGTH * 8];
+			uint8_t  data_b[sizeof(float) * ADC_DATA_LENGTH * 8];
+		};
+	} t_packet;
 #pragma pack(pop)
+
 /*
 static const uint16_t omega_7x10[] = {
 	0b0011100,       // 1
@@ -117,18 +118,6 @@ static const uint16_t omega_11x18[] = {
 	0b01111001111    // 18
 };
 
-#if defined(USE_IWDG) && defined(HAL_IWDG_MODULE_ENABLED)
-	IWDG_HandleTypeDef hiwdg          = {0};
-#endif
-UART_HandleTypeDef     huart1         = {0};
-DMA_HandleTypeDef      hdma_usart1_tx = {0};
-TIM_HandleTypeDef      htim3          = {0};
-ADC_HandleTypeDef      hadc1          = {0};
-#ifdef DUAL_ADC_MODE
-	ADC_HandleTypeDef  hadc2          = {0};
-#endif
-DMA_HandleTypeDef      hdma_adc1      = {0};
-
 struct {
 	uint8_t por;
 	uint8_t pin;
@@ -140,8 +129,13 @@ struct {
 } reset_cause = {0};
 
 #ifdef USE_IWDG
+	uint32_t          iwdg_timeout_sec = 8;    // 8 second IWDG timeout
 	volatile uint32_t iwdg_tick = 0;
 #endif
+
+volatile uint32_t     sys_tick = 0;
+
+LL_RCC_ClocksTypeDef  rcc_clocks = {0};                       // various CPU clock frequencies
 
 uint32_t              draw_screen_count  = 0;
 char                  buffer_display[26] = {0};
@@ -179,6 +173,8 @@ t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];      // *2 for DMA dou
 
 uint32_t              frames  = 0;        // just a frame counter
 
+uint8_t               initialising = 1;
+
 // ADC sample block averaging buffer
 // we take several sample blocks and average them together to reduce noise/increase dynamic range
 t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};                        // summing buffer
@@ -214,6 +210,90 @@ t_comp                tmp_buf[ADC_DATA_LENGTH];
 // for TX'ing binary packets vis the serial port
 t_packet              tx_packet;
 
+struct {
+	struct {
+		uint8_t  buffer[1024];     // RX raw buffer
+		uint32_t buffer_rd;
+		uint32_t buffer_wr;
+		uint32_t timer;
+
+		struct {
+			uint8_t  buffer[512];  // RX text line buffer
+			uint32_t buffer_wr;
+		} line;
+	} rx;
+/*
+	struct {
+		uint8_t  buffer[2048];     // TX raw buffer
+		uint32_t buffer_rd;
+		uint32_t buffer_wr;
+		bool     send_now;         // true = send without delay
+		uint32_t timer;
+	} tx;
+*/
+} volatile serial = {0};
+
+// *************************************************************
+
+void reboot(void)
+{
+	__disable_irq();
+
+	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);   // LED on
+
+	__DSB();
+
+	NVIC_SystemReset();
+
+	while (1) {}
+}
+
+void stop(const uint32_t ms)
+{
+	__disable_irq();
+	__DSB();
+	while (1)
+	{
+		LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);    // LED on
+		DWT_Delay_ms(10);
+		LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);  // LED off
+		DWT_Delay_ms(ms);
+	}
+}
+
+int start_UART_TX_DMA(const void *data, const unsigned int size)
+{
+	if (data == NULL || size == 0)
+		return -1;
+
+	if (!LL_USART_IsEnabled(USART1))
+		return -2;      // serial/uart port is disabled
+
+//	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+//		return -3;      // still busy sending
+
+	// clear all flags
+	LL_DMA_ClearFlag_GI4(DMA1);
+
+	// tell the DMA the TX buffers mem address
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_4, LL_USART_DMA_GetRegAddr(USART1), (uint32_t)data, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_4, size);
+
+	// tell the DMA to start sending the TX data
+	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_4);
+
+	return 0;
+}
+
+int _write(int file, char *ptr, int len)
+{
+	const uint32_t tick = sys_tick;
+	while ((sys_tick - tick) < 100 && start_UART_TX_DMA(ptr, len) < 0)
+		__WFI();
+
+	return len;
+}
+
 // ***********************************************************
 
 //__STATIC_INLINE void DAC_write(const uint8_t dat)
@@ -235,93 +315,25 @@ void set_measure_mode_pins(const unsigned int mode)
 	{
 		default:
 		case VI_MODE_VOLT_LO_GAIN:           // low gain voltage mode
-			HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, LOW);
-			HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, HIGH);
+			LL_GPIO_ResetOutputPin(VI_GPIO_Port, VI_Pin);
+			LL_GPIO_SetOutputPin(  GS_GPIO_Port, GS_Pin);
 			break;
 
 		case VI_MODE_AMP_LO_GAIN:            // low gain current mode
-			HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, HIGH);
-			HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, HIGH);
+			LL_GPIO_SetOutputPin(  VI_GPIO_Port, VI_Pin);
+			LL_GPIO_SetOutputPin(  GS_GPIO_Port, GS_Pin);
 			break;
 
 		case VI_MODE_VOLT_HI_GAIN:           // high gain voltage mode
-			HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, LOW);
-			HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, LOW);
+			LL_GPIO_ResetOutputPin(VI_GPIO_Port, VI_Pin);
+			LL_GPIO_ResetOutputPin(GS_GPIO_Port, GS_Pin);
 			break;
 
 		case VI_MODE_AMP_HI_GAIN:            // high gain current mode
-			HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, HIGH);
-			HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, LOW);
+			LL_GPIO_SetOutputPin(  VI_GPIO_Port, VI_Pin);
+			LL_GPIO_ResetOutputPin(GS_GPIO_Port, GS_Pin);
 			break;
 	}
-}
-
-void reboot(void)
-{
-	__disable_irq();
-	HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
-	HAL_NVIC_SystemReset();
-	while (1) {}
-}
-
-#ifdef USE_IWDG
-	void MX_IWDG_Init(void)
-	{
-		memset(&hiwdg, 0, sizeof(hiwdg));
-
-		hiwdg.Instance = IWDG;
-
-		// Reload value for 8 second IWDG TimeOut
-		// So Set Reload Counter Value = (LSI_VALUE * 8) / 256
-		hiwdg.Init.Prescaler = IWDG_PRESCALER_256;	// 4, 8, 16, 32, 64, 128 or 256
-		hiwdg.Init.Reload    = (LSI_VALUE * 8) / 256;
-		if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
-		{
-			hiwdg.Instance = NULL;
-			return;
-		}
-
-		iwdg_tick = 0;
-		HAL_IWDG_Refresh(&hiwdg);
-	}
-
-	void service_IWDG(const uint8_t force_update)
-	{	// service the watchdog
-		if (hiwdg.Instance != NULL && (iwdg_tick >= 4000 || force_update))
-		{
-			iwdg_tick = 0;
-			HAL_IWDG_Refresh(&hiwdg);
-		}
-	}
-#endif
-
-void start_ADC(void)
-{
-	frames = 0;
-
-	// non-stop ADC double buffered sampling
-	#ifdef DUAL_ADC_MODE
-		HAL_ADC_Start(&hadc2);
-		HAL_ADCEx_MultiModeStart_DMA(&hadc1, (uint32_t *)adc_dma_buffer, ADC_DATA_LENGTH * 2);
-	#else
-		HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_dma_buffer, ADC_DATA_LENGTH * 2);
-	#endif
-
-//	sine_table_index = ARRAY_SIZE(sine_table) * 0.285; // align the sinewave (@1kHz)
-
-	HAL_TIM_Base_Start_IT(&htim3);
-}
-
-void stop_ADC(void)
-{
-	HAL_TIM_Base_Stop(&htim3);
-
-	#ifdef DUAL_ADC_MODE
-		HAL_ADCEx_MultiModeStop_DMA(&hadc1);
-		HAL_ADC_Stop(&hadc2);
-	#else
-		HAL_ADC_Stop_DMA(&hadc1);
-	#endif
 }
 
 // ***********************************************************
@@ -638,7 +650,7 @@ int goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned i
 		// correct the output sample amplitude
 		out_samples[k].re = re * scale;
 		out_samples[k].im = im * scale;
-	
+
 		// exit if a button is pressed
 		//
 		// servicing user input is paramount
@@ -759,8 +771,8 @@ void set_measurement_frequency(const uint32_t Hz)
 	if (measurement_Hz > 0)
 	{	// set the timer rate
 		const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * measurement_Hz;
-		const uint32_t period        = (((HAL_RCC_GetHCLKFreq() / (htim3.Init.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
-		__HAL_TIM_SET_AUTORELOAD(&htim3, period);
+		const uint32_t period        = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
+		LL_TIM_SetAutoReload(TIM3, period);
 	}
 }
 
@@ -1198,6 +1210,9 @@ void process_ADC(const void *buffer)
 
 //	HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, HIGH);   // TEST
 
+	if (initialising)
+		return;                                              // ignore the ADC blocks
+
 	// point to the new block of ADC samples
 	const t_adc_dma_data_16 *adc_buffer = (t_adc_dma_data_16 *)buffer;
 
@@ -1221,7 +1236,7 @@ void process_ADC(const void *buffer)
 		// reset the waveform clip/saturation detection flags (one for each VI mode)
 		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
 
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);        // TEST only, LED on
+		LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);                       // TEST only, LED on
 	}
 
 	// each time the HW VI mode is changed, the ADC input sees a large unwanted spike/DC-offset that takes time to settle :(
@@ -1376,7 +1391,7 @@ void process_ADC(const void *buffer)
 				}
 			}
 
-			{	// AFC input (samples never ever clips)
+			{	// AFC input (samples never ever clip)
 
 				// compute the DC offset
 				register float sum = 0;
@@ -1425,7 +1440,7 @@ void process_ADC(const void *buffer)
 			amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;      // '0' = LOW gain mode   '1' = HIGH gain mode
 		}
 
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);           // TEST only, LED off
+		LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);                          // TEST only, LED off
 	}
 }
 
@@ -1439,7 +1454,7 @@ void process_ADC(const void *buffer)
 // Font_7x10  .. small general
 // Font_11x18 .. big
 
-#define DRAW_LINES          // if you want horizontal lines drawn
+//#define DRAW_LINES          // if you want horizontal lines drawn
 
 #define     OFFSET_X      0
 #define     LINE_SPACING  13
@@ -1471,13 +1486,6 @@ void print_sprint(const unsigned int digit, const float value, char *output_char
 			break;
 
 		case 3:
-			// TODO: fix
-//	        if (v < 1e-3f)
-//				snprintf(output_char, out_max_size, "%0.0fu", value * 1e6f); // 123u
-//			else
-//	        if (v < 1e0f)
-//				snprintf(output_char, out_max_size, "%0.0fm", value * 1e3f); // 123m
-//			else
 	        if (v < 10)
 				snprintf(output_char, out_max_size, "%0.2f", value); // 1.23
         	else
@@ -1489,13 +1497,6 @@ void print_sprint(const unsigned int digit, const float value, char *output_char
 
 		default:
 		case 4:
-			// TODO: fix
-//	        if (v < 1e-3f)
-//				snprintf(output_char, out_max_size, "%0.0fu", value * 1e6f); // 123u
-//			else
-//	        if (v < 1e0f)
-//				snprintf(output_char, out_max_size, "%0.0fm", value * 1e3f); // 123m
-//			else
 	        if (v < 10)
 				snprintf(output_char, out_max_size, "%0.3f", value); // 1.234
         	else
@@ -1517,7 +1518,7 @@ void print_custom_symbol(const unsigned int startX, const unsigned int startY, c
     {
         // Shift the row data left to align active pixels in the MSB position.
         // (For a symbolWidth of 7, shift left by 16 - 7 = 9 bits.)
-        uint16_t rowData = symbol[row] << (16 - symbolWidth);
+        uint16_t rowData = symbol[row] << (16u - symbolWidth);
 
         // For each column in this row...
         for (unsigned int col = 0; col < symbolWidth; col++)
@@ -1539,20 +1540,17 @@ void screen_init(void)
 	ssd1306_Fill(White);
 	ssd1306_UpdateScreen();
 
-	HAL_Delay(300);
-
-	ssd1306_Fill(Black);
-	ssd1306_UpdateScreen();
+	HAL_Delay(500);
 }
 
 void bootup_screen(void)
 {
-//	ssd1306_Fill(Black);
+	ssd1306_Fill(Black);
 
 	ssd1306_SetCursor(0, 0);
 	ssd1306_WriteString("M181", &Font_7x10, White);
 
-	ssd1306_SetCursor(90, 0);
+	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * Font_7x10.width), 0);
 	sprintf(buffer_display, "v%.2f", FW_VERSION);
 	ssd1306_WriteString(buffer_display, &Font_7x10, White);
 
@@ -1560,7 +1558,7 @@ void bootup_screen(void)
 	ssd1306_WriteString("LCR Meter", &Font_11x18, White);
 
 	// dotted line
-	ssd1306_dotted_hline(10, SSD1306_WIDTH - 10, 3, 32 - 1, White);
+	ssd1306_dotted_hline(0, SSD1306_WIDTH - 1, 3, 32 - 1, White);
 
 	ssd1306_SetCursor(5, 38);
 	ssd1306_WriteString("HW by JYETech", &Font_7x10, White);
@@ -1585,10 +1583,10 @@ void draw_screen(void)
 	const uint8_t x2 = 62;
 //	const uint8_t x3 = 75;
 
+	const uint8_t par = settings.flags & SETTING_FLAG_PARALLEL;
+
 	// clear the screen
 	ssd1306_Fill(Black);
-
-	const uint8_t par  = settings.flags & SETTING_FLAG_PARALLEL;
 
 	switch (op_mode)
 	{
@@ -2008,73 +2006,609 @@ void draw_screen(void)
 	draw_screen_count++;
 }
 
-// ***********************************************************
+// *************************************************************
 
-int _write(int file, char *ptr, int len)
+void HAL_MspInit(void)
 {
-	#if 0
-		const HAL_StatusTypeDef res = HAL_UART_Transmit(&huart1, (uint8_t *)ptr, len, 100);
-		if (res != HAL_OK)
-			len = 0;
-	#else
-		// start sending using DMA mode
-		// wait for a maximum of 100ms for the send to start
-		const uint32_t tick = HAL_GetTick();
-		while (HAL_BUSY == HAL_UART_Transmit_DMA(&huart1, (uint8_t *)ptr, len) && (HAL_GetTick() - tick) < 100)
-			__WFI();    // wait until next interrupt occurs
-	#endif
+//	__HAL_RCC_AFIO_CLK_ENABLE();
+//	__HAL_RCC_PWR_CLK_ENABLE();
 
-	return len;
+//	__HAL_AFIO_REMAP_SWJ_NOJTAG();
 }
 
-void flash_led(const uint32_t ms)
+void SystemClock_Config(void)
 {
-	__disable_irq();
-	while (1)
+	LL_FLASH_SetLatency(LL_FLASH_LATENCY_2);
+	while (LL_FLASH_GetLatency()!= LL_FLASH_LATENCY_2) {}
+
+	LL_RCC_HSE_Enable();
+	while (LL_RCC_HSE_IsReady() != 1) {}
+
+	LL_RCC_LSI_Enable();
+	while (LL_RCC_LSI_IsReady() != 1) {}
+
+	LL_RCC_PLL_ConfigDomain_SYS(LL_RCC_PLLSOURCE_HSE_DIV_1, LL_RCC_PLL_MUL_9);
+
+	LL_RCC_PLL_Enable();
+	while (LL_RCC_PLL_IsReady() != 1) {}
+
+	LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
+	LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_2);
+	LL_RCC_SetAPB2Prescaler(LL_RCC_APB2_DIV_1);
+
+	LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_PLL);
+	while (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_PLL) {}
+
+	LL_SetSystemCoreClock(RCC_MAX_FREQUENCY);
+
+	if (HAL_InitTick(TICK_INT_PRIORITY) != HAL_OK)
+		Error_Handler();
+
+	//LL_Init1msTick(RCC_MAX_FREQUENCY);
+
+	// enable the LL 1ms sys-tick
+	HAL_SuspendTick();
+	LL_Init1msTick(SystemCoreClock);
+	NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), TICK_INT_PRIORITY, 0));
+	LL_SYSTICK_EnableIT();
+
+	LL_RCC_SetADCClockSource(LL_RCC_ADC_CLKSRC_PCLK2_DIV_6);
+}
+
+void MX_ADC_Init(void)
+{
+	LL_ADC_InitTypeDef       ADC_InitStruct       = {0};
+	LL_ADC_CommonInitTypeDef ADC_CommonInitStruct = {0};
+	LL_ADC_REG_InitTypeDef   ADC_REG_InitStruct   = {0};
+//	LL_GPIO_InitTypeDef      GPIO_InitStruct      = {0};
+
+	LL_TIM_DisableCounter(TIM3);
+
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOA);
+	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC1);
+
+	LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_1);
+
+	LL_GPIO_SetPinMode(ADC1_GPIO_Port, ADC1_Pin, LL_GPIO_MODE_ANALOG);
+	LL_GPIO_SetPinMode(ADC2_GPIO_Port, ADC2_Pin, LL_GPIO_MODE_ANALOG);
+
+	#ifdef DUAL_ADC_MODE
+
+		// *********************************
+		// ADC1
+
+		LL_ADC_Disable(ADC1);
+		LL_ADC_Disable(ADC2);
+
+		{	// setup the ADC DMA
+			LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_1, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+			LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_1, LL_DMA_PRIORITY_HIGH);
+			LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_1, LL_DMA_MODE_CIRCULAR);
+			LL_DMA_SetPeriphIncMode(        DMA1, LL_DMA_CHANNEL_1, LL_DMA_PERIPH_NOINCREMENT);
+			LL_DMA_SetMemoryIncMode(        DMA1, LL_DMA_CHANNEL_1, LL_DMA_MEMORY_INCREMENT);
+			LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_PDATAALIGN_WORD);
+			LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_WORD);
+
+			LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA_MULTI), (uint32_t)&adc_dma_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);
+
+			// clear all flags
+			LL_DMA_ClearFlag_GI1(DMA1);
+
+			// enable selected DMA interrupts
+			LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_1);
+			LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_1);
+			LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
+
+			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
+			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
+		}
+
+		ADC_InitStruct.DataAlignment      = LL_ADC_DATA_ALIGN_RIGHT;
+		ADC_InitStruct.SequencersScanMode = LL_ADC_SEQ_SCAN_DISABLE;
+		LL_ADC_Init(ADC1, &ADC_InitStruct);
+
+		ADC_CommonInitStruct.Multimode = LL_ADC_MULTI_DUAL_REG_SIM_INJ_SIM;
+		LL_ADC_CommonInit(__LL_ADC_COMMON_INSTANCE(ADC1), &ADC_CommonInitStruct);
+
+		ADC_REG_InitStruct.TriggerSource    = LL_ADC_REG_TRIG_EXT_TIM3_TRGO;
+		ADC_REG_InitStruct.SequencerLength  = LL_ADC_REG_SEQ_SCAN_DISABLE;
+		ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
+		ADC_REG_InitStruct.ContinuousMode   = LL_ADC_REG_CONV_SINGLE;
+		ADC_REG_InitStruct.DMATransfer      = LL_ADC_REG_DMA_TRANSFER_UNLIMITED;
+		LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
+
+		// LL_ADC_SAMPLINGTIME_1CYCLES_5            1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
+		// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
+		// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
+		// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
+		// LL_ADC_SAMPLINGTIME_41CYCLES_5          41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max  222kHz sample rate
+		// LL_ADC_SAMPLINGTIME_55CYCLES_5          55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max  176kHz sample rate
+		// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
+		// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
+
+		LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
+		LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_71CYCLES_5);
+
+		// *********************************
+		// ADC2
+
+		LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC2);
+
+		ADC_InitStruct.DataAlignment      = LL_ADC_DATA_ALIGN_RIGHT;
+		ADC_InitStruct.SequencersScanMode = LL_ADC_SEQ_SCAN_DISABLE;
+		LL_ADC_Init(ADC2, &ADC_InitStruct);
+
+		ADC_REG_InitStruct.TriggerSource    = LL_ADC_REG_TRIG_SOFTWARE;
+		ADC_REG_InitStruct.SequencerLength  = LL_ADC_REG_SEQ_SCAN_DISABLE;
+		ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
+		ADC_REG_InitStruct.ContinuousMode   = LL_ADC_REG_CONV_CONTINUOUS;
+		ADC_REG_InitStruct.DMATransfer      = LL_ADC_REG_DMA_TRANSFER_NONE;
+		LL_ADC_REG_Init(ADC2, &ADC_REG_InitStruct);
+
+		LL_ADC_REG_SetSequencerRanks( ADC2, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_1);
+		LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_71CYCLES_5);
+
+		#if 1
+		{	// calibrate the ADC's
+
+			LL_ADC_Enable(ADC1);
+			LL_ADC_Enable(ADC2);
+
+			LL_mDelay(2);
+
+			{
+				const uint32_t tick = sys_tick;
+				LL_ADC_StartCalibration(ADC1);
+				while (LL_ADC_IsCalibrationOnGoing(ADC1) && (sys_tick - tick) < 10)
+					__WFI();
+			}
+
+			{
+				const uint32_t tick = sys_tick;
+				LL_ADC_StartCalibration(ADC2);
+				while (LL_ADC_IsCalibrationOnGoing(ADC2) && (sys_tick - tick) < 10)
+					__WFI();
+			}
+
+			LL_mDelay(2);
+
+			LL_ADC_Disable(ADC2);
+			LL_ADC_Disable(ADC1);
+		}
+		#endif
+
+	#else
+		// single ADC mode
+
+		LL_ADC_Disable(ADC1);
+
+		{	// setup the ADC DMA
+			LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_1, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+			LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_1, LL_DMA_PRIORITY_HIGH);
+			LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_1, LL_DMA_MODE_CIRCULAR);
+			LL_DMA_SetPeriphIncMode(        DMA1, LL_DMA_CHANNEL_1, LL_DMA_PERIPH_NOINCREMENT);
+			LL_DMA_SetMemoryIncMode(        DMA1, LL_DMA_CHANNEL_1, LL_DMA_MEMORY_INCREMENT);
+			LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_PDATAALIGN_HALFWORD);
+			LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_HALFWORD);
+
+			LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA), (uint32_t)&adc_dma_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);
+
+			// clear all flags
+			LL_DMA_ClearFlag_GI1(DMA1);
+
+			// enable selected DMA interrupts
+			LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_1);
+			LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_1);
+			LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
+
+			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
+			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
+		}
+
+		ADC_InitStruct.DataAlignment      = LL_ADC_DATA_ALIGN_RIGHT;
+		ADC_InitStruct.SequencersScanMode = LL_ADC_SEQ_SCAN_ENABLE;
+		LL_ADC_Init(ADC1, &ADC_InitStruct);
+
+		ADC_CommonInitStruct.Multimode = LL_ADC_MULTI_INDEPENDENT;
+		LL_ADC_CommonInit(__LL_ADC_COMMON_INSTANCE(ADC1), &ADC_CommonInitStruct);
+
+		ADC_REG_InitStruct.TriggerSource    = LL_ADC_REG_TRIG_EXT_TIM3_TRGO;
+		ADC_REG_InitStruct.SequencerLength  = LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS;
+		ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
+		ADC_REG_InitStruct.ContinuousMode   = LL_ADC_REG_CONV_SINGLE;
+		ADC_REG_InitStruct.DMATransfer      = LL_ADC_REG_DMA_TRANSFER_UNLIMITED;
+		LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
+
+		// LL_ADC_SAMPLINGTIME_1CYCLES_5            1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
+		// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
+		// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
+		// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
+		// LL_ADC_SAMPLINGTIME_41CYCLES_5          41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max  222kHz sample rate
+		// LL_ADC_SAMPLINGTIME_55CYCLES_5          55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max  176kHz sample rate
+		// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
+		// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
+
+		LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
+		LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_41CYCLES_5);
+
+		LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_2, LL_ADC_CHANNEL_1);
+		LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_41CYCLES_5);
+
+		#if 1
+		{	// calibrate the ADC
+
+			LL_ADC_Enable(ADC1);
+
+			LL_mDelay(2);
+
+			const uint32_t tick = sys_tick;
+			LL_ADC_StartCalibration(ADC1);
+			while (LL_ADC_IsCalibrationOnGoing(ADC1) && (sys_tick - tick) < 10)
+				__WFI();
+
+			LL_mDelay(2);
+
+			LL_ADC_Disable(ADC1);
+		}
+		#endif
+
+	#endif
+
+	// *********************************
+
+	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
+
+	#ifdef DUAL_ADC_MODE
+		LL_ADC_ClearFlag_EOS(ADC2);
+	#endif
+	LL_ADC_ClearFlag_EOS(ADC1);
+
+	#ifdef DUAL_ADC_MODE
+		LL_ADC_Enable(ADC2);
+	#endif
+	LL_ADC_Enable(ADC1);
+
+ 	#ifdef DUAL_ADC_MODE
+		LL_ADC_REG_StartConversionSWStart(ADC2);
+	#endif
+ 	LL_ADC_REG_StartConversionExtTrig(ADC1, LL_ADC_REG_TRIG_EXT_RISING);
+}
+
+#ifdef USE_IWDG
+
+	void service_IWDG(const bool force_update)
 	{
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_SET);	// LED on
-		DWT_Delay_us(10);
-		HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, GPIO_PIN_RESET);	// LED off
-		DWT_Delay_us(ms * 1000);
+		const uint32_t reload_sec = iwdg_timeout_sec / 2;
+
+		if (iwdg_tick >= (1000 * reload_sec) || force_update)
+		{
+			iwdg_tick = 0;
+			LL_IWDG_ReloadCounter(IWDG);
+		}
 	}
+
+	// initialise the internal watchdog
+	//
+	void MX_IWDG_Init(void)
+	{
+		const uint32_t prescaler_div = LL_IWDG_PRESCALER_256;     // 4, 8, 16, 32, 64, 128 or 256
+
+		uint32_t clk_Hz = LSI_VALUE;
+		switch (prescaler_div)
+		{
+			default:
+			case LL_IWDG_PRESCALER_4:
+				clk_Hz >>= 2;
+				break;
+			case LL_IWDG_PRESCALER_8:
+				clk_Hz >>= 3;
+				break;
+			case LL_IWDG_PRESCALER_16:
+				clk_Hz >>= 4;
+				break;
+			case LL_IWDG_PRESCALER_32:
+				clk_Hz >>= 5;
+				break;
+			case LL_IWDG_PRESCALER_64:
+				clk_Hz >>= 6;
+				break;
+			case LL_IWDG_PRESCALER_128:
+				clk_Hz >>= 7;
+				break;
+			case LL_IWDG_PRESCALER_256:
+				clk_Hz >>= 8;
+				break;
+		}
+
+		LL_IWDG_Enable(IWDG);
+
+		LL_IWDG_EnableWriteAccess(IWDG);
+		{
+			const uint32_t reload_tick = IWDG_RLR_RL_Msk;
+
+			iwdg_timeout_sec = reload_tick / clk_Hz;
+
+			LL_IWDG_SetPrescaler(    IWDG, prescaler_div);
+			LL_IWDG_SetReloadCounter(IWDG, reload_tick);
+
+			while (!LL_IWDG_IsReady(IWDG)) {}
+		}
+		LL_IWDG_DisableWriteAccess(IWDG);
+
+		service_IWDG(true);
+	}
+
+#endif
+
+void MX_TIM3_Init(void)
+{
+	LL_TIM_InitTypeDef TIM_InitStruct = {0};
+
+	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM3);
+
+	const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * 1000;      // 1kHz
+
+	TIM_InitStruct.Prescaler     = 0;
+	TIM_InitStruct.CounterMode   = LL_TIM_COUNTERMODE_UP;
+	TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
+	TIM_InitStruct.Autoreload    = (((rcc_clocks.HCLK_Frequency / (TIM_InitStruct.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
+	LL_TIM_Init(TIM3, &TIM_InitStruct);
+
+	LL_TIM_EnableARRPreload(      TIM3);
+	LL_TIM_SetClockSource(        TIM3, LL_TIM_CLOCKSOURCE_INTERNAL);
+//	LL_TIM_SetTriggerOutput(      TIM3, LL_TIM_TRGO_RESET);
+	LL_TIM_SetTriggerOutput(      TIM3, LL_TIM_TRGO_UPDATE);
+	LL_TIM_DisableMasterSlaveMode(TIM3);
+
+	LL_TIM_ClearFlag_UPDATE(TIM3);
+	LL_TIM_EnableIT_UPDATE( TIM3);
+
+	NVIC_SetPriority(TIM3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
+	NVIC_EnableIRQ(TIM3_IRQn);
+
+	LL_TIM_EnableCounter(TIM3);
+}
+
+void MX_USART1_UART_Init(void)
+{
+	LL_USART_InitTypeDef USART_InitStruct = {0};
+	LL_GPIO_InitTypeDef  GPIO_InitStruct  = {0};
+
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_USART1);
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOA);
+	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+
+	GPIO_InitStruct.Pin        = UART1_TXD_Pin;
+	GPIO_InitStruct.Mode       = LL_GPIO_MODE_ALTERNATE;
+	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_LOW;
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+	LL_GPIO_Init(UART1_TXD_GPIO_Port, &GPIO_InitStruct);
+
+	GPIO_InitStruct.Pin        = UART1_RXD_Pin;
+	GPIO_InitStruct.Mode       = LL_GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
+	LL_GPIO_Init(UART1_RXD_GPIO_Port, &GPIO_InitStruct);
+
+	LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_4, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_4, LL_DMA_PRIORITY_LOW);
+	LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_4, LL_DMA_MODE_NORMAL);
+	LL_DMA_SetPeriphIncMode(        DMA1, LL_DMA_CHANNEL_4, LL_DMA_PERIPH_NOINCREMENT);
+	LL_DMA_SetMemoryIncMode(        DMA1, LL_DMA_CHANNEL_4, LL_DMA_MEMORY_INCREMENT);
+	LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_4, LL_DMA_PDATAALIGN_BYTE);
+	LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_4, LL_DMA_MDATAALIGN_BYTE);
+
+	USART_InitStruct.BaudRate            = UART_BAUDRATE;
+	USART_InitStruct.DataWidth           = LL_USART_DATAWIDTH_8B;
+	USART_InitStruct.StopBits            = LL_USART_STOPBITS_1;
+	USART_InitStruct.Parity              = LL_USART_PARITY_NONE;
+	USART_InitStruct.TransferDirection   = LL_USART_DIRECTION_TX_RX;
+	USART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
+	USART_InitStruct.OverSampling        = LL_USART_OVERSAMPLING_16;
+	LL_USART_Init(USART1, &USART_InitStruct);
+
+	LL_USART_ConfigAsyncMode(USART1);
+
+	LL_USART_EnableDMAReq_TX(USART1);
+
+	LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
+
+	LL_DMA_ClearFlag_GI4(DMA1);
+
+	LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_4);
+	LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_4);
+
+	NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
+	NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+
+	NVIC_SetPriority(USART1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
+	NVIC_EnableIRQ(USART1_IRQn);
+
+	LL_USART_Enable(USART1);
+/*
+	// tell the DMA the TX buffers mem address
+	LL_DMA_ConfigAddresses(ser->dma, ser->dma_channel, LL_USART_DMA_GetRegAddr(ser->device), (uint32_t)&ser->tx.buffer, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_SetDataLength(  ser->dma, ser->dma_channel, size);
+
+	// tell the DMA to start sending the TX data
+	LL_DMA_EnableChannel(ser->dma, ser->dma_tx_channel);
+*/
+}
+
+void MX_DMA_Init(void)
+{
+//	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+
+	// ADC DMA
+//	NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
+//	NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+
+	// UART TX DMA
+//	NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
+//	NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+}
+
+void MX_GPIO_Init(void)
+{
+	LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOA);
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOB);
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOC);
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOD);
+
+	LL_GPIO_ResetOutputPin(TP21_GPIO_Port, TP21_Pin);
+	LL_GPIO_ResetOutputPin(TP22_GPIO_Port, TP22_Pin);
+	LL_GPIO_ResetOutputPin(LED_GPIO_Port,  LED_Pin);
+	LL_GPIO_ResetOutputPin(GS_GPIO_Port,   GS_Pin);
+	LL_GPIO_ResetOutputPin(VI_GPIO_Port,   VI_Pin);
+
+	LL_GPIO_ResetOutputPin(GPIOB, DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin);
+
+	GPIO_InitStruct.Mode       = LL_GPIO_MODE_OUTPUT;
+	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_LOW;
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+	GPIO_InitStruct.Pin        = TP21_Pin;
+	LL_GPIO_Init(TP21_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin        = TP22_Pin;
+	LL_GPIO_Init(TP22_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin        = LED_Pin;
+	LL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin        = GS_Pin;
+	LL_GPIO_Init(GS_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin        = VI_Pin;
+	LL_GPIO_Init(VI_GPIO_Port, &GPIO_InitStruct);
+
+	GPIO_InitStruct.Pin        = DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin;
+	GPIO_InitStruct.Mode       = LL_GPIO_MODE_OUTPUT;
+	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+	LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+	GPIO_InitStruct.Mode       = LL_GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
+	GPIO_InitStruct.Pin        = BUTT_HOLD_Pin;
+	LL_GPIO_Init(BUTT_HOLD_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin        = BUTT_SP_Pin;
+	LL_GPIO_Init(BUTT_SP_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin        = BUTT_RCL_Pin;
+	LL_GPIO_Init(BUTT_RCL_GPIO_Port, &GPIO_InitStruct);
+}
+
+// *******************************************
+
+void process_USART1_IRQ(void)
+{
+	{	// RX
+
+		//if (LL_USART_IsActiveFlag_IDLE(USART1) != 0)
+		//	LL_USART_ClearFlag_IDLE(USART1);
+
+		register uint32_t wr = serial.rx.buffer_wr;
+
+		while (LL_USART_IsActiveFlag_RXNE(USART1) != 0)
+		{
+			serial.rx.buffer[wr] = LL_USART_ReceiveData8(USART1);
+			wr = (++wr >= sizeof(serial.rx.buffer)) ? 0 : wr;
+			serial.rx.buffer_wr = wr;
+			serial.rx.timer     = 0;
+
+			if (wr == serial.rx.buffer_rd)
+			{	// RX buffer overrun
+			}
+		}
+
+		#if 0
+			if (LL_USART_IsEnabledIT_ERROR(USART1))
+			{
+				if (LL_USART_IsActiveFlag_PE(USART1))
+				{	// parity error
+				}
+
+				if (LL_USART_IsActiveFlag_FE(USART1))
+				{	// RX line is LOW (BREAK character/error)
+				}
+
+				if (LL_USART_IsActiveFlag_NE(USART1))
+				{	// RX line noise
+				}
+
+				if (LL_USART_IsActiveFlag_ORE(USART1))
+				{	// RX overrun
+				}
+			}
+		#endif
+
+		// clear RX error flags .. clearing any one of these also clears all the others
+		LL_USART_ClearFlag_ORE(USART1);    // OverRun Error Flag
+		//LL_USART_ClearFlag_PE(USART1);  // Parity Error Flag
+		//LL_USART_ClearFlag_NE(USART1);  // Noise detected Flag
+		//LL_USART_ClearFlag_FE(USART1);  // Framing Error Flag
+		//LL_USART_ClearFlag_IDLE(USART1); // IDLE line detected Flag
+	}
+
+	#if 0
+	{	// TX
+
+		const bool enabled = (LL_USART_IsEnabledIT_TXE(USART1) != 0);
+		//if (enabled)
+		{
+			const uint32_t wr = serial.tx.buffer_wr;
+			      uint32_t rd = serial.tx.buffer_rd;
+
+			while (rd != wr && LL_USART_IsActiveFlag_TXE(USART1) != 0)
+			{	// send the next byte
+				LL_USART_TransmitData8(USART1, serial.tx.buffer[rd]);
+				rd = (++rd >= sizeof(serial.tx.buffer)) ? 0 : rd;
+				serial.tx.buffer_rd = rd;
+				serial.tx.timer     = 0;
+			}
+
+			if (rd == wr)
+			{
+				if (enabled)
+					LL_USART_DisableIT_TXE(USART1);        // all done
+			}
+			else
+			{
+				if (!enabled)
+					LL_USART_EnableIT_TXE(USART1);         // enable interrupt to continue sending
+			}
+		}
+	}
+	#endif
 }
 
 void Error_Handler(void)
 {
-	flash_led(1000);
+	stop(400);
 }
-
-#ifdef USE_FULL_ASSERT
-	void assert_failed(uint8_t *file, uint32_t line)
-	{
-	}
-#endif
 
 void NMI_Handler(void)
 {
-	while (1)
-	{
-	}
+	stop(300);
 }
 
 void HardFault_Handler(void)
 {
-	flash_led(80);
+	stop(100);
 }
 
 void MemManage_Handler(void)
 {
-	flash_led(100);
+	stop(100);
 }
 
 void BusFault_Handler(void)
 {
-	flash_led(100);
+	stop(100);
 }
 
 void UsageFault_Handler(void)
 {
-	flash_led(100);
+	stop(100);
 }
 
 void SVC_Handler(void)
@@ -2093,9 +2627,11 @@ void SysTick_Handler(void)
 {
 	HAL_IncTick();
 
-	const uint32_t tick = HAL_GetTick();
+	sys_tick++;
 
 	{	// debounce the push buttons
+
+		const uint32_t tick = sys_tick;
 
 		const int16_t debounce_ms = 30;
 
@@ -2107,9 +2643,8 @@ void SysTick_Handler(void)
 
 			// update debounce counter
 			int16_t debounce = butt->debounce;
-			//debounce = (LL_GPIO_IsInputPinSet(butt->gpio_port, butt->gpio_pin) ==              0) ? debounce + 1 : debounce - 1;
-			debounce   = (HAL_GPIO_ReadPin(     butt->gpio_port, butt->gpio_pin) == GPIO_PIN_RESET) ? debounce + 1 : debounce - 1;
-			debounce   = (debounce < 0) ? 0 : (debounce > debounce_ms) ? debounce_ms : debounce;
+			debounce = (LL_GPIO_IsInputPinSet(butt->gpio_port, butt->gpio_pin) == 0) ? debounce + 1 : debounce - 1;
+			debounce = (debounce < 0) ? 0 : (debounce > debounce_ms) ? debounce_ms : debounce;
 			butt->debounce = debounce;
 
 			const uint32_t pressed_ms = butt->pressed_ms;
@@ -2157,463 +2692,101 @@ void SysTick_Handler(void)
 	if (save_settings_timer > 0)
 		save_settings_timer--;
 
+	if (serial.rx.timer < (serial.rx.timer + 1))         // prevent roll-over
+		serial.rx.timer++;
+
 	#ifdef USE_IWDG
-		if (iwdg_tick < (iwdg_tick + 1))
-			iwdg_tick++;
+		iwdg_tick++;
 	#endif
 }
 
+// ADC DMA
 void DMA1_Channel1_IRQHandler(void)
 {
-	HAL_DMA_IRQHandler(&hdma_adc1);
+//	if (LL_DMA_IsEnabledIT_TE(DMA1, LL_DMA_CHANNEL_1) && LL_DMA_IsActiveFlag_TE1(DMA1))
+	if (LL_DMA_IsActiveFlag_TE1(DMA1))
+	{
+		LL_DMA_ClearFlag_TE1(DMA1);
+	}
+
+//	if (LL_DMA_IsEnabledIT_HT(DMA1, LL_DMA_CHANNEL_1) && LL_DMA_IsActiveFlag_HT1(DMA1))
+	if (LL_DMA_IsActiveFlag_HT1(DMA1))
+	{
+		process_ADC(&adc_dma_buffer[0]);  // lower half of ADC buffer
+		LL_DMA_ClearFlag_HT1(DMA1);
+	}
+
+//	if (LL_DMA_IsEnabledIT_TC(DMA1, LL_DMA_CHANNEL_1) && LL_DMA_IsActiveFlag_TC1(DMA1))
+	if (LL_DMA_IsActiveFlag_TC1(DMA1))
+	{
+		process_ADC(&adc_dma_buffer[1]);  // upper half of ADC buffer
+		LL_DMA_ClearFlag_TC1(DMA1);
+	}
 }
 
+// UART TX DMA
 void DMA1_Channel4_IRQHandler(void)
 {
-	HAL_DMA_IRQHandler(&hdma_usart1_tx);
+	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+	{
+		if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
+		{
+			LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
+			LL_DMA_ClearFlag_TE4(DMA1);
+			LL_DMA_ClearFlag_TC4(DMA1);
+		}
+	}
+}
+
+void ADC1_2_IRQHandler(void)
+{
+/*	if (LL_ADC_IsActiveFlag_EOS(ADC1))
+	{
+		LL_ADC_ClearFlag_EOS(ADC1);
+	}
+
+	if (LL_ADC_IsActiveFlag_OVR(ADC1))
+	{
+		LL_ADC_ClearFlag_OVR(ADC1);
+//		AdcGrpRegularOverrunError_Callback();
+	}
+	else
+	//if (LL_ADC_IsActiveFlag_EOCS(ADC1))
+	{
+		LL_ADC_ClearFlag_EOCS(ADC1);
+		AdcGrpRegularSequenceConvComplete_Callback();
+	}
+*/
 }
 
 void TIM3_IRQHandler(void)
 {
-	HAL_TIM_IRQHandler(&htim3);
+//	if (LL_TIM_IsActiveFlag_TRIG(TIM3))
+//	{
+//		LL_TIM_ClearFlag_TRIG(TIM3);
+//	}
 
-	// we come here on each and every ADC sample, so it's a good time to set the DAC output value
-	//
-	// we could also do the ADC sampling here too if we really wanted (manually read the ADC register(s))
-	// but that's being done via the DMA, which is just fine
+	if (LL_TIM_IsActiveFlag_UPDATE(TIM3))
+	{
+		LL_TIM_ClearFlag_UPDATE(TIM3);
 
-	unsigned int index = sine_table_index;
-
-	DAC_write(sine_table[index]);
-
-	// save updated index
-	sine_table_index = (++index >= ARRAY_SIZE(sine_table)) ? 0 : index;
+		// set the DAC output
+		register unsigned int index = sine_table_index;
+		DAC_write(sine_table[index]);
+		sine_table_index = (++index >= ARRAY_SIZE(sine_table)) ? 0 : index;
+	}
 }
 
 void USART1_IRQHandler(void)
 {
-	HAL_UART_IRQHandler(&huart1);
+	process_USART1_IRQ();
 }
 
-void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
-{
-	if (hadc->Instance == ADC1)
-		process_ADC(&adc_dma_buffer[0]);  // lower half of ADC buffer
-}
-
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
-{
-	if (hadc->Instance == ADC1)
-		process_ADC(&adc_dma_buffer[1]);  // upper half of ADC buffer
-}
-
-// ***********************************************************
-
-void HAL_MspInit(void)
-{
-	__HAL_RCC_AFIO_CLK_ENABLE();
-	__HAL_RCC_PWR_CLK_ENABLE();
-
-	__HAL_AFIO_REMAP_SWJ_NOJTAG();
-}
-
-void HAL_ADC_MspInit(ADC_HandleTypeDef *hadc)
-{
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	if (hadc->Instance == ADC1)
+#ifdef  USE_FULL_ASSERT
+	void assert_failed(uint8_t *file, uint32_t line)
 	{
-		__HAL_RCC_ADC1_CLK_ENABLE();
-
-		__HAL_RCC_GPIOA_CLK_ENABLE();
-
-		GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-		GPIO_InitStruct.Pin  = ADC1_Pin;
-		HAL_GPIO_Init(ADC1_pin_GPIO_Port, &GPIO_InitStruct);
-		GPIO_InitStruct.Pin  = ADC2_Pin;
-		HAL_GPIO_Init(ADC2_pin_GPIO_Port, &GPIO_InitStruct);
-
-		hdma_adc1.Instance                 = DMA1_Channel1;
-		hdma_adc1.Init.Direction           = DMA_PERIPH_TO_MEMORY;
-		hdma_adc1.Init.PeriphInc           = DMA_PINC_DISABLE;
-		hdma_adc1.Init.MemInc              = DMA_MINC_ENABLE;
-		#ifdef DUAL_ADC_MODE
-			hdma_adc1.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
-			hdma_adc1.Init.MemDataAlignment    = DMA_MDATAALIGN_WORD;
-		#else
-			hdma_adc1.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
-			hdma_adc1.Init.MemDataAlignment    = DMA_MDATAALIGN_HALFWORD;
-		#endif
-		hdma_adc1.Init.Mode                = DMA_CIRCULAR;
-		hdma_adc1.Init.Priority            = DMA_PRIORITY_HIGH;
-		if (HAL_DMA_Init(&hdma_adc1) != HAL_OK)
-			Error_Handler();
-
-		__HAL_LINKDMA(hadc, DMA_Handle, hdma_adc1);
 	}
-	#ifdef DUAL_ADC_MODE
-		else
-		if (hadc->Instance == ADC2)
-			__HAL_RCC_ADC2_CLK_ENABLE();
-	#endif
-}
-
-void HAL_ADC_MspDeInit(ADC_HandleTypeDef *hadc)
-{
-	if (hadc->Instance == ADC1)
-	{
-		__HAL_RCC_ADC1_CLK_DISABLE();
-		HAL_GPIO_DeInit(ADC1_pin_GPIO_Port, ADC1_Pin);
-		HAL_GPIO_DeInit(ADC2_pin_GPIO_Port, ADC2_Pin);
-		HAL_DMA_DeInit(hadc->DMA_Handle);
-		HAL_NVIC_DisableIRQ(ADC1_2_IRQn);
-	}
-	#ifdef DUAL_ADC_MODE
-		else
-		if (hadc->Instance == ADC2)
-		{
-			__HAL_RCC_ADC2_CLK_DISABLE();
-			HAL_NVIC_DisableIRQ(ADC1_2_IRQn);
-		}
-	#endif
-}
-
-void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *htim_base)
-{
-	if (htim_base->Instance == TIM3)
-	{
-		__HAL_RCC_TIM3_CLK_ENABLE();
-
-		HAL_NVIC_SetPriority(TIM3_IRQn, 0, 0);    // Preempt = 0, Sub = 0
-		HAL_NVIC_EnableIRQ(TIM3_IRQn);
-	}
-}
-
-void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef *htim_base)
-{
-	if (htim_base->Instance == TIM3)
-		__HAL_RCC_TIM3_CLK_DISABLE();
-}
-
-void HAL_UART_MspInit(UART_HandleTypeDef *huart)
-{
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	if (huart->Instance == USART1)
-	{
-		__HAL_RCC_USART1_CLK_ENABLE();
-
-		__HAL_RCC_GPIOA_CLK_ENABLE();
-
-		GPIO_InitStruct.Mode  = GPIO_MODE_AF_PP;
-		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-		GPIO_InitStruct.Pin   = UART1_TXD_Pin;
-		HAL_GPIO_Init(UART1_TXD_GPIO_Port, &GPIO_InitStruct);
-
-		GPIO_InitStruct.Mode  = GPIO_MODE_INPUT;
-		GPIO_InitStruct.Pull  = GPIO_PULLUP;
-		GPIO_InitStruct.Pin   = UART1_RXD_Pin;
-		HAL_GPIO_Init(UART1_RXD_GPIO_Port, &GPIO_InitStruct);
-
-		hdma_usart1_tx.Instance                 = DMA1_Channel4;
-		hdma_usart1_tx.Init.Direction           = DMA_MEMORY_TO_PERIPH;
-		hdma_usart1_tx.Init.PeriphInc           = DMA_PINC_DISABLE;
-		hdma_usart1_tx.Init.MemInc              = DMA_MINC_ENABLE;
-		hdma_usart1_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
-		hdma_usart1_tx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;
-		hdma_usart1_tx.Init.Mode                = DMA_NORMAL;
-		hdma_usart1_tx.Init.Priority            = DMA_PRIORITY_LOW;
-		if (HAL_DMA_Init(&hdma_usart1_tx) != HAL_OK)
-		{
-			Error_Handler();
-		}
-
-		__HAL_LINKDMA(huart, hdmatx, hdma_usart1_tx);
-
-		HAL_NVIC_SetPriority(USART1_IRQn, 10, 0);
-		HAL_NVIC_EnableIRQ(USART1_IRQn);
-	}
-}
-
-void HAL_UART_MspDeInit(UART_HandleTypeDef *huart)
-{
-	if (huart->Instance == USART1)
-	{
-		__HAL_RCC_USART1_CLK_DISABLE();
-		HAL_GPIO_DeInit(UART1_TXD_GPIO_Port, UART1_TXD_Pin);
-		HAL_GPIO_DeInit(UART1_RXD_GPIO_Port, UART1_RXD_Pin);
-		HAL_DMA_DeInit(huart->hdmatx);
-		HAL_NVIC_DisableIRQ(USART1_IRQn);
-	}
-}
-
-void SystemClock_Config(void)
-{
-	RCC_OscInitTypeDef       RCC_OscInitStruct = {0};
-	RCC_ClkInitTypeDef       RCC_ClkInitStruct = {0};
-	RCC_PeriphCLKInitTypeDef PeriphClkInit     = {0};
-
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-	RCC_OscInitStruct.HSEState       = RCC_HSE_ON;
-	RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
-	RCC_OscInitStruct.HSIState       = RCC_HSI_ON;
-	RCC_OscInitStruct.PLL.PLLState   = RCC_PLL_ON;
-	RCC_OscInitStruct.PLL.PLLSource  = RCC_PLLSOURCE_HSE;
-	RCC_OscInitStruct.PLL.PLLMUL     = RCC_PLL_MUL9;
-	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-	{
-		Error_Handler();
-	}
-
-	RCC_ClkInitStruct.ClockType      = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-	RCC_ClkInitStruct.SYSCLKSource   = RCC_SYSCLKSOURCE_PLLCLK;
-	RCC_ClkInitStruct.AHBCLKDivider  = RCC_SYSCLK_DIV1;
-	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
-	{
-		Error_Handler();
-	}
-
-	PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
-	PeriphClkInit.AdcClockSelection    = RCC_ADCPCLK2_DIV6;
-	if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
-	{
-		Error_Handler();
-	}
-}
-
-void UART1_init(void)
-{
-	huart1.Instance          = USART1;
-	huart1.Init.BaudRate     = UART_BAUDRATE;
-	huart1.Init.WordLength   = UART_WORDLENGTH_8B;
-	huart1.Init.StopBits     = UART_STOPBITS_1;
-	huart1.Init.Parity       = UART_PARITY_NONE;
-	huart1.Init.Mode         = UART_MODE_TX_RX;
-	huart1.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
-	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-	if (HAL_UART_Init(&huart1) != HAL_OK)
-	{
-		Error_Handler();
-	}
-}
-
-void ADC_init(void)
-{
-	ADC_ChannelConfTypeDef sConfig = {0};
-
-	#ifdef DUAL_ADC_MODE
-		// simultaneous dual ADC mode
-
-		// ************************************************
-		// setup the master ADC
-
-		hadc1.Instance                   = ADC1;
-		hadc1.Init.ScanConvMode          = ADC_SCAN_DISABLE;
-		hadc1.Init.ContinuousConvMode    = DISABLE;
-		hadc1.Init.DiscontinuousConvMode = DISABLE;
-		hadc1.Init.ExternalTrigConv      = ADC_EXTERNALTRIGCONV_T3_TRGO;
-		hadc1.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
-		hadc1.Init.NbrOfConversion       = 1;
-		if (HAL_ADC_Init(&hadc1) != HAL_OK)
-			Error_Handler();
-
-		//  Configure the ADC multi-mode
-		ADC_MultiModeTypeDef multimode = {0};
-		multimode.Mode                 = ADC_DUALMODE_REGSIMULT;
-		if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
-			Error_Handler();
-
-//		sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLES_5;     //   1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max 857kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_7CYCLES_5;     //   7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max 600kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;    //  13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max 461kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_28CYCLES_5;    //  28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max 292kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_41CYCLES_5;    //  41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max 222kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_55CYCLES_5;    //  55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max 176kHz sample rate
-		sConfig.SamplingTime = ADC_SAMPLETIME_71CYCLES_5;    //  71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max 142kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;   // 239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us sample time, max 47.6kHz sample rate
-
-		// Configure Regular Channel
-		sConfig.Channel = ADC_CHANNEL_0;                // PA0 Pin
-		sConfig.Rank    = ADC_REGULAR_RANK_1;
-		if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-			Error_Handler();
-
-		// ************************************************
-		// setup the slave ADC
-
-		hadc2.Instance                = ADC2;
-		hadc2.Init                    = hadc1.Init;
-		hadc2.Init.ContinuousConvMode = ENABLE;              // **Very Important (Not Mentioned in any Document)
-		hadc2.Init.ExternalTrigConv   = ADC_SOFTWARE_START;
-		if (HAL_ADC_Init(&hadc2) != HAL_OK)
-			Error_Handler();
-
-		// Configure Regular Channel
-		sConfig.Channel = ADC_CHANNEL_1;              // PA1 Pin
-		sConfig.Rank    = ADC_REGULAR_RANK_1;
-		if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
-			Error_Handler();
-
-		// ************************************************
-		// run the ADC calibrations
-
-		if (HAL_ADCEx_Calibration_Start(&hadc1) != HAL_OK)
-			Error_Handler();
-
-		if (HAL_ADCEx_Calibration_Start(&hadc2) != HAL_OK)
-			Error_Handler();
-
-	#else
-		// single ADC dual channel mode
-
-		hadc1.Instance                   = ADC1;
-		hadc1.Init.ScanConvMode          = ADC_SCAN_ENABLE;
-		hadc1.Init.ContinuousConvMode    = DISABLE;
-		hadc1.Init.DiscontinuousConvMode = DISABLE;
-		hadc1.Init.ExternalTrigConv      = ADC_EXTERNALTRIGCONV_T3_TRGO;
-		hadc1.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
-		hadc1.Init.NbrOfConversion       = 2;
-		if (HAL_ADC_Init(&hadc1) != HAL_OK)
-			Error_Handler();
-
-//		sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLES_5;     //   1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max 857kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_7CYCLES_5;     //   7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max 600kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;    //  13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max 461kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_28CYCLES_5;    //  28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max 292kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_41CYCLES_5;    //  41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max 222kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_55CYCLES_5;    //  55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max 176kHz sample rate
-		sConfig.SamplingTime = ADC_SAMPLETIME_71CYCLES_5;    //  71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max 142kHz sample rate
-//		sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;   // 239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us sample time, max 47.6kHz sample rate
-
-		sConfig.Channel = ADC_CHANNEL_0;                // PA0 Pin
-		sConfig.Rank    = ADC_REGULAR_RANK_1;
-		if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-			Error_Handler();
-
-		sConfig.Channel = ADC_CHANNEL_1;                // PA1 Pin
-		sConfig.Rank    = ADC_REGULAR_RANK_2;
-		if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-			Error_Handler();
-
-		// ************************************************
-		// run the ADC calibration
-
-		if (HAL_ADCEx_Calibration_Start(&hadc1) != HAL_OK)
-			Error_Handler();
-
-	#endif
-}
-
-void DMA_init(void)
-{
-	__HAL_RCC_DMA1_CLK_ENABLE();
-
-	// ADC DMA
-	HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 1, 0);
-	HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-
-	// UART TX DMA
-	HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 10, 0);
-	HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
-}
-
-void TIMER3_init(void)
-{
-	TIM_ClockConfigTypeDef  sClockSourceConfig = {0};
-	TIM_MasterConfigTypeDef sMasterConfig      = {0};
-
-//	RCC_ClkInitTypeDef rcc_clk;
-//	uint32_t latency;
-//	HAL_RCC_GetClockConfig(&rcc_clk, &latency);
-
-	const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * 1000;      // 1kHz
-
-	htim3.Instance               = TIM3;
-	htim3.Init.CounterMode       = TIM_COUNTERMODE_UP;
-	htim3.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
-	htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-	htim3.Init.Prescaler         = 0;
-	htim3.Init.Period            = (((HAL_RCC_GetHCLKFreq() / (htim3.Init.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
-	if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-		Error_Handler();
-
-	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-	if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
-		Error_Handler();
-
-	sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
-	sMasterConfig.MasterSlaveMode     = TIM_MASTERSLAVEMODE_DISABLE;
-	if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-		Error_Handler();
-}
-
-void GPIO_init(void)
-{
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	__HAL_RCC_GPIOA_CLK_ENABLE();
-	__HAL_RCC_GPIOB_CLK_ENABLE();
-
-	// LED on
-	HAL_GPIO_WritePin(LED_pin_GPIO_Port, LED_Pin, HIGH);
-
-	// voltage measurement mode
-	HAL_GPIO_WritePin(VI_pin_GPIO_Port, VI_Pin, LOW);
-	HAL_GPIO_WritePin(GS_pin_GPIO_Port, GS_Pin, HIGH);
-
-	HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);
-	HAL_GPIO_WritePin(TP22_pin_GPIO_Port, TP22_Pin, LOW);
-
-	DAC_write(0);
-
-	// output pins
-	GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull  = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	GPIO_InitStruct.Pin   = LED_Pin;
-	HAL_GPIO_Init(LED_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = GS_Pin;
-	HAL_GPIO_Init(GS_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = VI_Pin;
-	HAL_GPIO_Init(VI_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = TP21_Pin;
-	HAL_GPIO_Init(TP21_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = TP22_Pin;
-	HAL_GPIO_Init(TP22_pin_GPIO_Port, &GPIO_InitStruct);
-
-	// input pins
-	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	GPIO_InitStruct.Pin  = BUTT_HOLD_Pin;
-	HAL_GPIO_Init(BUTT_HOLD_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin  = BUTT_SP_Pin;
-	HAL_GPIO_Init(BUTT_SP_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin  = BUTT_RCL_Pin;
-	HAL_GPIO_Init(BUTT_RCL_GPIO_Port, &GPIO_InitStruct);
-
-	// DAC pins
-	GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull  = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-	GPIO_InitStruct.Pin   = DA0_Pin;
-	HAL_GPIO_Init(DA0_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = DA1_Pin;
-	HAL_GPIO_Init(DA1_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = DA2_Pin;
-	HAL_GPIO_Init(DA2_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = DA3_Pin;
-	HAL_GPIO_Init(DA3_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = DA4_Pin;
-	HAL_GPIO_Init(DA4_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = DA5_Pin;
-	HAL_GPIO_Init(DA5_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = DA6_Pin;
-	HAL_GPIO_Init(DA6_pin_GPIO_Port, &GPIO_InitStruct);
-	GPIO_InitStruct.Pin   = DA7_Pin;
-	HAL_GPIO_Init(DA7_pin_GPIO_Port, &GPIO_InitStruct);
-}
+#endif
 
 // ***********************************************************
 
@@ -2637,7 +2810,7 @@ void process_buttons(void)
 		for (unsigned int i = 0; i < BUTTON_NUM; i++)
 			button[i].processed = 1;
 
-		return;	
+		return;
 	}
 
 	// *************
@@ -2732,7 +2905,7 @@ void process_buttons(void)
 
 			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
-	
+
 			draw_screen();
 		}
 		return;
@@ -2741,7 +2914,7 @@ void process_buttons(void)
 	if (button[BUTTON_RCL].released)
 	{
 		if (button[BUTTON_RCL].processed == 0)
-		{			
+		{
 			button[BUTTON_RCL].processed = 1;
 
 			display_hold = 0;
@@ -2770,72 +2943,64 @@ void process_buttons(void)
 
 void process_uart_send(void)
 {
-	if (settings.flags & SETTING_FLAG_UART_DSO)
-	{
-		const HAL_UART_StateTypeDef state = HAL_UART_GetState(&huart1);
-		if (state == HAL_UART_STATE_READY)
-		{	// the UART is available to use
-			//
-			// send the sampled data down the serial link
+	if ((settings.flags & SETTING_FLAG_UART_DSO) == 0)
+		return;
 
-			#ifdef MATLAB_SERIAL
-				// send as ASCII
+//	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+//		return;     // uart is busy sending
 
-				const unsigned int cols = 8;
-				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-				{
-					printf("%3u,", 1 + i);
-					for (unsigned int col = 0; col < (cols - 1); col++)
-						printf("%0.1f,", adc_data[col][i]);
-					printf("%0.1f\r\n", adc_data[col - 1][i]);
-				}
-			#else
-				// send as binary packet
+	// the UART is available to use
+	//
+	// send the sampled data down the serial link
 
-				// STM32's are little endian (data is LS-Byte 1st)
-				// the receiving end needs to take that into account when processing the rx'ed data
-				// your receiving app can use htons(), htonl(), ntohs(), ntohl() to swap endianness (if need be)
+	#ifdef MATLAB_SERIAL
+		// send as ASCII
 
-				// create TX packet
-				tx_packet.marker = PACKET_MARKER;                                         // packet start marker
-				memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
-
-				#ifdef UART_BIG_ENDIAN
-					// make the packet values BIG endian
-					// though the receivng end (your PC etc) is the one that needs to be dealing with this, not us
-
-					tx_packet.marker = __builtin_bswap32(tx_packet.marker);
-
-					uint32_t *pd = (uint32_t *)tx_packet.data;
-					for (unsigned int i = 0; i < (sizeof(adc_data) / sizeof(uint32_t)); i++, pd++)
-						*pd = __builtin_bswap32(*pd);
-				#endif
-
-				//HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);
-
-				#if 0
-					tx_packet.crc = 0;    // TEST
-				#else
-					tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
-				#endif
-
-				#ifdef UART_BIG_ENDIAN
-					// make the packet CRC little endian
-					tx_packet.crc = __builtin_bswap16(tx_packet.crc);
-				#endif
-
-				#if 0
-					// start sending the packet (wait here for upto 200ms until it does start)
-					const uint32_t tick = HAL_GetTick();
-					while (HAL_BUSY == HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet)) && (HAL_GetTick() - tick) < 200)
-						__WFI();    // wait until next interrupt occurs
-				#else
-					// don't hang around here waiting, if the UART/DMA is still busy then forget sending it on this run
-					HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&tx_packet, sizeof(tx_packet));
-				#endif
-			#endif
+		const unsigned int cols = 8;
+		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+		{
+			dprintf(0, "%3u,", 1 + i);
+			for (unsigned int col = 0; col < (cols - 1); col++)
+				dprintf(0, "%0.1f,", adc_data[col][i]);
+			dprintf(0, "%0.1f\r\n", adc_data[col - 1][i]);
 		}
-	}
+	#else
+		// send as binary packet
+
+		// STM32's are little endian (data is LS-Byte 1st)
+		// the receiving end needs to take that into account when processing the rx'ed data
+		// your receiving app can use htons(), htonl(), ntohs(), ntohl() to swap endianness (if need be)
+
+		// create TX packet
+		tx_packet.marker = PACKET_MARKER;                                         // packet start marker
+		memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
+
+		#ifdef UART_BIG_ENDIAN
+			// make the packet values BIG endian
+			// though the receivng end (your PC etc) is the one that needs to be dealing with this, not us
+
+			tx_packet.marker = __builtin_bswap32(tx_packet.marker);
+
+			uint32_t *pd = (uint32_t *)tx_packet.data;
+			for (unsigned int i = 0; i < (sizeof(adc_data) / sizeof(uint32_t)); i++, pd++)
+				*pd = __builtin_bswap32(*pd);
+		#endif
+
+		//HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);
+
+		#if 0
+			tx_packet.crc = 0;    // TEST
+		#else
+			tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
+		#endif
+
+		#ifdef UART_BIG_ENDIAN
+			// make the packet CRC little endian
+			tx_packet.crc = __builtin_bswap16(tx_packet.crc);
+		#endif
+
+		start_UART_TX_DMA(&tx_packet, sizeof(tx_packet));
+	#endif
 }
 
 void process_op_mode(void)
@@ -2946,29 +3111,45 @@ void process_op_mode(void)
 
 int main(void)
 {
-	// free PB3 and PB4 for general use
-//	AFIO->MAPR &= ~(AFIO_MAPR_SWJ_CFG);   // Clear the SWJ_CFG bits
-//	AFIO->MAPR |=   AFIO_MAPR_SWJ_CFG_1;  // Set SWJ_CFG to disable JTAG but keep SWD
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_AFIO);
+	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
 
-	#pragma GCC diagnostic push
-	#pragma GCC diagnostic ignored "-Wunused-variable"
-	// -Wunused -Wunused-function -Wunused-label -Wunused-parameter -Wunused-value -Wunused-variable -Wunused-but-set-parameter -Wunused-but-set-variable
-	reset_cause.por    = (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST ) != RESET) ? 1 : 0;
-	reset_cause.pin    = (__HAL_RCC_GET_FLAG(RCC_FLAG_PINRST ) != RESET) ? 1 : 0;
-	reset_cause.sft    = (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST ) != RESET) ? 1 : 0;
-	reset_cause.iwdg   = (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST) != RESET) ? 1 : 0;
-	reset_cause.wwdg   = (__HAL_RCC_GET_FLAG(RCC_FLAG_WWDGRST) != RESET) ? 1 : 0;
-	reset_cause.lpwr   = (__HAL_RCC_GET_FLAG(RCC_FLAG_LPWRRST) != RESET) ? 1 : 0;
-	reset_cause.lsirdy = (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY ) != RESET) ? 1 : 0;
-	__HAL_RCC_CLEAR_RESET_FLAGS();		// reset flags ready for next reboot
-	#pragma GCC diagnostic pop
+	LL_GPIO_AF_Remap_SWJ_NOJTAG();
+
+	// stop stuff when in debug mode
+	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_IWDG_STOP;
+	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_WWDG_STOP;
+	DBGMCU->CR |= LL_DBGMCU_APB2_GRP1_TIM1_STOP;
+	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_TIM2_STOP;
+	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_TIM3_STOP;
+	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_TIM4_STOP;
+	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_I2C1_STOP;
+	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_I2C2_STOP;
+	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_CAN1_STOP;
+
+	NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
+
+	{	// get reset cause
+		#pragma GCC diagnostic push
+		#pragma GCC diagnostic ignored "-Wunused-variable"
+		// -Wunused -Wunused-function -Wunused-label -Wunused-parameter -Wunused-value -Wunused-variable -Wunused-but-set-parameter -Wunused-but-set-variable
+		reset_cause.por    = LL_RCC_IsActiveFlag_PORRST();
+		reset_cause.pin    = LL_RCC_IsActiveFlag_PINRST();
+		reset_cause.sft    = LL_RCC_IsActiveFlag_SFTRST();
+		reset_cause.iwdg   = LL_RCC_IsActiveFlag_IWDGRST();
+		reset_cause.wwdg   = LL_RCC_IsActiveFlag_WWDGRST();
+		reset_cause.lpwr   = LL_RCC_IsActiveFlag_LPWRRST();
+		reset_cause.lsirdy = LL_RCC_IsActiveFlag_LSIRDY();
+		LL_RCC_ClearResetFlags();                                          // reset flags ready for next reboot
+		#pragma GCC diagnostic pop
+	}
 
 	// disable printf(), fread(), fwrite(), sscanf() etc buffering
 	setbuf( stdin,  NULL);
 	setbuf( stdout, NULL);
 	setbuf( stderr, NULL);
-//	setvbuf(stdout, NULL, _IONBF, 0);
-//	setvbuf(stderr, NULL, _IONBF, 0);
+	//setvbuf(stdout, NULL, _IONBF, 0);
+	//setvbuf(stderr, NULL, _IONBF, 0);
 
 	button[0].gpio_port = BUTT_HOLD_GPIO_Port;
 	button[0].gpio_pin  = BUTT_HOLD_Pin;
@@ -2989,18 +3170,20 @@ int main(void)
 	settings.flags         |= SETTING_FLAG_UART_DSO;   // send ADC data via the serial port
 
 	DWT_Delay_Init();
+
 	HAL_Init();
+
 	SystemClock_Config();
 
 	#ifdef USE_IWDG
 		MX_IWDG_Init();
 	#endif
 
-	GPIO_init();
-	DMA_init();     // must do this before uart/dma is setup, otherwise the uart tx dma doesn't work
-	UART1_init();
-	TIMER3_init();  // Timer-3 is used for the ADC and DAC output
-	ADC_init();
+	LL_RCC_GetSystemClocksFreq(&rcc_clocks);
+
+	MX_GPIO_Init();
+	MX_USART1_UART_Init();
+	MX_DMA_Init();
 
 	{	// setup the goertzel filter
 		const float normalized_freq = 2.0f / ADC_DATA_LENGTH;  // 2 cycles spanning the sample buffer
@@ -3020,25 +3203,36 @@ int main(void)
 	screen_init();
 	bootup_screen();
 
-	printf("\r\nrebooted m181 LCR Meter v%.2f\r\n", FW_VERSION);
+	dprintf(0, "\r\nrebooted M181 LCR Meter v%0.2f %s %s %s %s %s %s %s\r\n",
+		FW_VERSION,
+		reset_cause.por    ? "POR"    : "por",
+		reset_cause.pin    ? "PIN"    : "pin",
+		reset_cause.sft    ? "SFT"    : "sft",
+		reset_cause.iwdg   ? "IWDG"   : "iwdg",
+		reset_cause.wwdg   ? "WWDG"   : "wwdg",
+		reset_cause.lpwr   ? "LPWR"   : "lpwr",
+		reset_cause.lsirdy ? "LSIRDY" : "lsirdy");
+
+	MX_ADC_Init();
+	MX_TIM3_Init();
 
 	// *************************************
-	
-	{	// wait until the user has released all buttons (for at least 500ms)
 
-		uint32_t butt_tick = HAL_GetTick();
+	{	// wait until the user has released all buttons (for at least 1000ms)
+
+		uint32_t butt_tick = sys_tick;
 
 		while (1)
 		{
 			__WFI();
 
-			const uint32_t tick = HAL_GetTick();
+			const uint32_t tick = sys_tick;
 
 			for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
 				if (button[i].debounce > 0)
 					butt_tick = tick;
 
-			if ((tick - butt_tick) >= 500)
+			if ((tick - butt_tick) >= 1000)
 				break;
 
 			#ifdef USE_IWDG
@@ -3047,23 +3241,24 @@ int main(void)
 			#endif
 		}
 
-		// clear any butt press info
+		// clear all butt press info
 		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
 		{
-			button[i].debounce     = 0;
+			button[i].processed  = 0;
+			button[i].debounce   = 0;
 			button[i].pressed_ms = 0;
-			button[i].released     = 0;
-			button[i].held_ms      = 0;
+			button[i].released   = 0;
+			button[i].held_ms    = 0;
 		}
 	}
 
 	// *************************************
 
-	// start sampling
-	start_ADC();
-
 	// give the user more time to read the bootup screen
-	HAL_Delay(1000);
+	LL_mDelay(1000);
+
+	// start making use of the incoming ADC blocks
+	initialising = 0;
 
 	#ifdef USE_IWDG
 		// feed the dog
@@ -3081,6 +3276,7 @@ int main(void)
 		__WFI();    // wait here until next interrupt occurs
 //		__WFE();    // wait here in low power mode until next interrupt occurs
 
+		// servicing any and all user input without delay is the highest priority
 		process_buttons();
 
 //		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;

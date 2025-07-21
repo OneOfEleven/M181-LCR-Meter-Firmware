@@ -3,48 +3,47 @@
 #include "delay.h"
 #include "stm32_sw_i2c.h"
 
-#define I2C_CLEAR_SDA     HAL_GPIO_WritePin(SW_I2C_SDA_GPIO_Port, SW_I2C_SDA_Pin, GPIO_PIN_RESET);
-#define I2C_SET_SDA       HAL_GPIO_WritePin(SW_I2C_SDA_GPIO_Port, SW_I2C_SDA_Pin, GPIO_PIN_SET);
+#define I2C_CLEAR_SDA     LL_GPIO_ResetOutputPin(SW_I2C_SDA_GPIO_Port, SW_I2C_SDA_Pin);
+#define I2C_SET_SDA       LL_GPIO_SetOutputPin(  SW_I2C_SDA_GPIO_Port, SW_I2C_SDA_Pin);
 
-#define I2C_CLEAR_SCL     HAL_GPIO_WritePin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin, GPIO_PIN_RESET);
-#define I2C_SET_SCL       HAL_GPIO_WritePin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin, GPIO_PIN_SET);
+#define I2C_CLEAR_SCL     LL_GPIO_ResetOutputPin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin);
+#define I2C_SET_SCL       LL_GPIO_SetOutputPin(  SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin);
 
 //#define I2C_DELAY         DWT_Delay_ns(50);
 #define I2C_DELAY         __NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();
 
 void I2C_bus_init(void)
 {
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-	HAL_GPIO_WritePin(SW_I2C_SDA_GPIO_Port, SW_I2C_SDA_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(SW_I2C_SCL_GPIO_Port, SW_I2C_SCL_Pin, GPIO_PIN_SET);
+	I2C_SET_SDA
+	I2C_SET_SCL
 
-	GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_OD;
-	GPIO_InitStruct.Pull  = GPIO_PULLUP;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-	GPIO_InitStruct.Pin   = SW_I2C_SDA_Pin;
-	HAL_GPIO_Init(SW_I2C_SDA_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Mode       = LL_GPIO_MODE_OUTPUT;
+	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
+	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
+	GPIO_InitStruct.Pin        = SW_I2C_SDA_Pin;
+	LL_GPIO_Init(SW_I2C_SDA_GPIO_Port, &GPIO_InitStruct);
 
-	// the I2C bus is not shared in this app, so just go with push-pull output type
-	GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull  = GPIO_NOPULL;
-	//GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_OD;
-	//GPIO_InitStruct.Pull  = GPIO_PULLUP;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	GPIO_InitStruct.Pin   = SW_I2C_SCL_Pin;
-	HAL_GPIO_Init(SW_I2C_SCL_GPIO_Port, &GPIO_InitStruct);
+
+	GPIO_InitStruct.Mode       = LL_GPIO_MODE_OUTPUT;
+	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+	GPIO_InitStruct.Pin        = SW_I2C_SCL_Pin;
+	LL_GPIO_Init(SW_I2C_SCL_GPIO_Port, &GPIO_InitStruct);
 }
 
 //__STATIC_INLINE uint8_t I2C_read_SDA(void)
 __STATIC_FORCEINLINE uint8_t I2C_read_SDA(void)
 {
-	return (HAL_GPIO_ReadPin(SW_I2C_SDA_GPIO_Port, SW_I2C_SDA_Pin) == GPIO_PIN_SET) ? 1 : 0;
+	return LL_GPIO_IsInputPinSet(SW_I2C_SDA_GPIO_Port, SW_I2C_SDA_Pin);
 }
 
 void I2C_init(void)
 {
-	I2C_SET_SDA;
-	I2C_SET_SCL;
+	I2C_SET_SDA
+	I2C_SET_SCL
 }
 
 void I2C_start_cond(void)

@@ -1,34 +1,39 @@
-/**
- ******************************************************************************
- * @file           : main.h
- * @brief          : Main program header
- ******************************************************************************
- * @attention
- * Developed by: Jaishankar M
- * Re-worked by: OneOfEleven
- ******************************************************************************
- */
 
 #ifndef __MAIN_H
 #define __MAIN_H
 
 #ifdef __cplusplus
-	extern "C"
-	{
+	extern "C" {
 #endif
 
 #include <stdint.h>
+
+#ifndef __FAST_MATH__
+	#define __FAST_MATH__
+#endif
 #include <math.h>
 
-//#include "stm32f1xx_hal_def.h"
-//#include "stm32f1xx.h"
 #include "stm32f1xx_hal.h"
-//#include "stm32_hal_legacy.h"
-//#include "stm32f1xx_hal_cortex.h"
-//#include "stm32f1xx_hal_conf.h"
+#include "stm32f1xx_ll_adc.h"
+#include "stm32f1xx_ll_dma.h"
+#include "stm32f1xx_ll_iwdg.h"
+#include "stm32f1xx_ll_rcc.h"
+#include "stm32f1xx_ll_bus.h"
+#include "stm32f1xx_ll_system.h"
+#include "stm32f1xx_ll_exti.h"
+#include "stm32f1xx_ll_cortex.h"
+#include "stm32f1xx_ll_utils.h"
+#include "stm32f1xx_ll_pwr.h"
+#include "stm32f1xx_ll_tim.h"
+#include "stm32f1xx_ll_usart.h"
+#include "stm32f1xx_ll_gpio.h"
+
+#if defined(USE_FULL_ASSERT)
+	#include "stm32_assert.h"
+#endif
 
 #ifndef DEBUG
-	#define USE_IWDG                               // useful to reset the CPU if something locks up etc
+	#define USE_IWDG                 // useful to reset the CPU if something locks up etc
 #endif
 
 #ifndef M_PI
@@ -81,80 +86,88 @@
 
 #define SAVE_SETTINGS_MS             5000           // ms we wait till we save new settings (helps reduce number of flash writes)
 
-#define HIGH                         GPIO_PIN_SET
-#define LOW                          GPIO_PIN_RESET
+// *******************************
 
-#define ADC1_Pin                     GPIO_PIN_0
-#define ADC1_pin_GPIO_Port           GPIOA
+#define ADC1_Pin                     LL_GPIO_PIN_0
+#define ADC1_GPIO_Port               GPIOA
 
-#define ADC2_Pin                     GPIO_PIN_1
-#define ADC2_pin_GPIO_Port           GPIOA
+#define ADC2_Pin                     LL_GPIO_PIN_1
+#define ADC2_GPIO_Port               GPIOA
 
-#define TP21_Pin                     GPIO_PIN_2
-#define TP21_pin_GPIO_Port           GPIOA
+#define TP21_Pin                     LL_GPIO_PIN_2
+#define TP21_GPIO_Port               GPIOA
 
-#define SW_I2C_SDA_Pin               GPIO_PIN_3
+#define SW_I2C_SDA_Pin               LL_GPIO_PIN_3
 #define SW_I2C_SDA_GPIO_Port         GPIOA
 
-#define SW_I2C_SCL_Pin               GPIO_PIN_4
+#define SW_I2C_SCL_Pin               LL_GPIO_PIN_4
 #define SW_I2C_SCL_GPIO_Port         GPIOA
 
-#define LED_Pin                      GPIO_PIN_5
-#define LED_pin_GPIO_Port            GPIOA
+#define LED_Pin                      LL_GPIO_PIN_5
+#define LED_GPIO_Port                GPIOA
 
-#define GS_Pin                       GPIO_PIN_6
-#define GS_pin_GPIO_Port             GPIOA
+#define GS_Pin                       LL_GPIO_PIN_6
+#define GS_GPIO_Port                 GPIOA
 
-#define VI_Pin                       GPIO_PIN_7
-#define VI_pin_GPIO_Port             GPIOA
+#define VI_Pin                       LL_GPIO_PIN_7
+#define VI_GPIO_Port                 GPIOA
 
-#define TP22_Pin                     GPIO_PIN_8
-#define TP22_pin_GPIO_Port           GPIOA
+#define TP22_Pin                     LL_GPIO_PIN_8
+#define TP22_GPIO_Port               GPIOA
 
-#define UART1_TXD_Pin                GPIO_PIN_9
+#define UART1_TXD_Pin                LL_GPIO_PIN_9
 #define UART1_TXD_GPIO_Port          GPIOA
 
-#define UART1_RXD_Pin                GPIO_PIN_10
+#define UART1_RXD_Pin                LL_GPIO_PIN_10
 #define UART1_RXD_GPIO_Port          GPIOA
 
-#define SWDIO_Pin                    GPIO_PIN_13
+#define SWDIO_Pin                    LL_GPIO_PIN_13
 #define SWDIO_GPIO_Port              GPIOA
 
-#define SWCLK_Pin                    GPIO_PIN_14
+#define SWCLK_Pin                    LL_GPIO_PIN_14
 #define SWCLK_GPIO_Port              GPIOA
 
-#define DA0_Pin                      GPIO_PIN_0
-#define DA0_pin_GPIO_Port            GPIOB
+#define DA0_Pin                      LL_GPIO_PIN_0
+#define DA0_GPIO_Port                GPIOB
 
-#define DA1_Pin                      GPIO_PIN_1
-#define DA1_pin_GPIO_Port            GPIOB
+#define DA1_Pin                      LL_GPIO_PIN_1
+#define DA1_GPIO_Port                GPIOB
 
-#define DA2_Pin                      GPIO_PIN_2
-#define DA2_pin_GPIO_Port            GPIOB
+#define DA2_Pin                      LL_GPIO_PIN_2
+#define DA2_GPIO_Port                GPIOB
 
-#define DA3_Pin                      GPIO_PIN_3
-#define DA3_pin_GPIO_Port            GPIOB
+#define DA3_Pin                      LL_GPIO_PIN_3
+#define DA3_GPIO_Port                GPIOB
 
-#define DA4_Pin                      GPIO_PIN_4
-#define DA4_pin_GPIO_Port            GPIOB
+#define DA4_Pin                      LL_GPIO_PIN_4
+#define DA4_GPIO_Port                GPIOB
 
-#define DA5_Pin                      GPIO_PIN_5
-#define DA5_pin_GPIO_Port            GPIOB
+#define DA5_Pin                      LL_GPIO_PIN_5
+#define DA5_GPIO_Port                GPIOB
 
-#define DA6_Pin                      GPIO_PIN_6
-#define DA6_pin_GPIO_Port            GPIOB
+#define DA6_Pin                      LL_GPIO_PIN_6
+#define DA6_GPIO_Port                GPIOB
 
-#define DA7_Pin                      GPIO_PIN_7
-#define DA7_pin_GPIO_Port            GPIOB
+#define DA7_Pin                      LL_GPIO_PIN_7
+#define DA7_GPIO_Port                GPIOB
 
-#define BUTT_HOLD_Pin                GPIO_PIN_13
+#define BUTT_HOLD_Pin                LL_GPIO_PIN_13
 #define BUTT_HOLD_GPIO_Port          GPIOB
 
-#define BUTT_SP_Pin                  GPIO_PIN_14
+#define BUTT_SP_Pin                  LL_GPIO_PIN_14
 #define BUTT_SP_GPIO_Port            GPIOB
 
-#define BUTT_RCL_Pin                 GPIO_PIN_15
+#define BUTT_RCL_Pin                 LL_GPIO_PIN_15
 #define BUTT_RCL_GPIO_Port           GPIOB
+
+#ifndef NVIC_PRIORITYGROUP_0
+	#define NVIC_PRIORITYGROUP_0   ((uint32_t)0x00000007)   // 0 bit  for pre-emption priority, 4 bits for subpriority
+	#define NVIC_PRIORITYGROUP_1   ((uint32_t)0x00000006)   // 1 bit  for pre-emption priority, 3 bits for subpriority
+	#define NVIC_PRIORITYGROUP_2   ((uint32_t)0x00000005)   // 2 bits for pre-emption priority, 2 bits for subpriority
+	#define NVIC_PRIORITYGROUP_3   ((uint32_t)0x00000004)   // 3 bits for pre-emption priority, 1 bit  for subpriority
+	#define NVIC_PRIORITYGROUP_4   ((uint32_t)0x00000003)   // 4 bits for pre-emption priority, 0 bit  for subpriority
+#endif
+
 
 // *******************************
 
@@ -404,8 +417,11 @@ typedef struct t_system_data {
 
 } t_system_data;
 
-void Error_Handler(void);
+// *******************************
 
+int _write(int file, char *ptr, int len);
+
+void Error_Handler(void);
 void NMI_Handler(void);
 void HardFault_Handler(void);
 void MemManage_Handler(void);
@@ -417,8 +433,11 @@ void PendSV_Handler(void);
 void SysTick_Handler(void);
 void DMA1_Channel1_IRQHandler(void);
 void DMA1_Channel4_IRQHandler(void);
-void USART1_IRQHandler(void);
+void ADC1_2_IRQHandler(void);
 void TIM3_IRQHandler(void);
+void USART1_IRQHandler(void);
+
+// *******************************
 
 #ifdef __cplusplus
 	}
