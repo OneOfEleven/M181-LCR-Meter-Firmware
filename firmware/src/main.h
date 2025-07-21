@@ -57,11 +57,13 @@
 //#define UART_BAUDRATE              230400
 //#define UART_BAUDRATE              460800
 #define UART_BAUDRATE                921600
-//#define UART_BAUDRATE              1843200      // max rate the CH340N can do
+//#define UART_BAUDRATE              1843200        // max rate the CH340N can do
 
 #define PACKET_MARKER                0x19621996     // 32-bit marker to indicate 'start of packet' for the receiver (windows GUI etc)
 
 #define SETTINGS_MARKER              0x19961962     // 32-bit marker to indicate 'start of settings' - so we can find them in flash
+
+#define DAC_RESOLUTION               256            // 8-bit
 
 #define ADC_DATA_LENGTH              128            // 2^n
 

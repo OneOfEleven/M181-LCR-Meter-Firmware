@@ -129,31 +129,32 @@ struct {
 } reset_cause = {0};
 
 #ifdef USE_IWDG
-	uint32_t          iwdg_timeout_sec = 8;    // 8 second IWDG timeout
-	volatile uint32_t iwdg_tick = 0;
+	uint32_t          iwdg_timeout_sec = 8;        // 8 second IWDG timeout
+	volatile uint32_t iwdg_tick        = 0;
 #endif
 
-volatile uint32_t     sys_tick = 0;
+volatile uint32_t     sys_tick = 0;                // our own system tick value
 
-LL_RCC_ClocksTypeDef  rcc_clocks = {0};                       // various CPU clock frequencies
+LL_RCC_ClocksTypeDef  rcc_clocks = {0};            // various CPU clock frequencies
 
 uint32_t              draw_screen_count  = 0;
 char                  buffer_display[26] = {0};
 
-t_button              button[BUTTON_NUM] = {0};
+t_button              button[BUTTON_NUM] = {0};    // each buttons press data
 
-const uint16_t        DAC_resolution                  = 256;  // 8-bit
-volatile unsigned int sine_table_index                = 0;    //
+volatile unsigned int sine_table_index                = 0;
 uint8_t               sine_table[ADC_DATA_LENGTH / 2] = {0};  // length is matched with the ADC sampling (length = one sine cycle)
 
 uint16_t              measurement_Hz        = 1000;
 float                 measurement_amplitude = 1.0;            // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
 
-unsigned int          op_mode = OP_MODE_MEASURING;
+uint8_t               op_mode      = OP_MODE_MEASURING;       // the current operaring mode the user is in
+uint8_t               initialising = 1;                       // set to '1' pauses the ADC buffer processing (ADC keeps going though)
+uint32_t              frames       = 0;                       // just a frame counter
 
-unsigned int          display_hold = 0;                       // '1' to pause the display
+unsigned int          display_hold = 0;                       // '1' to hold/pause the display
 
-// for the calibration modes
+// for when the user is running the calibrations
 struct {
 	uint16_t          Hz;
 	int               count;
@@ -168,12 +169,8 @@ unsigned int          gain_changed    = 0;
 float                 high_gain       = 101;
 float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;
 
-// ADC DMA sample buffer
+// ADC DMA raw sample buffer
 t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];      // *2 for DMA double buffering (ADC/DMA is continuously running)
-
-uint32_t              frames  = 0;        // just a frame counter
-
-uint8_t               initialising = 1;
 
 // ADC sample block averaging buffer
 // we take several sample blocks and average them together to reduce noise/increase dynamic range
@@ -185,10 +182,10 @@ float                 adc_data[8][ADC_DATA_LENGTH] = {0};
 #pragma pack(pop)
 
 // non-zero if waveform clipping/saturation is detected (per block)
-// we use the histogram method to detect clipped/saturate samples
 uint8_t               adc_data_clipping[4] = {0};
 uint8_t               adc_data_clipped[4]  = {0};
 
+// the computed waveform magnitudes and phases - these are what's used to compute the DUT parameters
 float                 mag_rms[8]   = {0};
 float                 phase_deg[8] = {0};
 
@@ -198,24 +195,25 @@ const unsigned int    vi_measure_mode_table[] = {0, 1, 3, 2};
 volatile unsigned int vi_measure_index = 0;
 unsigned int          prev_vi_mode     = -1;
 
-// system settings
-volatile int          save_settings_timer = -1;  // reduce flash writes (reduces wear on the flash)
-t_settings            settings            = {0};
+// system settings ar stored in flash, so we keep a timer for saving the users settings to reduce flash wear
+volatile int          save_settings_timer = -1;              //
+t_settings            settings            = {0};             // the users settings
 
-t_system_data         system_data = {0};
+t_system_data         system_data = {0};                     // various results saved in here
 
-// temp buffer - used for the Goerttzel output samples
+// temp buffer used for the Goerttzel output samples
 t_comp                tmp_buf[ADC_DATA_LENGTH];
 
-// for TX'ing binary packets vis the serial port
+// for TX'ing binary packets via the serial port
 t_packet              tx_packet;
 
+// serial port stuff
 struct {
 	struct {
 		uint8_t  buffer[1024];     // RX raw buffer
 		uint32_t buffer_rd;
 		uint32_t buffer_wr;
-		uint32_t timer;
+		uint32_t timer;            // timer for resetting these RX buffers is nothing received for a set time
 
 		struct {
 			uint8_t  buffer[512];  // RX text line buffer
@@ -762,7 +760,7 @@ void set_measurement_frequency(const uint32_t Hz)
 	}
 
 	{	// fill the sine wave look-up table with one complete sine cycle
-		const float scale      = (DAC_resolution - 1) * measurement_amplitude * 0.5f;
+		const float scale      = (DAC_RESOLUTION - 1) * measurement_amplitude * 0.5f;
 		const float phase_step = (float)(2.0 * M_PI) / ARRAY_SIZE(sine_table);
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
 			sine_table[i] = (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
@@ -1208,8 +1206,6 @@ void process_ADC(const void *buffer)
 {
 	// process the new ADC 12-bit samples
 
-//	HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, HIGH);   // TEST
-
 	if (initialising)
 		return;                                              // ignore the ADC blocks
 
@@ -1540,7 +1536,7 @@ void screen_init(void)
 	ssd1306_Fill(White);
 	ssd1306_UpdateScreen();
 
-	HAL_Delay(500);
+	LL_mDelay(500);
 }
 
 void bootup_screen(void)
@@ -2044,6 +2040,8 @@ void SystemClock_Config(void)
 	if (HAL_InitTick(TICK_INT_PRIORITY) != HAL_OK)
 		Error_Handler();
 
+	LL_RCC_SetADCClockSource(LL_RCC_ADC_CLKSRC_PCLK2_DIV_6);
+
 	//LL_Init1msTick(RCC_MAX_FREQUENCY);
 
 	// enable the LL 1ms sys-tick
@@ -2051,8 +2049,6 @@ void SystemClock_Config(void)
 	LL_Init1msTick(SystemCoreClock);
 	NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), TICK_INT_PRIORITY, 0));
 	LL_SYSTICK_EnableIT();
-
-	LL_RCC_SetADCClockSource(LL_RCC_ADC_CLKSRC_PCLK2_DIV_6);
 }
 
 void MX_ADC_Init(void)
@@ -2068,8 +2064,6 @@ void MX_ADC_Init(void)
 	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC1);
 
-	LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_1);
-
 	LL_GPIO_SetPinMode(ADC1_GPIO_Port, ADC1_Pin, LL_GPIO_MODE_ANALOG);
 	LL_GPIO_SetPinMode(ADC2_GPIO_Port, ADC2_Pin, LL_GPIO_MODE_ANALOG);
 
@@ -2082,6 +2076,9 @@ void MX_ADC_Init(void)
 		LL_ADC_Disable(ADC2);
 
 		{	// setup the ADC DMA
+
+			LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_1);
+
 			LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_1, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 			LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_1, LL_DMA_PRIORITY_HIGH);
 			LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_1, LL_DMA_MODE_CIRCULAR);
@@ -2150,6 +2147,8 @@ void MX_ADC_Init(void)
 		LL_ADC_REG_SetSequencerRanks( ADC2, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_1);
 		LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_71CYCLES_5);
 
+		// *********************************
+
 		#if 1
 		{	// calibrate the ADC's
 
@@ -2158,19 +2157,11 @@ void MX_ADC_Init(void)
 
 			LL_mDelay(2);
 
-			{
-				const uint32_t tick = sys_tick;
-				LL_ADC_StartCalibration(ADC1);
-				while (LL_ADC_IsCalibrationOnGoing(ADC1) && (sys_tick - tick) < 10)
-					__WFI();
-			}
-
-			{
-				const uint32_t tick = sys_tick;
-				LL_ADC_StartCalibration(ADC2);
-				while (LL_ADC_IsCalibrationOnGoing(ADC2) && (sys_tick - tick) < 10)
-					__WFI();
-			}
+			const uint32_t tick = sys_tick;
+			LL_ADC_StartCalibration(ADC1);
+			LL_ADC_StartCalibration(ADC2);
+			while ((LL_ADC_IsCalibrationOnGoing(ADC1) || LL_ADC_IsCalibrationOnGoing(ADC2)) && (sys_tick - tick) < 100)
+				__WFI();
 
 			LL_mDelay(2);
 
@@ -2179,12 +2170,17 @@ void MX_ADC_Init(void)
 		}
 		#endif
 
+		// *********************************
+
 	#else
 		// single ADC mode
 
 		LL_ADC_Disable(ADC1);
 
 		{	// setup the ADC DMA
+
+			LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_1);
+
 			LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_1, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 			LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_1, LL_DMA_PRIORITY_HIGH);
 			LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_1, LL_DMA_MODE_CIRCULAR);
@@ -2246,7 +2242,7 @@ void MX_ADC_Init(void)
 
 			const uint32_t tick = sys_tick;
 			LL_ADC_StartCalibration(ADC1);
-			while (LL_ADC_IsCalibrationOnGoing(ADC1) && (sys_tick - tick) < 10)
+			while (LL_ADC_IsCalibrationOnGoing(ADC1) && (sys_tick - tick) < 100)
 				__WFI();
 
 			LL_mDelay(2);
@@ -2258,6 +2254,7 @@ void MX_ADC_Init(void)
 	#endif
 
 	// *********************************
+	// all done, start the ADC sampling
 
 	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
 
@@ -2359,7 +2356,6 @@ void MX_TIM3_Init(void)
 
 	LL_TIM_EnableARRPreload(      TIM3);
 	LL_TIM_SetClockSource(        TIM3, LL_TIM_CLOCKSOURCE_INTERNAL);
-//	LL_TIM_SetTriggerOutput(      TIM3, LL_TIM_TRGO_RESET);
 	LL_TIM_SetTriggerOutput(      TIM3, LL_TIM_TRGO_UPDATE);
 	LL_TIM_DisableMasterSlaveMode(TIM3);
 
@@ -2495,12 +2491,12 @@ void process_USART1_IRQ(void)
 {
 	{	// RX
 
-		//if (LL_USART_IsActiveFlag_IDLE(USART1) != 0)
+		//if (LL_USART_IsActiveFlag_IDLE(USART1))
 		//	LL_USART_ClearFlag_IDLE(USART1);
 
 		register uint32_t wr = serial.rx.buffer_wr;
 
-		while (LL_USART_IsActiveFlag_RXNE(USART1) != 0)
+		while (LL_USART_IsActiveFlag_RXNE(USART1))
 		{
 			serial.rx.buffer[wr] = LL_USART_ReceiveData8(USART1);
 			wr = (++wr >= sizeof(serial.rx.buffer)) ? 0 : wr;
@@ -2535,22 +2531,22 @@ void process_USART1_IRQ(void)
 
 		// clear RX error flags .. clearing any one of these also clears all the others
 		LL_USART_ClearFlag_ORE(USART1);    // OverRun Error Flag
-		//LL_USART_ClearFlag_PE(USART1);  // Parity Error Flag
-		//LL_USART_ClearFlag_NE(USART1);  // Noise detected Flag
-		//LL_USART_ClearFlag_FE(USART1);  // Framing Error Flag
+		//LL_USART_ClearFlag_PE(USART1);   // Parity Error Flag
+		//LL_USART_ClearFlag_NE(USART1);   // Noise detected Flag
+		//LL_USART_ClearFlag_FE(USART1);   // Framing Error Flag
 		//LL_USART_ClearFlag_IDLE(USART1); // IDLE line detected Flag
 	}
 
 	#if 0
 	{	// TX
 
-		const bool enabled = (LL_USART_IsEnabledIT_TXE(USART1) != 0);
+		const uint8_t enabled = LL_USART_IsEnabledIT_TXE(USART1);
 		//if (enabled)
 		{
 			const uint32_t wr = serial.tx.buffer_wr;
 			      uint32_t rd = serial.tx.buffer_rd;
 
-			while (rd != wr && LL_USART_IsActiveFlag_TXE(USART1) != 0)
+			while (rd != wr && LL_USART_IsActiveFlag_TXE(USART1))
 			{	// send the next byte
 				LL_USART_TransmitData8(USART1, serial.tx.buffer[rd]);
 				rd = (++rd >= sizeof(serial.tx.buffer)) ? 0 : rd;
@@ -2643,40 +2639,40 @@ void SysTick_Handler(void)
 
 			if (pressed_ms == 0 && debounce >= debounce_ms)
 			{	// just pressed
-				butt->released         = 0;                             // clear released flag
-				butt->held_ms          = 0;                             // reset held down time
-				butt->processed        = 0;                             // clear flag
-				butt->pressed_ms     = tick;                          // remember the tick the button was pressed
+				butt->released   = 0;                             // clear released flag
+				butt->held_ms    = 0;                             // reset held down time
+				butt->processed  = 0;                             // clear flag
+				butt->pressed_ms = tick;                          // remember the tick the button was pressed
 			}
 			else
 			if (pressed_ms > 0 && debounce <= 0)
 			{	// just released
 				if (butt->processed)
 				{
-					butt->held_ms      = 0;
-					butt->released     = 0;
+					butt->held_ms    = 0;
+					butt->released   = 0;
 					butt->pressed_ms = 0;
-					butt->processed    = 0;
+					butt->processed  = 0;
 				}
 				else
 				{
-					butt->held_ms      = tick - pressed_ms;           // save the time the button was held down for
-					butt->released     = 1;                             // set released flag
-					butt->pressed_ms = 0;                             // reset pressed tick
+					butt->held_ms    = tick - pressed_ms;         // save the time the button was held down for
+					butt->released   = 1;                         // set released flag
+					butt->pressed_ms = 0;                         // reset pressed tick
 				}
 			}
 			else
 			if (pressed_ms > 0) // && butt->processed == 0)
 			{
-				butt->held_ms      = tick - pressed_ms;               // time the button has been held down for
+				butt->held_ms = tick - pressed_ms;                // time the button has been held down for
 			}
 			else
 			if (butt->processed)
 			{
-				butt->held_ms      = 0;
-				butt->released     = 0;
+				butt->held_ms    = 0;
+				butt->released   = 0;
 				butt->pressed_ms = 0;
-				butt->processed    = 0;
+				butt->processed  = 0;
 			}
 		}
 	}
@@ -2695,20 +2691,18 @@ void SysTick_Handler(void)
 // ADC DMA
 void DMA1_Channel1_IRQHandler(void)
 {
-//	if (LL_DMA_IsEnabledIT_TE(DMA1, LL_DMA_CHANNEL_1) && LL_DMA_IsActiveFlag_TE1(DMA1))
 	if (LL_DMA_IsActiveFlag_TE1(DMA1))
 	{
+
 		LL_DMA_ClearFlag_TE1(DMA1);
 	}
 
-//	if (LL_DMA_IsEnabledIT_HT(DMA1, LL_DMA_CHANNEL_1) && LL_DMA_IsActiveFlag_HT1(DMA1))
 	if (LL_DMA_IsActiveFlag_HT1(DMA1))
 	{
 		process_ADC(&adc_dma_buffer[0]);  // lower half of ADC buffer
 		LL_DMA_ClearFlag_HT1(DMA1);
 	}
 
-//	if (LL_DMA_IsEnabledIT_TC(DMA1, LL_DMA_CHANNEL_1) && LL_DMA_IsActiveFlag_TC1(DMA1))
 	if (LL_DMA_IsActiveFlag_TC1(DMA1))
 	{
 		process_ADC(&adc_dma_buffer[1]);  // upper half of ADC buffer
@@ -2719,6 +2713,7 @@ void DMA1_Channel1_IRQHandler(void)
 // UART TX DMA
 void DMA1_Channel4_IRQHandler(void)
 {
+	// disable the TX DMA if the send has completed
 //	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
 	{
 //		if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
@@ -2925,13 +2920,14 @@ void process_buttons(void)
 	// *************
 }
 
+// send data via the serial port
 void process_uart_send(void)
 {
 	if ((settings.flags & SETTING_FLAG_UART_DSO) == 0)
 		return;
 
 //	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
-//		return;     // uart is busy sending
+//		return;     // uart is still busy sending
 
 	// the UART is available to use
 	//
@@ -2952,39 +2948,98 @@ void process_uart_send(void)
 		// send as binary packet
 
 		// STM32's are little endian (data is LS-Byte 1st)
-		// the receiving end needs to take that into account when processing the rx'ed data
-		// your receiving app can use htons(), htonl(), ntohs(), ntohl() to swap endianness (if need be)
 
 		// create TX packet
 		tx_packet.marker = PACKET_MARKER;                                         // packet start marker
 		memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
+		tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
 
-		#ifdef UART_BIG_ENDIAN
-			// make the packet values BIG endian
-			// though the receivng end (your PC etc) is the one that needs to be dealing with this, not us
-
-			tx_packet.marker = __builtin_bswap32(tx_packet.marker);
-
-			uint32_t *pd = (uint32_t *)tx_packet.data;
-			for (unsigned int i = 0; i < (sizeof(adc_data) / sizeof(uint32_t)); i++, pd++)
-				*pd = __builtin_bswap32(*pd);
-		#endif
-
-		//HAL_GPIO_WritePin(TP21_pin_GPIO_Port, TP21_Pin, LOW);
-
-		#if 0
-			tx_packet.crc = 0;    // TEST
-		#else
-			tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
-		#endif
-
-		#ifdef UART_BIG_ENDIAN
-			// make the packet CRC little endian
-			tx_packet.crc = __builtin_bswap16(tx_packet.crc);
-		#endif
-
+		// sen dit
 		start_UART_TX_DMA(&tx_packet, sizeof(tx_packet));
 	#endif
+}
+
+// process any received serial command lines
+void process_serial_command(const char *cmd, const unsigned int len)
+{
+	if (cmd == NULL || len == 0)
+		return;
+
+
+
+
+}
+
+// fetch any text lines from the received serial data
+void process_uart_receive(void)
+{
+	if (serial.rx.timer >= 3000 && (serial.rx.buffer_wr != serial.rx.buffer_rd || serial.rx.line.buffer_wr > 0))
+	{	// receiver timeout
+		serial.rx.buffer_rd      = serial.rx.buffer_wr;
+		serial.rx.line.buffer_wr = 0;
+	}
+
+	const uint32_t rx_buf_size = ARRAY_SIZE(serial.rx.buffer);
+
+	uint32_t rd = serial.rx.buffer_rd;
+	if (rd == serial.rx.buffer_wr)
+		return;
+
+	while (rd != serial.rx.buffer_wr)
+	{
+		const uint32_t line_buf_size = ARRAY_SIZE(serial.rx.line.buffer);
+
+		// ********************
+		// fetch rx'ed data into the text line buffer
+
+		const uint32_t wr = serial.rx.buffer_wr;
+		uint32_t num = (wr >= rd) ? wr - rd : rx_buf_size - rd;      // number of bytes in our RX buffer waiting to be processed
+		if (num == 0)
+			break;
+
+		// limit to fit into our RX text line buffer
+		num = (num > (line_buf_size - serial.rx.line.buffer_wr)) ? line_buf_size - serial.rx.line.buffer_wr : num;
+
+		// move the RX'ed data into our RX text line buffer
+		memcpy((void *)&serial.rx.line.buffer[serial.rx.line.buffer_wr], (void *)&serial.rx.buffer[rd], num);
+		serial.rx.line.buffer_wr += num;
+
+		// update read index
+		rd += num;
+		rd = (rd >= rx_buf_size) ? 0 : rd;
+		serial.rx.buffer_rd = rd;
+
+		// ********************
+		// process the rx'ed text line
+
+		// find the 1st LF or CR (end of text line)
+		char *p = (char *)serial.rx.line.buffer;
+		while (p < ((char *)serial.rx.line.buffer + serial.rx.line.buffer_wr) && *p != '\r' && *p != '\n' && *p != '\0')
+			p++;
+		if (p >= ((char *)serial.rx.line.buffer + serial.rx.line.buffer_wr))
+		{	// no LF or CR found (yet)
+			if (serial.rx.line.buffer_wr >= (line_buf_size - 1))
+				serial.rx.line.buffer_wr = 0;       // buffer is full and without a CR or LF in sight, discard the entire text line buffer
+			continue;
+		}
+
+		// found a LF and/or CR in the text line buffer - process the text line
+
+		// reset RX time-out timer
+		serial.rx.timer = 0;
+
+		const int pos = (int)(p - (char *)serial.rx.line.buffer);
+		if (pos > 0)
+		{
+			// null terminate the text line
+			serial.rx.line.buffer[pos] = '\0';
+
+			process_serial_command((const char *)serial.rx.line.buffer, pos);
+
+			// finished with the text line
+			serial.rx.line.buffer_wr = 0;
+		}
+	}
 }
 
 void process_op_mode(void)
@@ -2997,9 +3052,11 @@ void process_op_mode(void)
 
 		case OP_MODE_OPEN_PROBE_CALIBRATION:   // doing an OPEN probe calibration
 		{
+			// sum a number of sample block magnitudes
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
 				calibrate.mag_sum[i] += mag_rms[i];
 
+			// sum a number of sample block phases
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 			{
 				const float phase_rad = phase_deg[i] * DEG_TO_RAD;
@@ -3007,18 +3064,23 @@ void process_op_mode(void)
 				calibrate.phase_sum[i].im += sinf(phase_rad);
 			}
 
-			save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
+			// delay saving the settings
+			save_settings_timer = SAVE_SETTINGS_MS;   
 
 			if (++calibrate.count >= CALIBRATE_COUNT)
-			{
+			{	// finished summing, save the average
+
 				const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
+				// magnitudes
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
 					settings.open_probe_calibration[index].mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
 
+				// phases
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 					settings.open_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
+				// set flag to say "open calibration done"
 				settings.open_probe_calibration[index].done = 1;
 
 				if (index == 0)
@@ -3033,6 +3095,7 @@ void process_op_mode(void)
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
 
+					// back to normal measurement mode
 					op_mode = OP_MODE_MEASURING;
 				}
 
@@ -3044,9 +3107,11 @@ void process_op_mode(void)
 
 		case OP_MODE_SHORTED_PROBE_CALIBRATION:   // doing a SHORTED probe calibration
 		{
+			// sum a number of magnitudes
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
 				calibrate.mag_sum[i] += mag_rms[i];
 
+			// sum a number of phases
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 			{
 				const float phase_rad = phase_deg[i] * DEG_TO_RAD;
@@ -3054,18 +3119,23 @@ void process_op_mode(void)
 				calibrate.phase_sum[i].im += sinf(phase_rad);
 			}
 
-			save_settings_timer = SAVE_SETTINGS_MS;   // delay saving the settings
+			// delay saving the settings
+			save_settings_timer = SAVE_SETTINGS_MS;   
 
 			if (++calibrate.count >= CALIBRATE_COUNT)
-			{
+			{	// finished summing, save the average
+
 				const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
+				// magnitudes
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
 					settings.shorted_probe_calibration[index].mag_rms[i] = calibrate.mag_sum[i] / calibrate.count;
 
+				// phases
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 					settings.shorted_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
 
+				// set flag to say "shorted calibration done"
 				settings.shorted_probe_calibration[index].done = 1;
 
 				if (index == 0)
@@ -3080,6 +3150,7 @@ void process_op_mode(void)
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
 
+					// back to normal measurement mode
 					op_mode = OP_MODE_MEASURING;
 				}
 
@@ -3100,16 +3171,17 @@ int main(void)
 
 	LL_GPIO_AF_Remap_SWJ_NOJTAG();
 
-	// stop stuff when in debug mode
-	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_IWDG_STOP;
-	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_WWDG_STOP;
-	DBGMCU->CR |= LL_DBGMCU_APB2_GRP1_TIM1_STOP;
-	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_TIM2_STOP;
-	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_TIM3_STOP;
-	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_TIM4_STOP;
-	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_I2C1_STOP;
-	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_I2C2_STOP;
-	DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_CAN1_STOP;
+	{	// stop stuff when debugging line-by-line
+		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_IWDG_STOP;
+		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_WWDG_STOP;
+		DBGMCU->CR |= LL_DBGMCU_APB2_GRP1_TIM1_STOP;
+		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_TIM2_STOP;
+		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_TIM3_STOP;
+		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_TIM4_STOP;
+		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_I2C1_STOP;
+		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_I2C2_STOP;
+		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_CAN1_STOP;
+	}
 
 	NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 
@@ -3124,47 +3196,46 @@ int main(void)
 		reset_cause.wwdg   = LL_RCC_IsActiveFlag_WWDGRST();
 		reset_cause.lpwr   = LL_RCC_IsActiveFlag_LPWRRST();
 		reset_cause.lsirdy = LL_RCC_IsActiveFlag_LSIRDY();
-		LL_RCC_ClearResetFlags();                                          // reset flags ready for next reboot
+		LL_RCC_ClearResetFlags();                           // cleart the flags ready for next reboot
 		#pragma GCC diagnostic pop
 	}
 
-	// disable printf(), fread(), fwrite(), sscanf() etc buffering
-	setbuf( stdin,  NULL);
-	setbuf( stdout, NULL);
-	setbuf( stderr, NULL);
-	//setvbuf(stdout, NULL, _IONBF, 0);
-	//setvbuf(stderr, NULL, _IONBF, 0);
+	{	// disable printf(), fread(), fwrite(), sscanf() etc buffering
+		setbuf( stdin,  NULL);
+		setbuf( stdout, NULL);
+		setbuf( stderr, NULL);
+		//setvbuf(stdout, NULL, _IONBF, 0);
+		//setvbuf(stderr, NULL, _IONBF, 0);
+	}
 
-	button[0].gpio_port = BUTT_HOLD_GPIO_Port;
-	button[0].gpio_pin  = BUTT_HOLD_Pin;
+	{
+		button[BUTTON_HOLD].gpio_port = BUTT_HOLD_GPIO_Port;
+		button[BUTTON_HOLD].gpio_pin  = BUTT_HOLD_Pin;
 
-	button[1].gpio_port = BUTT_SP_GPIO_Port;
-	button[1].gpio_pin  = BUTT_SP_Pin;
+		button[BUTTON_SP].gpio_port   = BUTT_SP_GPIO_Port;
+		button[BUTTON_SP].gpio_pin    = BUTT_SP_Pin;
 
-	button[2].gpio_port = BUTT_RCL_GPIO_Port;
-	button[2].gpio_pin  = BUTT_RCL_Pin;
+		button[BUTTON_RCL].gpio_port  = BUTT_RCL_GPIO_Port;
+		button[BUTTON_RCL].gpio_pin   = BUTT_RCL_Pin;
+	}
 
-	// defaults
-	settings.series_ohms    = SERIES_RESISTOR_OHMS;    // this can be calibrated using a DUT with a known resistance value
-	settings.measurement_Hz = 1000;
-//	settings.lcr_mode       = LCR_MODE_INDUCTANCE;
-	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
-//	settings.lcr_mode       = LCR_MODE_RESISTANCE;
-//	settings.flags          = 0;
-	settings.flags         |= SETTING_FLAG_UART_DSO;   // send ADC data via the serial port
+	{	// set defaults
+		settings.series_ohms    = SERIES_RESISTOR_OHMS;    // this can be calibrated using a DUT with a known resistance value
+		settings.measurement_Hz = 1000;
+//		settings.lcr_mode       = LCR_MODE_INDUCTANCE;
+		settings.lcr_mode       = LCR_MODE_CAPACITANCE;
+//		settings.lcr_mode       = LCR_MODE_RESISTANCE;
+//		settings.flags          = 0;
+		settings.flags         |= SETTING_FLAG_UART_DSO;   // send ADC data via the serial port
+	}
 
 	DWT_Delay_Init();
-
 	HAL_Init();
-
 	SystemClock_Config();
-
 	#ifdef USE_IWDG
 		MX_IWDG_Init();
 	#endif
-
 	LL_RCC_GetSystemClocksFreq(&rcc_clocks);
-
 	MX_GPIO_Init();
 	MX_USART1_UART_Init();
 
@@ -3261,6 +3332,9 @@ int main(void)
 
 		// servicing any and all user input without delay is the highest priority
 		process_buttons();
+
+		// process any data received via the serial port
+		process_uart_receive();
 
 //		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
 		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
