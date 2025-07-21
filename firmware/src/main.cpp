@@ -2817,8 +2817,6 @@ void process_buttons(void)
 			button[BUTTON_HOLD].processed = 1;
 
 			display_hold ^= 1u;                         // toggle HOLD flag
-			//settings.flags ^= SETTING_FLAG_UART_DSO;
-
 			draw_screen();
 		}
 		return;
@@ -2960,14 +2958,91 @@ void process_uart_send(void)
 }
 
 // process any received serial command lines
-void process_serial_command(const char *cmd, const unsigned int len)
+void process_serial_command(char *cmd, unsigned int len)
 {
 	if (cmd == NULL || len == 0)
 		return;
 
+	// trim leading
+	while (len > 0 && *cmd <= 32)
+		memmove(cmd, cmd + 1, --len);
 
+	if (len == 0)
+		return;
 
+	// locate the end of the command/start of the params
+	// also lowercase the command
+	unsigned int param_pos = 0;
+	while (param_pos < len && cmd[param_pos] != ' ')
+	{
+		if (cmd[param_pos] >= 'A' && cmd[param_pos] <= 'Z')
+			cmd[param_pos] -= 'a' - 'A';
+		param_pos++;
+	}
 
+	if (param_pos < len)
+		cmd[param_pos] = '\0';     // null term the command
+
+	// **********
+	// process the command
+
+	if (strcmp("reboot", cmd) == 0)
+	{
+		dprintf(0, "\r\nrebooting ..\r\n");
+		LL_mDelay(100);
+		reboot();
+	}
+
+	if (strcmp("opencal", cmd) == 0)
+	{
+		dprintf(0, "\r\nopen probe calibration ..\r\n");
+		display_hold = 0;
+		memset((void *)&calibrate, 0, sizeof(calibrate));
+		calibrate.Hz = 100;
+		op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
+		draw_screen();
+		return;
+	}
+
+	if (strcmp("shortcal", cmd) == 0 || strcmp("shortedcal", cmd) == 0)
+	{
+		dprintf(0, "\r\nshorted probe calibration ..\r\n");
+		display_hold = 0;
+		memset((void *)&calibrate, 0, sizeof(calibrate));
+		calibrate.Hz = 100;
+		op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
+		draw_screen();
+		return;
+	}
+
+	if (strcmp("dataoff", cmd) == 0)
+	{
+		settings.flags &= ~SETTING_FLAG_UART_DSO;
+		dprintf(0, "\r\nlive data disabled\r\n");
+		save_settings_timer = 2000;
+		draw_screen();
+		return;
+	}
+
+	if (strcmp("dataon", cmd) == 0)
+	{
+		settings.flags |= SETTING_FLAG_UART_DSO;
+		dprintf(0, "\r\nlive data enabled\r\n");
+		save_settings_timer = 2000;
+		draw_screen();
+		return;
+	}
+
+	if (strcmp("hold", cmd) == 0)
+	{
+		display_hold ^= 1u;
+		if (display_hold)
+			dprintf(0, "\r\ndisplay hold\r\n");
+		else
+			dprintf(0, "\r\ndisplay run\r\n");
+		draw_screen();
+		return;
+	}
 }
 
 // fetch any text lines from the received serial data
@@ -3034,7 +3109,7 @@ void process_uart_receive(void)
 			// null terminate the text line
 			serial.rx.line.buffer[pos] = '\0';
 
-			process_serial_command((const char *)serial.rx.line.buffer, pos);
+			process_serial_command((char *)serial.rx.line.buffer, pos);
 
 			// finished with the text line
 			serial.rx.line.buffer_wr = 0;
@@ -3092,6 +3167,8 @@ void process_op_mode(void)
 				else
 				{	// done
 
+					dprintf(0, "\r\nopen probe calibration done\r\n");
+
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
 
@@ -3146,6 +3223,8 @@ void process_op_mode(void)
 				}
 				else
 				{	// done
+
+					dprintf(0, "\r\nshorted probe calibration done\r\n");
 
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
@@ -3358,6 +3437,8 @@ int main(void)
 		// save settings to flash if it's time too
 		if (save_settings_timer == 0)
 		{
+			dprintf(0, "\r\nsaving settings ..\r\n");
+
 			if (write_settings() < 0)     // save settings to flash
 				write_settings();         // failed, have a 2nd go
 			save_settings_timer = -1;     // don't try saving again (until the next time)
