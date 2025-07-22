@@ -772,7 +772,7 @@ void set_measurement_frequency(const uint32_t Hz)
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		// so create a 16-bit table with the upper 8-bits all high
-		// see 9.2.4 (page 173) of the stm32f103xx reference manual
+		// see 9.2.4 (page 173) of the stm32f103xx reference manual about the ODR register being WORD ONLY
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
@@ -926,8 +926,10 @@ int process_Goertzel(void)
 	return 0;
 }
 
+// combine AFC mag/phase results (the AFC sample blocks are all the same so may as well average them together)
+//
 void combine_afc(float *avg_rms, float *avg_deg)
-{	// combine AFC mag/phase results (the AFC sample blocks are all the same so use the average)
+{
 
 	unsigned int sum_count = 0;
 	float        sum_rms   = 0;
@@ -974,11 +976,15 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 #if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
 
+	// qsort compare function
+	//
 	int compare_float(const void *a, const void *b)
 	{
 		return (*(float *)a - *(float *)b);
 	}
 
+	// median filter the magnitude and phase results to help reduce noise
+	//
 	void median_filter(void)
 	{
 		static int median_buffer_index = -1;
@@ -1049,6 +1055,8 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 #endif
 
+// process the new averaged sample blocks to finally create the wanted final DUT parameters
+//
 void process_data(void)
 {
 	if (display_hold)
@@ -1213,6 +1221,8 @@ void process_data(void)
 	// **************************
 }
 
+// process the incoming raw ADC sample blocks
+//
 void process_ADC(const void *buffer)
 {
 	// process the new ADC 12-bit samples
@@ -1344,6 +1354,9 @@ void process_ADC(const void *buffer)
 			average_count = FAST_ADC_AVERAGE_COUNT;      // user has selected faster display updates, which just means we average less blocks together
 	}
 
+	if (measurement_Hz <= 200)
+		average_count = (average_count >= 3) ? average_count / 3 : average_count;  // speed up the lower frequency modes
+
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 		return;                                          // not yet summed the desired number of sample blocks
 
@@ -1454,14 +1467,12 @@ void process_ADC(const void *buffer)
 // ***********************************************************
 
 // available font sizes ..
-//  Font_7x10
-//  Font_11x18
-//  Font_16x26
 //
-// Font_7x10  .. small general
-// Font_11x18 .. big
+//  Font_7x10  .. small
+//  Font_11x18 .. bigger than small
+//  Font_16x26 .. bigger than the bigger than small (but not used)
 
-//#define DRAW_LINES          // if you want horizontal lines drawn
+#define DRAW_LINES          // if you want horizontal lines drawn
 
 #define     OFFSET_X      0
 #define     LINE_SPACING  13
@@ -2285,6 +2296,10 @@ void MX_ADC_Init(void)
  	LL_ADC_REG_StartConversionExtTrig(ADC1, LL_ADC_REG_TRIG_EXT_RISING);
 }
 
+// this timer clocks the ADC's and the DAC DMA
+//
+// so we configure the timer to run at the ADC/DAC sample rate
+//
 void MX_TIM3_Init(void)
 {
 	{	// setup the DAC DMA
@@ -2333,6 +2348,8 @@ void MX_TIM3_Init(void)
 	LL_TIM_EnableCounter(TIM3);
 }
 
+// setup the serial port UART
+//
 void MX_USART1_UART_Init(void)
 {
 	LL_USART_InitTypeDef USART_InitStruct = {0};
@@ -2406,6 +2423,8 @@ void MX_USART1_UART_Init(void)
 	LL_USART_Enable(USART1);
 }
 
+// setup various GPIO pins
+//
 void MX_GPIO_Init(void)
 {
 	LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -2473,6 +2492,8 @@ void MX_GPIO_Init(void)
 
 #ifdef USE_IWDG
 
+	// feed the doggy
+	//
 	void service_IWDG(const bool force_update)
 	{
 		const uint32_t reload_sec = iwdg_timeout_sec / 2;
@@ -2539,6 +2560,8 @@ void MX_GPIO_Init(void)
 
 // *******************************************
 
+// fetch any received data bytes and save thgem into our RX buffer
+//
 void process_USART1_IRQ(void)
 {
 	{	// RX
@@ -2663,6 +2686,8 @@ void PendSV_Handler(void)
 {
 }
 
+// 1ms system interrupt
+//
 void SysTick_Handler(void)
 {
 	HAL_IncTick();
@@ -2743,6 +2768,8 @@ void SysTick_Handler(void)
 }
 
 // ADC DMA
+// pass the ADC sample blocks over to the routine that does something with them
+//
 void DMA1_Channel1_IRQHandler(void)
 {
 	if (LL_DMA_IsActiveFlag_TE1(DMA1))
@@ -2765,6 +2792,8 @@ void DMA1_Channel1_IRQHandler(void)
 }
 
 // UART TX DMA
+// the serial DMA TX has completed, disable it ready for the next serial send
+//
 void DMA1_Channel4_IRQHandler(void)
 {
 	// disable the TX DMA if the send has completed
@@ -2776,6 +2805,8 @@ void DMA1_Channel4_IRQHandler(void)
 	}
 }
 
+// serial RX
+//
 void USART1_IRQHandler(void)
 {
 	process_USART1_IRQ();
@@ -2789,6 +2820,8 @@ void USART1_IRQHandler(void)
 
 // ***********************************************************
 
+// process any button presses
+//
 void process_buttons(void)
 {
 	// both HOLD and S/P buttons held down
@@ -2938,7 +2971,10 @@ void process_buttons(void)
 	// *************
 }
 
-// send data via the serial port
+// send data out via the serial port
+//
+// we pass the data over to the serial TX DMA for it to send out
+//
 void process_uart_send(void)
 {
 	if ((settings.flags & SETTING_FLAG_UART_DSO) == 0)
@@ -3022,7 +3058,8 @@ const t_cmd cmds[] = {
 	{NULL,       "",                                            CMD_NONE_ID     }    // last one, DO NOT delete this
 };
 
-// process any received serial command lines
+// process any received serial commands
+//
 void process_serial_command(char cmd[], unsigned int len)
 {
 	if (cmd == NULL || len == 0)
@@ -3179,7 +3216,8 @@ void process_serial_command(char cmd[], unsigned int len)
 	}
 }
 
-// fetch any text lines from the received serial data
+// extract text lines from the received serial data
+//
 void process_uart_receive(void)
 {
 	if (serial.rx.timer >= 3000 && (serial.rx.buffer_wr != serial.rx.buffer_rd || serial.rx.line.buffer_wr > 0))
@@ -3251,6 +3289,8 @@ void process_uart_receive(void)
 	}
 }
 
+// do stuff
+//
 void process_op_mode(void)
 {
 	switch (op_mode)
@@ -3520,6 +3560,9 @@ int main(void)
 
 	// *************************************
 
+	MX_ADC_Init();
+	MX_TIM3_Init();
+
 	// give the user more time to read the bootup screen
 	LL_mDelay(1000);
 
@@ -3530,9 +3573,6 @@ int main(void)
 		// feed the dog
 		service_IWDG(1);
 	#endif
-
-	MX_ADC_Init();
-	MX_TIM3_Init();
 
 	while (1)
 	{
@@ -3570,15 +3610,15 @@ int main(void)
 		//if (system_data.vi_measure_mode != prev_vi_measure_mode && draw_screen_count > 0)
 		//	draw_measurement_mode();
 
-		// save settings to flash if it's time too
+		// save any unsaved settings to flash (we don't have an EEPROM etc)
 		if (save_settings_timer == 0)
 		{
-			wait_tx(100);
-			dprintf(0, NEWLINE "saving settings .." NEWLINE);
-
 			if (write_settings() < 0)     // save settings to flash
 				write_settings();         // failed, have a 2nd go
 			save_settings_timer = -1;     // don't try saving again (until the next time)
+
+			wait_tx(100);
+			dprintf(0, NEWLINE "settings saved" NEWLINE);
 		}
 
 		#ifdef USE_IWDG
