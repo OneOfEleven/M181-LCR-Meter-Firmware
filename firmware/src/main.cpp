@@ -757,7 +757,7 @@ void set_measurement_frequency(const uint32_t Hz)
 	if (Hz == 100)
 	{
 		measurement_Hz        = 100;
-		measurement_amplitude = 0.9;
+		measurement_amplitude = 0.85;
 	}
 	else
 	{	// default to 1kHz
@@ -767,11 +767,12 @@ void set_measurement_frequency(const uint32_t Hz)
 
 	{	// fill the sine wave look-up table with one complete sine cycle
 
-		const float scale      = (DAC_RESOLUTION - 1) * measurement_amplitude * 0.5f;
-		const float phase_step = (float)(2.0 * M_PI) / ARRAY_SIZE(sine_table);
+		const float scale      = measurement_amplitude * (255 * 0.5f);           // 0-255
+		const float phase_step = (2.0 * M_PI) / ARRAY_SIZE(sine_table);
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		// so create a 16-bit table with the upper 8-bits all high
+		// see 9.2.4 (page 173) of the stm32f103xx reference manual
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
@@ -2284,94 +2285,51 @@ void MX_ADC_Init(void)
  	LL_ADC_REG_StartConversionExtTrig(ADC1, LL_ADC_REG_TRIG_EXT_RISING);
 }
 
-#ifdef USE_IWDG
-
-	void service_IWDG(const bool force_update)
-	{
-		const uint32_t reload_sec = iwdg_timeout_sec / 2;
-
-		if (iwdg_tick >= (1000 * reload_sec) || force_update)
-		{
-			iwdg_tick = 0;
-			LL_IWDG_ReloadCounter(IWDG);
-		}
-	}
-
-	// initialise the internal watchdog
-	//
-	void MX_IWDG_Init(void)
-	{
-		const uint32_t prescaler_div = LL_IWDG_PRESCALER_256;     // 4, 8, 16, 32, 64, 128 or 256
-
-		uint32_t clk_Hz = LSI_VALUE;
-		switch (prescaler_div)
-		{
-			default:
-			case LL_IWDG_PRESCALER_4:
-				clk_Hz >>= 2;
-				break;
-			case LL_IWDG_PRESCALER_8:
-				clk_Hz >>= 3;
-				break;
-			case LL_IWDG_PRESCALER_16:
-				clk_Hz >>= 4;
-				break;
-			case LL_IWDG_PRESCALER_32:
-				clk_Hz >>= 5;
-				break;
-			case LL_IWDG_PRESCALER_64:
-				clk_Hz >>= 6;
-				break;
-			case LL_IWDG_PRESCALER_128:
-				clk_Hz >>= 7;
-				break;
-			case LL_IWDG_PRESCALER_256:
-				clk_Hz >>= 8;
-				break;
-		}
-
-		LL_IWDG_Enable(IWDG);
-
-		LL_IWDG_EnableWriteAccess(IWDG);
-		{
-			const uint32_t reload_tick = IWDG_RLR_RL_Msk;
-
-			iwdg_timeout_sec = reload_tick / clk_Hz;
-
-			LL_IWDG_SetPrescaler(    IWDG, prescaler_div);
-			LL_IWDG_SetReloadCounter(IWDG, reload_tick);
-
-			while (!LL_IWDG_IsReady(IWDG)) {}
-		}
-		LL_IWDG_DisableWriteAccess(IWDG);
-
-		service_IWDG(true);
-	}
-
-#endif
-
 void MX_TIM3_Init(void)
 {
-	LL_TIM_InitTypeDef TIM_InitStruct = {0};
+	{	// setup the DAC DMA
 
-	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM3);
+		LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
 
-	const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * measurement_Hz;
+		LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
 
-	TIM_InitStruct.Prescaler     = 0;
-	TIM_InitStruct.CounterMode   = LL_TIM_COUNTERMODE_UP;
-	TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
-	TIM_InitStruct.Autoreload    = (((rcc_clocks.HCLK_Frequency / (TIM_InitStruct.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
-	LL_TIM_Init(TIM3, &TIM_InitStruct);
+		LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_3, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+		LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_3, LL_DMA_PRIORITY_VERYHIGH);
+		LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_3, LL_DMA_MODE_CIRCULAR);
+		LL_DMA_SetPeriphIncMode(        DMA1, LL_DMA_CHANNEL_3, LL_DMA_PERIPH_NOINCREMENT);
+		LL_DMA_SetMemoryIncMode(        DMA1, LL_DMA_CHANNEL_3, LL_DMA_MEMORY_INCREMENT);
+		LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_PDATAALIGN_HALFWORD);
+		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_MDATAALIGN_HALFWORD);
 
-	LL_TIM_EnableARRPreload(      TIM3);
-	LL_TIM_SetClockSource(        TIM3, LL_TIM_CLOCKSOURCE_INTERNAL);
-	LL_TIM_SetTriggerOutput(      TIM3, LL_TIM_TRGO_UPDATE);
-	LL_TIM_DisableMasterSlaveMode(TIM3);
+		LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3, (uint32_t)&sine_table, (uint32_t)&GPIOB->ODR, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, ARRAY_SIZE(sine_table));
+	}
 
-	// the DAC DMA is also triggered by this timer (as well as the ADC)
-	LL_TIM_EnableDMAReq_UPDATE(TIM3);
+	{	// setup the timer
 
+		LL_TIM_InitTypeDef TIM_InitStruct = {0};
+
+		LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM3);
+
+		const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * measurement_Hz;
+
+		TIM_InitStruct.Prescaler     = 0;
+		TIM_InitStruct.CounterMode   = LL_TIM_COUNTERMODE_UP;
+		TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
+		TIM_InitStruct.Autoreload    = (((rcc_clocks.HCLK_Frequency / (TIM_InitStruct.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
+		LL_TIM_Init(TIM3, &TIM_InitStruct);
+
+		LL_TIM_EnableARRPreload(      TIM3);
+		LL_TIM_SetClockSource(        TIM3, LL_TIM_CLOCKSOURCE_INTERNAL);
+		LL_TIM_SetTriggerOutput(      TIM3, LL_TIM_TRGO_UPDATE);
+		LL_TIM_DisableMasterSlaveMode(TIM3);
+
+		// as well as clocking the ADC and it's DMA, this timer also clocks the DAC DMA
+		LL_TIM_EnableDMAReq_UPDATE(TIM3);
+	}
+
+	// lets go already !
+	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
 	LL_TIM_EnableCounter(TIM3);
 }
 
@@ -2457,6 +2415,9 @@ void MX_GPIO_Init(void)
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOC);
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOD);
 
+	// *****************
+	// output pins
+
 	LL_GPIO_ResetOutputPin(TP21_GPIO_Port, TP21_Pin);
 	LL_GPIO_ResetOutputPin(TP22_GPIO_Port, TP22_Pin);
 	LL_GPIO_ResetOutputPin(LED_GPIO_Port,  LED_Pin);
@@ -2468,6 +2429,7 @@ void MX_GPIO_Init(void)
 	GPIO_InitStruct.Mode       = LL_GPIO_MODE_OUTPUT;
 	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_LOW;
 	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
 	GPIO_InitStruct.Pin        = TP21_Pin;
 	LL_GPIO_Init(TP21_GPIO_Port, &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = TP22_Pin;
@@ -2478,13 +2440,19 @@ void MX_GPIO_Init(void)
 	LL_GPIO_Init(GS_GPIO_Port,   &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = VI_Pin;
 	LL_GPIO_Init(VI_GPIO_Port,   &GPIO_InitStruct);
-
-	GPIO_InitStruct.Mode       = LL_GPIO_MODE_OUTPUT;
 	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
-	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
 	GPIO_InitStruct.Pin        = DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin;
-	LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	LL_GPIO_Init(GPIOB,          &GPIO_InitStruct);
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+	GPIO_InitStruct.Pin        = SW_I2C_SCL_Pin;
+	LL_GPIO_Init(SW_I2C_SCL_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
+	GPIO_InitStruct.Pin        = SW_I2C_SDA_Pin;
+	LL_GPIO_Init(SW_I2C_SDA_GPIO_Port, &GPIO_InitStruct);
 
+	// *****************
+	// input pins
+	
 	GPIO_InitStruct.Mode       = LL_GPIO_MODE_INPUT;
 	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
 	GPIO_InitStruct.Pin        = BUTT_HOLD_Pin;
@@ -2499,49 +2467,75 @@ void MX_GPIO_Init(void)
 	LL_GPIO_LockPin(BUTT_HOLD_GPIO_Port, BUTT_HOLD_Pin);
 	LL_GPIO_LockPin(BUTT_SP_GPIO_Port,   BUTT_SP_Pin);
 	LL_GPIO_LockPin(BUTT_RCL_GPIO_Port,  BUTT_RCL_Pin);
+
+	// *****************
 }
 
-// this DMA transfers the sine wave data to the GPIO port
-//
-void MX_DAC_Init(void)
-{
-	#if 0
-	{	// setup the DAC output port
+#ifdef USE_IWDG
 
-		LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+	void service_IWDG(const bool force_update)
+	{
+		const uint32_t reload_sec = iwdg_timeout_sec / 2;
 
-		LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOB);
-
-		LL_GPIO_ResetOutputPin(GPIOB, DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin);
-
-		GPIO_InitStruct.Mode       = LL_GPIO_MODE_OUTPUT;
-		GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
-		GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-		GPIO_InitStruct.Pin        = DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin;
-		LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-	}
-	#endif
-
-	{	// setup the DAC DMA
-
-		LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
-
-		LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
-
-		LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_3, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-		LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_3, LL_DMA_PRIORITY_VERYHIGH);
-		LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_3, LL_DMA_MODE_CIRCULAR);
-		LL_DMA_SetPeriphIncMode(        DMA1, LL_DMA_CHANNEL_3, LL_DMA_PERIPH_NOINCREMENT);
-		LL_DMA_SetMemoryIncMode(        DMA1, LL_DMA_CHANNEL_3, LL_DMA_MEMORY_INCREMENT);
-		LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_PDATAALIGN_HALFWORD);
-		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_MDATAALIGN_HALFWORD);
-
-		LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3, (uint32_t)&sine_table, (uint32_t)&GPIOB->ODR, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, ARRAY_SIZE(sine_table));
+		if (iwdg_tick >= (1000 * reload_sec) || force_update)
+		{
+			iwdg_tick = 0;
+			LL_IWDG_ReloadCounter(IWDG);
+		}
 	}
 
-	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
-}
+	// initialise the internal watchdog
+	//
+	void MX_IWDG_Init(void)
+	{
+		const uint32_t prescaler_div = LL_IWDG_PRESCALER_256;     // 4, 8, 16, 32, 64, 128 or 256
+
+		uint32_t clk_Hz = LSI_VALUE;
+		switch (prescaler_div)
+		{
+			default:
+			case LL_IWDG_PRESCALER_4:
+				clk_Hz >>= 2;
+				break;
+			case LL_IWDG_PRESCALER_8:
+				clk_Hz >>= 3;
+				break;
+			case LL_IWDG_PRESCALER_16:
+				clk_Hz >>= 4;
+				break;
+			case LL_IWDG_PRESCALER_32:
+				clk_Hz >>= 5;
+				break;
+			case LL_IWDG_PRESCALER_64:
+				clk_Hz >>= 6;
+				break;
+			case LL_IWDG_PRESCALER_128:
+				clk_Hz >>= 7;
+				break;
+			case LL_IWDG_PRESCALER_256:
+				clk_Hz >>= 8;
+				break;
+		}
+
+		LL_IWDG_Enable(IWDG);
+
+		LL_IWDG_EnableWriteAccess(IWDG);
+		{
+			const uint32_t reload_tick = IWDG_RLR_RL_Msk;
+
+			iwdg_timeout_sec = reload_tick / clk_Hz;
+
+			LL_IWDG_SetPrescaler(    IWDG, prescaler_div);
+			LL_IWDG_SetReloadCounter(IWDG, reload_tick);
+
+			while (!LL_IWDG_IsReady(IWDG)) {}
+		}
+		LL_IWDG_DisableWriteAccess(IWDG);
+
+		service_IWDG(true);
+	}
+
+#endif
 
 // *******************************************
 
@@ -3537,7 +3531,6 @@ int main(void)
 		service_IWDG(1);
 	#endif
 
-	MX_DAC_Init();
 	MX_ADC_Init();
 	MX_TIM3_Init();
 

@@ -66,8 +66,6 @@
 
 #define SETTINGS_MARKER              0x19961962     // 32-bit marker to indicate 'start of settings' - so we can find them in flash
 
-#define DAC_RESOLUTION               256            // 8-bit
-
 #define ADC_DATA_LENGTH              128            // 2^n
 
 #define DUAL_ADC_MODE                               // comment out to use single ADC dual channel mode
