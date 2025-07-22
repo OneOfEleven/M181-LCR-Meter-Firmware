@@ -145,8 +145,7 @@ char                  buffer_display[26] = {0};
 
 t_button              button[BUTTON_NUM] = {0};    // each buttons press data
 
-volatile unsigned int sine_table_index                = 0;
-uint8_t               sine_table[ADC_DATA_LENGTH / 2] = {0};  // length is matched with the ADC sampling (length = one sine cycle)
+uint16_t              sine_table[ADC_DATA_LENGTH / 2] = {0};  // length is matched with the ADC sampling (length = one sine cycle)
 
 uint16_t              measurement_Hz        = 1000;
 float                 measurement_amplitude = 1.0;            // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
@@ -771,10 +770,13 @@ void set_measurement_frequency(const uint32_t Hz)
 	}
 
 	{	// fill the sine wave look-up table with one complete sine cycle
+		
 		const float scale      = (DAC_RESOLUTION - 1) * measurement_amplitude * 0.5f;
 		const float phase_step = (float)(2.0 * M_PI) / ARRAY_SIZE(sine_table);
+
+		// the DMA ONLY writes 16-bits at a time to the GPIO, so we create a 16-bit table with the upper 8-bits set
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
-			sine_table[i] = (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
+			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
 
 	if (measurement_Hz > 0)
@@ -2026,7 +2028,7 @@ void HAL_MspInit(void)
 void SystemClock_Config(void)
 {
 	LL_FLASH_SetLatency(LL_FLASH_LATENCY_2);
-	while (LL_FLASH_GetLatency()!= LL_FLASH_LATENCY_2) {}
+	while (LL_FLASH_GetLatency() != LL_FLASH_LATENCY_2) {}
 
 	LL_RCC_HSE_Enable();
 	while (LL_RCC_HSE_IsReady() != 1) {}
@@ -2034,8 +2036,8 @@ void SystemClock_Config(void)
 	LL_RCC_LSI_Enable();
 	while (LL_RCC_LSI_IsReady() != 1) {}
 
+	// 8MHz xtal, 72MHz system clock
 	LL_RCC_PLL_ConfigDomain_SYS(LL_RCC_PLLSOURCE_HSE_DIV_1, LL_RCC_PLL_MUL_9);
-
 	LL_RCC_PLL_Enable();
 	while (LL_RCC_PLL_IsReady() != 1) {}
 
@@ -2048,15 +2050,14 @@ void SystemClock_Config(void)
 
 	LL_SetSystemCoreClock(RCC_MAX_FREQUENCY);
 
-	if (HAL_InitTick(TICK_INT_PRIORITY) != HAL_OK)
-		Error_Handler();
-
 	LL_RCC_SetADCClockSource(LL_RCC_ADC_CLKSRC_PCLK2_DIV_6);
 
-	//LL_Init1msTick(RCC_MAX_FREQUENCY);
+//	if (HAL_InitTick(TICK_INT_PRIORITY) != HAL_OK)
+//		Error_Handler();
 
 	// enable the LL 1ms sys-tick
 	HAL_SuspendTick();
+	//LL_Init1msTick(RCC_MAX_FREQUENCY);
 	LL_Init1msTick(SystemCoreClock);
 	NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), TICK_INT_PRIORITY, 0));
 	LL_SYSTICK_EnableIT();
@@ -2072,7 +2073,6 @@ void MX_ADC_Init(void)
 	LL_TIM_DisableCounter(TIM3);
 
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOA);
-	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC1);
 
 	LL_GPIO_SetPinMode(ADC1_GPIO_Port, ADC1_Pin, LL_GPIO_MODE_ANALOG);
@@ -2087,6 +2087,8 @@ void MX_ADC_Init(void)
 		LL_ADC_Disable(ADC2);
 
 		{	// setup the ADC DMA
+
+			LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
 
 			LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_1);
 
@@ -2109,7 +2111,7 @@ void MX_ADC_Init(void)
 			LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_1);
 			LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
 
-			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 2, 0));
+			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 3, 0));
 			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
 		}
 
@@ -2190,6 +2192,8 @@ void MX_ADC_Init(void)
 
 		{	// setup the ADC DMA
 
+			LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+
 			LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_1);
 
 			LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_1, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
@@ -2203,15 +2207,13 @@ void MX_ADC_Init(void)
 			LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA), (uint32_t)&adc_dma_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);
 
-			// clear all flags
-			LL_DMA_ClearFlag_GI1(DMA1);
-
 			// enable selected DMA interrupts
+			LL_DMA_ClearFlag_GI1(DMA1);
 			LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_1);
 			LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_1);
 			LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
 
-			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 2, 0));
+			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 3, 0));
 			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
 		}
 
@@ -2370,11 +2372,8 @@ void MX_TIM3_Init(void)
 	LL_TIM_SetTriggerOutput(      TIM3, LL_TIM_TRGO_UPDATE);
 	LL_TIM_DisableMasterSlaveMode(TIM3);
 
-	LL_TIM_ClearFlag_UPDATE(TIM3);
-	LL_TIM_EnableIT_UPDATE( TIM3);
-
-	NVIC_SetPriority(TIM3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
-	NVIC_EnableIRQ(TIM3_IRQn);
+	// the DAC DMA is also triggered by this timer (as well as the ADC)
+	LL_TIM_EnableDMAReq_UPDATE(TIM3);
 
 	LL_TIM_EnableCounter(TIM3);
 }
@@ -2386,9 +2385,6 @@ void MX_USART1_UART_Init(void)
 
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_USART1);
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOA);
-	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
-
-	LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
 
 	GPIO_InitStruct.Pin        = UART1_TXD_Pin;
 	GPIO_InitStruct.Mode       = LL_GPIO_MODE_ALTERNATE;
@@ -2402,6 +2398,11 @@ void MX_USART1_UART_Init(void)
 	LL_GPIO_Init(UART1_RXD_GPIO_Port, &GPIO_InitStruct);
 
 	{	// TX DMA
+
+		LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+
+		LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
+
 		LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_4, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
 		LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_4, LL_DMA_PRIORITY_LOW);
 		LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_4, LL_DMA_MODE_NORMAL);
@@ -2410,11 +2411,12 @@ void MX_USART1_UART_Init(void)
 		LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_4, LL_DMA_PDATAALIGN_BYTE);
 		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_4, LL_DMA_MDATAALIGN_BYTE);
 
+		// enable selected interrupts
 		LL_DMA_ClearFlag_GI4(DMA1);
 		LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_4);
 		LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_4);
 
-		NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 4, 0));
+		NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
 		NVIC_EnableIRQ(DMA1_Channel4_IRQn);
 	}
 
@@ -2474,16 +2476,16 @@ void MX_GPIO_Init(void)
 	GPIO_InitStruct.Pin        = TP22_Pin;
 	LL_GPIO_Init(TP22_GPIO_Port, &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = LED_Pin;
-	LL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+	LL_GPIO_Init(LED_GPIO_Port,  &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = GS_Pin;
-	LL_GPIO_Init(GS_GPIO_Port, &GPIO_InitStruct);
+	LL_GPIO_Init(GS_GPIO_Port,   &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = VI_Pin;
-	LL_GPIO_Init(VI_GPIO_Port, &GPIO_InitStruct);
+	LL_GPIO_Init(VI_GPIO_Port,   &GPIO_InitStruct);
 
-	GPIO_InitStruct.Pin        = DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin;
 	GPIO_InitStruct.Mode       = LL_GPIO_MODE_OUTPUT;
 	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
 	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+	GPIO_InitStruct.Pin        = DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin;
 	LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 	GPIO_InitStruct.Mode       = LL_GPIO_MODE_INPUT;
@@ -2491,9 +2493,57 @@ void MX_GPIO_Init(void)
 	GPIO_InitStruct.Pin        = BUTT_HOLD_Pin;
 	LL_GPIO_Init(BUTT_HOLD_GPIO_Port, &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = BUTT_SP_Pin;
-	LL_GPIO_Init(BUTT_SP_GPIO_Port, &GPIO_InitStruct);
+	LL_GPIO_Init(BUTT_SP_GPIO_Port,   &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = BUTT_RCL_Pin;
-	LL_GPIO_Init(BUTT_RCL_GPIO_Port, &GPIO_InitStruct);
+	LL_GPIO_Init(BUTT_RCL_GPIO_Port,  &GPIO_InitStruct);
+
+	// protect the button input pins from the DAC DMA, it corrupts the upper 8-bits of port-B :(
+	// note, this does not work, it's broken on this cpu :(
+	LL_GPIO_LockPin(BUTT_HOLD_GPIO_Port, BUTT_HOLD_Pin);
+	LL_GPIO_LockPin(BUTT_SP_GPIO_Port,   BUTT_SP_Pin);
+	LL_GPIO_LockPin(BUTT_RCL_GPIO_Port,  BUTT_RCL_Pin);
+}
+
+// this DMA transfers the sine wave data to the GPIO port
+//
+void MX_DAC_Init(void)
+{
+	#if 0
+	{	// setup the DAC output port
+
+		LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+		LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOB);
+
+		LL_GPIO_ResetOutputPin(GPIOB, DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin);
+
+		GPIO_InitStruct.Mode       = LL_GPIO_MODE_OUTPUT;
+		GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
+		GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+		GPIO_InitStruct.Pin        = DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin;
+		LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	}
+	#endif
+
+	{	// setup the DAC DMA
+
+		LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+
+		LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
+
+		LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_3, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+		LL_DMA_SetChannelPriorityLevel( DMA1, LL_DMA_CHANNEL_3, LL_DMA_PRIORITY_VERYHIGH);
+		LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_3, LL_DMA_MODE_CIRCULAR);
+		LL_DMA_SetPeriphIncMode(        DMA1, LL_DMA_CHANNEL_3, LL_DMA_PERIPH_NOINCREMENT);
+		LL_DMA_SetMemoryIncMode(        DMA1, LL_DMA_CHANNEL_3, LL_DMA_MEMORY_INCREMENT);
+		LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_PDATAALIGN_HALFWORD);
+		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_MDATAALIGN_HALFWORD);
+
+		LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3, (uint32_t)&sine_table, (uint32_t)&GPIOB->ODR, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, ARRAY_SIZE(sine_table));
+	}
+
+	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
 }
 
 // *******************************************
@@ -2628,6 +2678,7 @@ void SysTick_Handler(void)
 
 	sys_tick++;
 
+	#if 1
 	{	// debounce the push buttons
 
 		const uint32_t tick = sys_tick;
@@ -2687,6 +2738,7 @@ void SysTick_Handler(void)
 			}
 		}
 	}
+	#endif
 
 	if (save_settings_timer > 0)
 		save_settings_timer--;
@@ -2725,45 +2777,11 @@ void DMA1_Channel1_IRQHandler(void)
 void DMA1_Channel4_IRQHandler(void)
 {
 	// disable the TX DMA if the send has completed
-//	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+	if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
 	{
-//		if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
-		{
-			LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
-			LL_DMA_ClearFlag_TE4(DMA1);
-			LL_DMA_ClearFlag_TC4(DMA1);
-		}
-	}
-}
-
-void ADC1_2_IRQHandler(void)
-{
-/*	if (LL_ADC_IsActiveFlag_OVR(ADC1))
-	{
-		LL_ADC_ClearFlag_OVR(ADC1);
-
-
-	}
-	else
-	if (LL_ADC_IsActiveFlag_EOS(ADC1))
-	{
-		LL_ADC_ClearFlag_EOS(ADC1);
-
-
-	}
-*/
-}
-
-void TIM3_IRQHandler(void)
-{
-	if (LL_TIM_IsActiveFlag_UPDATE(TIM3))
-	{
-		LL_TIM_ClearFlag_UPDATE(TIM3);
-
-		// set the DAC output
-		register unsigned int index = sine_table_index;
-		DAC_write(sine_table[index]);
-		sine_table_index = (++index >= ARRAY_SIZE(sine_table)) ? 0 : index;
+		LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
+		LL_DMA_ClearFlag_TE4(DMA1);
+		LL_DMA_ClearFlag_TC4(DMA1);
 	}
 }
 
@@ -2998,19 +3016,19 @@ typedef struct {
 
 // 'C' commands (token and ID)
 const t_cmd cmds[] = {
-	{"?",        "show this help",                       CMD_HELP_ID2},
-	{"help",     "show this help",                       CMD_HELP_ID1},
-	{"dataoff",  "disable sending real-time data",       CMD_DATA_OFF_ID},
-	{"dataon",   "enable sending real-time data",        CMD_DATA_ON_ID},
-	{"hold",     "toggle the display hold on/off",       CMD_HOLD_ID},
-	{"opencal",  "run the open calibration function",    CMD_OPEN_CAL_ID},
-//	{"shortcal", "run the shorted calibration function", CMD_SHORT_CAL_ID},
-	{"series",   "select series mode",                   CMD_SERIES_ID},
-	{"parallel", "select parallel mode",                 CMD_PARALLEL_ID},
-	{"reboot",   "reboot this unit",                     CMD_REBOOT_ID},
-	{"defaults", "restore defaults",                     CMD_DEFAULTS_ID},
-	{"version",  "show this units version",              CMD_VERSION_ID},
-	{NULL,       "",                                     CMD_NONE_ID}    // last one MUST be NULL and CMD_NONE_ID
+	{"?",        "show this help",                              CMD_HELP_ID1},
+	{"help",     "show this help",                              CMD_HELP_ID2},
+	{"dataoff",  "disable sending real-time data",              CMD_DATA_OFF_ID},
+	{"dataon",   "enable sending real-time data",               CMD_DATA_ON_ID},
+	{"hold",     "toggle the display hold on/off",              CMD_HOLD_ID},
+	{"opencal",  "run the open calibration function",           CMD_OPEN_CAL_ID},
+//	{"shortcal", "run the shorted calibration function",        CMD_SHORT_CAL_ID},
+	{"series",   "select series mode (best if <= 100 Ohm DUT)", CMD_SERIES_ID},
+	{"parallel", "select parallel mode",                        CMD_PARALLEL_ID},
+	{"reboot",   "reboot this unit",                            CMD_REBOOT_ID},
+	{"defaults", "restore defaults",                            CMD_DEFAULTS_ID},
+	{"version",  "show this units version",                     CMD_VERSION_ID},
+	{NULL,       "",                                            CMD_NONE_ID}    // last one MUST be NULL and CMD_NONE_ID
 };
 
 // process any received serial command lines
@@ -3473,9 +3491,6 @@ int main(void)
 		reset_cause.lpwr   ? "LPWR"   : "lpwr",
 		reset_cause.lsirdy ? "LSIRDY" : "lsirdy");
 
-	MX_ADC_Init();
-	MX_TIM3_Init();
-
 	// *************************************
 
 	{	// wait until the user has released all buttons (for at least 1000ms)
@@ -3524,6 +3539,10 @@ int main(void)
 		// feed the dog
 		service_IWDG(1);
 	#endif
+
+	MX_DAC_Init();
+	MX_ADC_Init();
+	MX_TIM3_Init();
 
 	while (1)
 	{
