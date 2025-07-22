@@ -30,6 +30,10 @@
 - Hold down RCL  button to cycle through the measurement frequencies (currently 100Hz, 300Hz and 1kHz)
 - Hold down HOLD and S/P buttons at the same time to clear all settings (inc calibs) and reboot
 
+## Serial commands
+
+- For a list of commands so far implimented and what they do, just send (on the serial link) '?' or 'help' (followed by line feed)
+
 # System Overview ..
 
 ## RPI MCU programming

@@ -2973,7 +2973,7 @@ void process_uart_send(void)
 	#endif
 }
 
-enum t_cmd_id {
+enum t_cmd_id : uint8_t {
 	CMD_NONE_ID = 0,
 	CMD_HELP_ID1,
 	CMD_HELP_ID2,
@@ -2988,15 +2988,15 @@ enum t_cmd_id {
 };
 
 typedef struct {
-	const char *token;
-	const char *description;
-	const int   id;
+	const char    *token;
+	const char    *description;
+	const t_cmd_id id;
 } t_cmd;
 
 // 'C' commands (token and ID)
 const t_cmd cmds[] = {
-	{"help",     "show this help",                       CMD_HELP_ID1},
 	{"?",        "show this help",                       CMD_HELP_ID2},
+	{"help",     "show this help",                       CMD_HELP_ID1},
 	{"dataoff",  "disable sending real-time data",       CMD_DATA_OFF_ID},
 	{"dataon",   "enable sending real-time data",        CMD_DATA_ON_ID},
 	{"hold",     "toggle the display hold on/off",       CMD_HOLD_ID},
@@ -3041,7 +3041,7 @@ void process_serial_command(char *cmd, unsigned int len)
 	// **********
 	// process the command
 
-	// determine what the command is (best/longest match)
+	// determine what the command is (longest match)
 	int cmd_id = CMD_NONE_ID;
 	for (unsigned int i = 0; cmds[i].token != NULL; i++)
 	{
@@ -3063,13 +3063,22 @@ void process_serial_command(char *cmd, unsigned int len)
 	{
 		case CMD_HELP_ID1:
 		case CMD_HELP_ID2:
-			dprintf(0, NEWLINE "Available commands .." NEWLINE);
+		{
+			unsigned int cmd_max_len = 0;
+			for (unsigned int i = 0; cmds[i].token != NULL; i++)
+			{
+				const unsigned int cmd_len = strlen(cmds[i].token);
+				cmd_max_len = (cmd_max_len < cmd_len) ? cmd_len : cmd_max_len;
+			}
+
+			dprintf(0, NEWLINE "Available commands (case insensitive) .." NEWLINE);
 			for (unsigned int i = 0; cmds[i].token != NULL; i++)
 			{
 				wait_tx(10);
-				dprintf(0, "  %-18s .. %s" NEWLINE, cmds[i].token, cmds[i].description);
+				dprintf(0, "  %-*s .. %s" NEWLINE, cmd_max_len, cmds[i].token, cmds[i].description);
 			}
 			return;
+		}
 
 		case CMD_DEFAULTS_ID:
 			dprintf(0, NEWLINE "restoring defaults .." NEWLINE);

@@ -42,7 +42,10 @@
     #define M_PI                     3.14159265358979323846264338327950288
 #endif
 
-#define FW_VERSION                   0.41
+#define FW_VERSION                   0.42
+
+//#define NEWLINE                    "\r\n"
+#define NEWLINE                      "\n"
 
 #define ARRAY_SIZE(x)               (sizeof(x) / sizeof((x)[0]))
 
@@ -50,9 +53,6 @@
 #define DEG_TO_RAD                  ((float)(M_PI / 180.0))
 
 #define SQR(x)                      ((x) * (x))
-
-//#define NEWLINE                    "\r\n"
-#define NEWLINE                      "\n"
 
 //#define MATLAB_SERIAL                             // use this to send UART data as ascii text (rather than binary packets)
 
