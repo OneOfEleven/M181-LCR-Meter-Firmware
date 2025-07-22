@@ -14,7 +14,7 @@
 
 #include <string.h>
 #include <ctype.h>    // tolower()
-#include <float.h>
+#include <float.h>    // INF
 #include <limits.h>
 
 #include "main.h"
@@ -158,7 +158,6 @@ unsigned int          display_hold = 0;                       // '1' to hold/pau
 
 // for when the user is running the calibrations
 struct {
-	uint16_t          Hz;
 	int               count;
 	float             mag_sum[8];
 	t_comp            phase_sum[8];
@@ -218,7 +217,7 @@ struct {
 		uint32_t timer;            // timer for resetting these RX buffers is nothing received for a set time
 
 		struct {
-			uint8_t  buffer[512];  // RX text line buffer
+			uint8_t  buffer[256];  // RX text line buffer
 			uint32_t buffer_wr;
 		} line;
 	} rx;
@@ -227,7 +226,6 @@ struct {
 		uint8_t  buffer[2048];     // TX raw buffer
 		uint32_t buffer_rd;
 		uint32_t buffer_wr;
-		bool     send_now;         // true = send without delay
 		uint32_t timer;
 	} tx;
 */
@@ -235,23 +233,24 @@ struct {
 
 // *************************************************************
 
+// reboot the CPU
+//
 void reboot(void)
 {
 	__disable_irq();
-
-	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);   // LED on
-
 	__DSB();
-
+	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);        // LED on
 	NVIC_SystemReset();
-
 	while (1) {}
 }
 
-void stop(const uint32_t ms)
+// stop the exec and flash the LED
+//
+void stop(uint32_t ms = 0)
 {
 	__disable_irq();
 	__DSB();
+	ms = (ms == 0) ? 300 : ms;
 	while (1)
 	{
 		LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);    // LED on
@@ -261,13 +260,18 @@ void stop(const uint32_t ms)
 	}
 }
 
-void wait_tx(const uint32_t ms)
+// wait till the serial TX DMA has completed it's send
+//
+void wait_tx(uint32_t ms = 0)
 {
+	ms = (ms == 0) ? 200 : ms;
 	const uint32_t tick = sys_tick;
 	while (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4) && (sys_tick - tick) < ms)
 		__WFI();
 }
 
+// feed the serial TX DMA with more data to send
+//
 int start_UART_TX_DMA(const void *data, const unsigned int size)
 {
 	if (data == NULL || size == 0)
@@ -292,6 +296,8 @@ int start_UART_TX_DMA(const void *data, const unsigned int size)
 	return 0; // OK
 }
 
+// intercept printf, dprintf etc
+//
 int _write(int file, char *ptr, int len)
 {
 	if (ptr != NULL && len > 0)
@@ -303,12 +309,6 @@ int _write(int file, char *ptr, int len)
 }
 
 // ***********************************************************
-
-//__STATIC_INLINE void DAC_write(const uint8_t dat)
-__STATIC_FORCEINLINE void DAC_write(const uint8_t dat)
-{
-	GPIOB->ODR = (GPIOB->ODR & 0xFFFFFF00) | dat;
-}
 
 float adc_to_volts(const float raw_adc)
 {
@@ -634,6 +634,9 @@ void goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 	g->im = im * scale;
 }
 
+// this one assumes the sample buffer contains an integer number of full sine cycles
+// if it doesn't, then do not use this function
+//
 int goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
 {
 	const float scale = 2.0f / g_len;  // for correcting the output amplitude
@@ -749,19 +752,12 @@ char unit_conversion(float *value)
 
 void set_measurement_frequency(const uint32_t Hz)
 {
-	// TODO: make the amplitude adjustment automatic by inspecting the sine wave using a histogram of the sampled samples
-	//       spikes in the histogram indicate clipping (several similar values)
+	// TODO: adjust the waveform amplitude automatically by looking for sine wave clipping
 
 	if (Hz == 100)
 	{
 		measurement_Hz        = 100;
-		measurement_amplitude = 0.52;
-	}
-	else
-	if (Hz == 300)
-	{
-		measurement_Hz        = 300;
-		measurement_amplitude = 0.58;
+		measurement_amplitude = 0.9;
 	}
 	else
 	{	// default to 1kHz
@@ -770,11 +766,12 @@ void set_measurement_frequency(const uint32_t Hz)
 	}
 
 	{	// fill the sine wave look-up table with one complete sine cycle
-		
+
 		const float scale      = (DAC_RESOLUTION - 1) * measurement_amplitude * 0.5f;
 		const float phase_step = (float)(2.0 * M_PI) / ARRAY_SIZE(sine_table);
 
-		// the DMA ONLY writes 16-bits at a time to the GPIO, so we create a 16-bit table with the upper 8-bits set
+		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
+		// so create a 16-bit table with the upper 8-bits all high
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
@@ -1121,7 +1118,7 @@ void process_data(void)
 			if (settings.open_probe_calibration->done)
 			{	// apply open probe calibration
 
-				const unsigned int freq_index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+				const unsigned int freq_index = (measurement_Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
 				const float v_cal_rms_lo = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_VOLT_LO_GAIN * 2];
 				const float i_cal_rms_hi = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_AMP_HI_GAIN  * 2] * inv_series_ohms * high_scale;
@@ -1970,10 +1967,10 @@ void draw_screen(void)
 			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
-			if (calibrate.Hz < 1000)
-				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", calibrate.Hz);
+			if (measurement_Hz < 1000)
+				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", measurement_Hz);
 			else
-				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", calibrate.Hz / 1000);
+				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", measurement_Hz / 1000);
 			//ssd1306_SetCursor(OFFSET_X, LINE2_Y + 14);
 			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			ssd1306_SetCursor(OFFSET_X, LINE3_Y - 5);
@@ -1988,10 +1985,10 @@ void draw_screen(void)
 			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
-			if (calibrate.Hz < 1000)
-				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", calibrate.Hz);
+			if (measurement_Hz < 1000)
+				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", measurement_Hz);
 			else
-				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", calibrate.Hz / 1000);
+				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", measurement_Hz / 1000);
 			//ssd1306_SetCursor(OFFSET_X, LINE2_Y + 14);
 			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			ssd1306_SetCursor(OFFSET_X, LINE3_Y - 5);
@@ -2359,7 +2356,7 @@ void MX_TIM3_Init(void)
 
 	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM3);
 
-	const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * 1000;      // 1kHz
+	const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * measurement_Hz;
 
 	TIM_InitStruct.Prescaler     = 0;
 	TIM_InitStruct.CounterMode   = LL_TIM_COUNTERMODE_UP;
@@ -2832,8 +2829,8 @@ void process_buttons(void)
 
 			display_hold = 0;
 			memset((void *)&calibrate, 0, sizeof(calibrate));
-			calibrate.Hz = 100;
 			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
+			set_measurement_frequency(100);
 			draw_screen();
 		}
 		return;
@@ -2862,8 +2859,8 @@ void process_buttons(void)
 
 			display_hold = 0;
 			memset((void *)&calibrate, 0, sizeof(calibrate));
-			calibrate.Hz = 100;
 			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
+			set_measurement_frequency(100);
 			draw_screen();
 		}
 		return;
@@ -3014,21 +3011,21 @@ typedef struct {
 	const t_cmd_id id;
 } t_cmd;
 
-// 'C' commands (token and ID)
+// serial command table
 const t_cmd cmds[] = {
-	{"?",        "show this help",                              CMD_HELP_ID1},
-	{"help",     "show this help",                              CMD_HELP_ID2},
-	{"dataoff",  "disable sending real-time data",              CMD_DATA_OFF_ID},
-	{"dataon",   "enable sending real-time data",               CMD_DATA_ON_ID},
-	{"hold",     "toggle the display hold on/off",              CMD_HOLD_ID},
-	{"opencal",  "run the open calibration function",           CMD_OPEN_CAL_ID},
+	{"?",        "show this help",                              CMD_HELP_ID1    },
+	{"help",     "show this help",                              CMD_HELP_ID2    },
+	{"dataoff",  "disable sending real-time data",              CMD_DATA_OFF_ID },
+	{"dataon",   "enable sending real-time data",               CMD_DATA_ON_ID  },
+	{"hold",     "toggle the display hold on/off",              CMD_HOLD_ID     },
+	{"opencal",  "run the open calibration function",           CMD_OPEN_CAL_ID },
 //	{"shortcal", "run the shorted calibration function",        CMD_SHORT_CAL_ID},
-	{"series",   "select series mode (best if <= 100 Ohm DUT)", CMD_SERIES_ID},
-	{"parallel", "select parallel mode",                        CMD_PARALLEL_ID},
-	{"reboot",   "reboot this unit",                            CMD_REBOOT_ID},
-	{"defaults", "restore defaults",                            CMD_DEFAULTS_ID},
-	{"version",  "show this units version",                     CMD_VERSION_ID},
-	{NULL,       "",                                            CMD_NONE_ID}    // last one MUST be NULL and CMD_NONE_ID
+	{"series",   "select series mode (best if DUT <= 100 Ohm)", CMD_SERIES_ID   },
+	{"parallel", "select parallel mode",                        CMD_PARALLEL_ID },
+	{"reboot",   "reboot this unit",                            CMD_REBOOT_ID   },
+	{"defaults", "restore defaults",                            CMD_DEFAULTS_ID },
+	{"version",  "show this units version",                     CMD_VERSION_ID  },
+	{NULL,       "",                                            CMD_NONE_ID     }    // last one, DO NOT delete this
 };
 
 // process any received serial command lines
@@ -3112,8 +3109,8 @@ void process_serial_command(char cmd[], unsigned int len)
 			dprintf(0, NEWLINE "open probe calibration .." NEWLINE);
 			display_hold = 0;
 			memset((void *)&calibrate, 0, sizeof(calibrate));
-			calibrate.Hz = 100;
 			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
+			set_measurement_frequency(100);
 			draw_screen();
 			return;
 
@@ -3121,8 +3118,8 @@ void process_serial_command(char cmd[], unsigned int len)
 			dprintf(0, NEWLINE "shorted probe calibration .." NEWLINE);
 			display_hold = 0;
 			memset((void *)&calibrate, 0, sizeof(calibrate));
-			calibrate.Hz = 100;
 			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
+			set_measurement_frequency(100);
 			draw_screen();
 			return;
 
@@ -3253,10 +3250,10 @@ void process_uart_receive(void)
 			serial.rx.line.buffer[pos] = '\0';
 
 			process_serial_command((char *)serial.rx.line.buffer, pos);
-
-			// finished with the text line
-			serial.rx.line.buffer_wr = 0;
 		}
+
+		// finished with the text line
+		serial.rx.line.buffer_wr = 0;
 	}
 }
 
@@ -3283,12 +3280,12 @@ void process_op_mode(void)
 			}
 
 			// delay saving the settings
-			save_settings_timer = SAVE_SETTINGS_MS;   
+			save_settings_timer = SAVE_SETTINGS_MS;
 
 			if (++calibrate.count >= CALIBRATE_COUNT)
 			{	// finished summing, save the average
 
-				const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+				const unsigned int index = (measurement_Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
 				// magnitudes
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
@@ -3305,7 +3302,7 @@ void process_op_mode(void)
 				{	// do the same again but at the next measurement frequency
 
 					memset((void *)&calibrate, 0, sizeof(calibrate));
-					calibrate.Hz = 1000;
+					set_measurement_frequency(1000);
 				}
 				else
 				{	// done
@@ -3341,12 +3338,12 @@ void process_op_mode(void)
 			}
 
 			// delay saving the settings
-			save_settings_timer = SAVE_SETTINGS_MS;   
+			save_settings_timer = SAVE_SETTINGS_MS;
 
 			if (++calibrate.count >= CALIBRATE_COUNT)
 			{	// finished summing, save the average
 
-				const unsigned int index = (calibrate.Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+				const unsigned int index = (measurement_Hz == 100) ? 0 : 1;   // 100Hz/1kHz
 
 				// magnitudes
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
@@ -3363,7 +3360,7 @@ void process_op_mode(void)
 				{	// do the same again but at the next measurement frequency
 
 					memset((void *)&calibrate, 0, sizeof(calibrate));
-					calibrate.Hz = 1000;
+					set_measurement_frequency(1000);
 				}
 				else
 				{	// done
