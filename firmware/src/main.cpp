@@ -2109,7 +2109,7 @@ void MX_ADC_Init(void)
 			LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_1);
 			LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
 
-			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
+			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 2, 0));
 			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
 		}
 
@@ -2211,7 +2211,7 @@ void MX_ADC_Init(void)
 			LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_1);
 			LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
 
-			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
+			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 2, 0));
 			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
 		}
 
@@ -2414,7 +2414,7 @@ void MX_USART1_UART_Init(void)
 		LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_4);
 		LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_4);
 
-		NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
+		NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 4, 0));
 		NVIC_EnableIRQ(DMA1_Channel4_IRQn);
 	}
 
@@ -2443,7 +2443,7 @@ void MX_USART1_UART_Init(void)
 	LL_USART_ClearFlag_RXNE(USART1);
 	LL_USART_EnableIT_RXNE(USART1);
 
-	NVIC_SetPriority(USART1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
+	NVIC_SetPriority(USART1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
 	NVIC_EnableIRQ(USART1_IRQn);
 
 	LL_USART_Enable(USART1);
@@ -2984,6 +2984,8 @@ enum t_cmd_id : uint8_t {
 	CMD_DATA_OFF_ID,
 	CMD_DATA_ON_ID,
 	CMD_HOLD_ID,
+	CMD_SERIES_ID,
+	CMD_PARALLEL_ID,
 	CMD_REBOOT_ID,
 	CMD_VERSION_ID
 };
@@ -3003,6 +3005,8 @@ const t_cmd cmds[] = {
 	{"hold",     "toggle the display hold on/off",       CMD_HOLD_ID},
 	{"opencal",  "run the open calibration function",    CMD_OPEN_CAL_ID},
 //	{"shortcal", "run the shorted calibration function", CMD_SHORT_CAL_ID},
+	{"series",   "select series mode",                   CMD_SERIES_ID},
+	{"parallel", "select parallel mode",                 CMD_PARALLEL_ID},
 	{"reboot",   "reboot this unit",                     CMD_REBOOT_ID},
 	{"defaults", "restore defaults",                     CMD_DEFAULTS_ID},
 	{"version",  "show this units version",              CMD_VERSION_ID},
@@ -3106,14 +3110,14 @@ void process_serial_command(char cmd[], unsigned int len)
 
 		case CMD_DATA_OFF_ID:
 			settings.flags &= ~SETTING_FLAG_UART_DSO;
-			save_settings_timer = 2000;
+			save_settings_timer = SAVE_SETTINGS_MS;
 			dprintf(0, NEWLINE "live data disabled" NEWLINE);
 			draw_screen();
 			return;
 
 		case CMD_DATA_ON_ID:
 			settings.flags |= SETTING_FLAG_UART_DSO;
-			save_settings_timer = 2000;
+			save_settings_timer = SAVE_SETTINGS_MS;
 			dprintf(0, NEWLINE "live data enabled" NEWLINE);
 			draw_screen();
 			return;
@@ -3124,6 +3128,20 @@ void process_serial_command(char cmd[], unsigned int len)
 				dprintf(0, NEWLINE "display hold" NEWLINE);
 			else
 				dprintf(0, NEWLINE "display run" NEWLINE);
+			draw_screen();
+			return;
+
+		case CMD_SERIES_ID:
+			display_hold = 0;
+			settings.flags &= ~SETTING_FLAG_PARALLEL;
+			save_settings_timer = SAVE_SETTINGS_MS;
+			draw_screen();
+			return;
+
+		case CMD_PARALLEL_ID:
+			display_hold = 0;
+			settings.flags |= SETTING_FLAG_PARALLEL;
+			save_settings_timer = SAVE_SETTINGS_MS;
 			draw_screen();
 			return;
 
