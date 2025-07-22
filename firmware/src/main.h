@@ -51,6 +51,9 @@
 
 #define SQR(x)                      ((x) * (x))
 
+//#define NEWLINE                    "\r\n"
+#define NEWLINE                      "\n"
+
 //#define MATLAB_SERIAL                             // use this to send UART data as ascii text (rather than binary packets)
 
 //#define UART_BAUDRATE              115200

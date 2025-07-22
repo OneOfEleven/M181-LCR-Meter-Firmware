@@ -9,8 +9,10 @@
  ******************************************************************************
  */
 
-#include <string.h>
+#define __BUFSIZ__ 0
 #include <stdio.h>
+
+#include <string.h>
 #include <float.h>
 #include <limits.h>
 
@@ -259,6 +261,13 @@ void stop(const uint32_t ms)
 	}
 }
 
+void wait_tx(const uint32_t ms)
+{
+	const uint32_t tick = sys_tick;
+	while (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4) && (sys_tick - tick) < ms)
+		__WFI();
+}
+
 int start_UART_TX_DMA(const void *data, const unsigned int size)
 {
 	if (data == NULL || size == 0)
@@ -287,9 +296,8 @@ int _write(int file, char *ptr, int len)
 {
 	if (ptr != NULL && len > 0)
 	{
-		const uint32_t tick = sys_tick;
-		while ((sys_tick - tick) < 200 && start_UART_TX_DMA(ptr, len) < 0)
-			__WFI();
+		wait_tx(100);
+		start_UART_TX_DMA(ptr, len);
 	}
 	return len;
 }
@@ -2939,10 +2947,15 @@ void process_uart_send(void)
 		const unsigned int cols = 8;
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
+			wait_tx(100);
 			dprintf(0, "%3u,", 1 + i);
 			for (unsigned int col = 0; col < (cols - 1); col++)
+			{
+				wait_tx(10);
 				dprintf(0, "%0.1f,", adc_data[col][i]);
-			dprintf(0, "%0.1f\r\n", adc_data[col - 1][i]);
+			}
+			wait_tx(10);
+			dprintf(0, "%0.1f" NEWLINE, adc_data[col - 1][i]);
 		}
 	#else
 		// send as binary packet
@@ -2955,16 +2968,45 @@ void process_uart_send(void)
 		tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
 
 		// sen dit
+		wait_tx(100);
 		start_UART_TX_DMA(&tx_packet, sizeof(tx_packet));
 	#endif
 }
 
-void wait_tx(const uint32_t ms)
-{
-	const uint32_t tick = sys_tick;
-	while (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4) && (sys_tick - tick) < ms)
-		__WFI();
-}
+enum t_cmd_id {
+	CMD_NONE_ID = 0,
+	CMD_HELP_ID1,
+	CMD_HELP_ID2,
+	CMD_DEFAULTS_ID,
+	CMD_OPEN_CAL_ID,
+	CMD_SHORT_CAL_ID,
+	CMD_DATA_OFF_ID,
+	CMD_DATA_ON_ID,
+	CMD_HOLD_ID,
+	CMD_REBOOT_ID,
+	CMD_VERSION_ID
+};
+
+typedef struct {
+	const char *token;
+	const char *description;
+	const int   id;
+} t_cmd;
+
+// 'C' commands (token and ID)
+const t_cmd cmds[] = {
+	{"help",     "show this help",                       CMD_HELP_ID1},
+	{"?",        "show this help",                       CMD_HELP_ID2},
+	{"dataoff",  "disable sending real-time data",       CMD_DATA_OFF_ID},
+	{"dataon",   "enable sending real-time data",        CMD_DATA_ON_ID},
+	{"hold",     "toggle the display hold on/off",       CMD_HOLD_ID},
+	{"opencal",  "run the open calibration function",    CMD_OPEN_CAL_ID},
+	{"shortcal", "run the shorted calibration function", CMD_SHORT_CAL_ID},
+	{"reboot",   "reboot this unit",                     CMD_REBOOT_ID},
+	{"defaults", "restore defaults",                     CMD_DEFAULTS_ID},
+	{"version",  "show this units version",              CMD_VERSION_ID},
+	{NULL,       "",                                     CMD_NONE_ID}    // last one MUST be NULL and CMD_NONE_ID
+};
 
 // process any received serial command lines
 void process_serial_command(char *cmd, unsigned int len)
@@ -2982,7 +3024,7 @@ void process_serial_command(char *cmd, unsigned int len)
 	// locate the end of the command/start of the params
 	// also lowercase the command
 	unsigned int param_pos = 0;
-	while (param_pos < len && cmd[param_pos] != ' ')
+	while (param_pos < len && cmd[param_pos] != ' ' && cmd[param_pos] != '\t')
 	{
 		if (cmd[param_pos] >= 'A' && cmd[param_pos] <= 'Z')
 			cmd[param_pos] -= 'a' - 'A';
@@ -2992,102 +3034,112 @@ void process_serial_command(char *cmd, unsigned int len)
 	if (param_pos < len)
 		cmd[param_pos] = '\0';     // null term the command
 
+
+	// todo: process any params that might follow the command text
+
+
 	// **********
 	// process the command
 
-	if (strcmp("help", cmd) == 0 || strcmp("?", cmd) == 0)
+	// determine what the command is (best/longest match)
+	int cmd_id = CMD_NONE_ID;
+	for (unsigned int i = 0; cmds[i].token != NULL; i++)
 	{
-		dprintf(0, "\r\ncommands ..\r\n");
-		wait_tx(10);
-		dprintf(0, "  help or ?   .. this help\r\n");
-		wait_tx(10);
-		dprintf(0, "  reboot      .. reboot this unit\r\n");
-		wait_tx(10);
-		dprintf(0, "  opencal     .. perform an open probe calbration\r\n");
-		wait_tx(10);
-		dprintf(0, "  shortcal    .. perform a shorted probe calbration\r\n");
-		wait_tx(10);
-		dprintf(0, "  dataoff     .. disable live data send\r\n");
-		wait_tx(10);
-		dprintf(0, "  dataon      .. enable live data send\r\n");
-		wait_tx(10);
-		dprintf(0, "  hold        .. toggle display hold\r\n");
-		wait_tx(10);
-		dprintf(0, "  ver         .. show unit version\r\n");
-		wait_tx(10);
-		return;
+		if (strncmp(cmd, cmds[i].token, param_pos) != 0)
+			continue;
+
+		if (cmd_id != CMD_NONE_ID)
+		{	// matches more than 1 command, treat it as an unknown command
+			cmd_id = CMD_NONE_ID;
+			break;
+		}
+
+		cmd_id = cmds[i].id;
 	}
 
-	if (strcmp("reboot", cmd) == 0)
-	{
-		dprintf(0, "\r\nrebooting ..\r\n");
-		LL_mDelay(100);
-		reboot();
-	}
-	
-	if (strcmp("ver", cmd) == 0 || strcmp("version", cmd) == 0)
-	{
-		dprintf(0, "\r\nM181 LCR Meter v%0.2f %s %s %s %s %s %s %s\r\n",
-			FW_VERSION,
-			reset_cause.por    ? "POR"    : "por",
-			reset_cause.pin    ? "PIN"    : "pin",
-			reset_cause.sft    ? "SFT"    : "sft",
-			reset_cause.iwdg   ? "IWDG"   : "iwdg",
-			reset_cause.wwdg   ? "WWDG"   : "wwdg",
-			reset_cause.lpwr   ? "LPWR"   : "lpwr",
-			reset_cause.lsirdy ? "LSIRDY" : "lsirdy");
-		return;
-	}
+	wait_tx(100);
 
-	if (strcmp("opencal", cmd) == 0)
+	switch (cmd_id)
 	{
-		dprintf(0, "\r\nopen probe calibration ..\r\n");
-		display_hold = 0;
-		memset((void *)&calibrate, 0, sizeof(calibrate));
-		calibrate.Hz = 100;
-		op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
-		draw_screen();
-		return;
-	}
+		case CMD_HELP_ID1:
+		case CMD_HELP_ID2:
+			dprintf(0, NEWLINE "Available commands .." NEWLINE);
+			for (unsigned int i = 0; cmds[i].token != NULL; i++)
+			{
+				wait_tx(10);
+				dprintf(0, "  %-18s .. %s" NEWLINE, cmds[i].token, cmds[i].description);
+			}
+			return;
 
-	if (strcmp("shortcal", cmd) == 0 || strcmp("shortedcal", cmd) == 0)
-	{
-		dprintf(0, "\r\nshorted probe calibration ..\r\n");
-		display_hold = 0;
-		memset((void *)&calibrate, 0, sizeof(calibrate));
-		calibrate.Hz = 100;
-		op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
-		draw_screen();
-		return;
-	}
+		case CMD_DEFAULTS_ID:
+			dprintf(0, NEWLINE "restoring defaults .." NEWLINE);
+			clear_settings();
+			reboot();
+			break;
 
-	if (strcmp("dataoff", cmd) == 0)
-	{
-		settings.flags &= ~SETTING_FLAG_UART_DSO;
-		dprintf(0, "\r\nlive data disabled\r\n");
-		save_settings_timer = 2000;
-		draw_screen();
-		return;
-	}
+		case CMD_OPEN_CAL_ID:
+			dprintf(0, NEWLINE "open probe calibration .." NEWLINE);
+			display_hold = 0;
+			memset((void *)&calibrate, 0, sizeof(calibrate));
+			calibrate.Hz = 100;
+			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
+			draw_screen();
+			return;
 
-	if (strcmp("dataon", cmd) == 0)
-	{
-		settings.flags |= SETTING_FLAG_UART_DSO;
-		dprintf(0, "\r\nlive data enabled\r\n");
-		save_settings_timer = 2000;
-		draw_screen();
-		return;
-	}
+		case CMD_SHORT_CAL_ID:
+			dprintf(0, NEWLINE "shorted probe calibration .." NEWLINE);
+			display_hold = 0;
+			memset((void *)&calibrate, 0, sizeof(calibrate));
+			calibrate.Hz = 100;
+			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
+			draw_screen();
+			return;
 
-	if (strcmp("hold", cmd) == 0)
-	{
-		display_hold ^= 1u;
-		if (display_hold)
-			dprintf(0, "\r\ndisplay hold\r\n");
-		else
-			dprintf(0, "\r\ndisplay run\r\n");
-		draw_screen();
-		return;
+		case CMD_DATA_OFF_ID:
+			settings.flags &= ~SETTING_FLAG_UART_DSO;
+			save_settings_timer = 2000;
+			dprintf(0, NEWLINE "live data disabled" NEWLINE);
+			draw_screen();
+			return;
+
+		case CMD_DATA_ON_ID:
+			settings.flags |= SETTING_FLAG_UART_DSO;
+			save_settings_timer = 2000;
+			dprintf(0, NEWLINE "live data enabled" NEWLINE);
+			draw_screen();
+			return;
+
+		case CMD_HOLD_ID:
+			display_hold ^= 1u;
+			if (display_hold)
+				dprintf(0, NEWLINE "display hold" NEWLINE);
+			else
+				dprintf(0, NEWLINE "display run" NEWLINE);
+			draw_screen();
+			return;
+
+		case CMD_REBOOT_ID:
+			dprintf(0, NEWLINE "rebooting .." NEWLINE);
+			LL_mDelay(100);
+			reboot();
+			return;
+
+		case CMD_VERSION_ID:
+			dprintf(0, NEWLINE "M181 LCR Meter v%0.2f %s %s %s %s %s %s %s" NEWLINE,
+				FW_VERSION,
+				reset_cause.por    ? "POR"    : "por",
+				reset_cause.pin    ? "PIN"    : "pin",
+				reset_cause.sft    ? "SFT"    : "sft",
+				reset_cause.iwdg   ? "IWDG"   : "iwdg",
+				reset_cause.wwdg   ? "WWDG"   : "wwdg",
+				reset_cause.lpwr   ? "LPWR"   : "lpwr",
+				reset_cause.lsirdy ? "LSIRDY" : "lsirdy");
+			return;
+
+		default:
+		case CMD_NONE_ID:
+			dprintf(0, NEWLINE "error: unknown command '%s'" NEWLINE, cmd);
+			return;
 	}
 }
 
@@ -3213,7 +3265,8 @@ void process_op_mode(void)
 				else
 				{	// done
 
-					dprintf(0, "\r\nopen probe calibration done\r\n");
+					wait_tx(100);
+					dprintf(0, NEWLINE "open probe calibration done" NEWLINE);
 
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
@@ -3270,7 +3323,8 @@ void process_op_mode(void)
 				else
 				{	// done
 
-					dprintf(0, "\r\nshorted probe calibration done\r\n");
+					wait_tx(100);
+					dprintf(0, NEWLINE "shorted probe calibration done" NEWLINE);
 
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
@@ -3329,8 +3383,8 @@ int main(void)
 		setbuf( stdin,  NULL);
 		setbuf( stdout, NULL);
 		setbuf( stderr, NULL);
-		//setvbuf(stdout, NULL, _IONBF, 0);
-		//setvbuf(stderr, NULL, _IONBF, 0);
+		setvbuf(stdout, NULL, _IONBF, 0);
+		setvbuf(stderr, NULL, _IONBF, 0);
 	}
 
 	{
@@ -3382,7 +3436,7 @@ int main(void)
 	screen_init();
 	bootup_screen();
 
-	dprintf(0, "\r\nrebooted M181 LCR Meter v%0.2f %s %s %s %s %s %s %s\r\n",
+	dprintf(0, NEWLINE NEWLINE "rebooted M181 LCR Meter v%0.2f %s %s %s %s %s %s %s" NEWLINE,
 		FW_VERSION,
 		reset_cause.por    ? "POR"    : "por",
 		reset_cause.pin    ? "PIN"    : "pin",
@@ -3483,7 +3537,8 @@ int main(void)
 		// save settings to flash if it's time too
 		if (save_settings_timer == 0)
 		{
-			dprintf(0, "\r\nsaving settings ..\r\n");
+			wait_tx(100);
+			dprintf(0, NEWLINE "saving settings .." NEWLINE);
 
 			if (write_settings() < 0)     // save settings to flash
 				write_settings();         // failed, have a 2nd go
