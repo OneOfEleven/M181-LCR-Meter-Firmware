@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 #include <string.h>
+#include <ctype.h>    // tolower()
 #include <float.h>
 #include <limits.h>
 
@@ -3001,7 +3002,7 @@ const t_cmd cmds[] = {
 	{"dataon",   "enable sending real-time data",        CMD_DATA_ON_ID},
 	{"hold",     "toggle the display hold on/off",       CMD_HOLD_ID},
 	{"opencal",  "run the open calibration function",    CMD_OPEN_CAL_ID},
-	{"shortcal", "run the shorted calibration function", CMD_SHORT_CAL_ID},
+//	{"shortcal", "run the shorted calibration function", CMD_SHORT_CAL_ID},
 	{"reboot",   "reboot this unit",                     CMD_REBOOT_ID},
 	{"defaults", "restore defaults",                     CMD_DEFAULTS_ID},
 	{"version",  "show this units version",              CMD_VERSION_ID},
@@ -3009,13 +3010,13 @@ const t_cmd cmds[] = {
 };
 
 // process any received serial command lines
-void process_serial_command(char *cmd, unsigned int len)
+void process_serial_command(char cmd[], unsigned int len)
 {
 	if (cmd == NULL || len == 0)
 		return;
 
 	// trim leading
-	while (len > 0 && *cmd <= 32)
+	while (len > 0 && *cmd <= ' ')
 		memmove(cmd, cmd + 1, --len);
 
 	if (len == 0)
@@ -3024,10 +3025,9 @@ void process_serial_command(char *cmd, unsigned int len)
 	// locate the end of the command/start of the params
 	// also lowercase the command
 	unsigned int param_pos = 0;
-	while (param_pos < len && cmd[param_pos] != ' ' && cmd[param_pos] != '\t')
+	while (param_pos < len && cmd[param_pos] > ' ')
 	{
-		if (cmd[param_pos] >= 'A' && cmd[param_pos] <= 'Z')
-			cmd[param_pos] -= 'a' - 'A';
+		cmd[param_pos] = tolower(cmd[param_pos]);
 		param_pos++;
 	}
 

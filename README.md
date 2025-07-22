@@ -32,7 +32,7 @@
 
 ## Serial commands
 
-- For a list of commands so far implimented and what they do, just send (on the serial link) '?' or 'help' (followed by line feed)
+- For a list of commands so far implemented and what they do, just send (on the serial link) '?' or 'help' (followed by line feed)
 
 # System Overview ..
 
