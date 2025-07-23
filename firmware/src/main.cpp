@@ -3251,17 +3251,25 @@ void process_serial_command(char cmd[], unsigned int len)
 			return;
 
 		case CMD_SERIES_ID:
-			display_hold = 0;
-			settings.flags &= ~SETTING_FLAG_PARALLEL;
-			save_settings_timer = SAVE_SETTINGS_MS;
-			draw_screen();
+			if (settings.flags & SETTING_FLAG_PARALLEL)
+			{
+				display_hold = 0;
+				settings.flags &= ~SETTING_FLAG_PARALLEL;
+				save_settings_timer = SAVE_SETTINGS_MS;
+				draw_screen();
+			}
+			dprintf(0, NEWLINE "mode series" NEWLINE);
 			return;
 
 		case CMD_PARALLEL_ID:
-			display_hold = 0;
-			settings.flags |= SETTING_FLAG_PARALLEL;
-			save_settings_timer = SAVE_SETTINGS_MS;
-			draw_screen();
+			if (!(settings.flags & SETTING_FLAG_PARALLEL))
+			{
+				display_hold = 0;
+				settings.flags |= SETTING_FLAG_PARALLEL;
+				save_settings_timer = SAVE_SETTINGS_MS;
+				draw_screen();
+			}
+			dprintf(0, NEWLINE "mode parallel" NEWLINE);
 			return;
 
 		case CMD_REBOOT_ID:
