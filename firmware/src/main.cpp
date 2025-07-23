@@ -3035,19 +3035,19 @@ typedef struct {
 
 // serial command table
 const t_cmd cmds[] = {
-	{"?",         "         .. show this help",                                CMD_HELP_ID1    },
-	{"help",      "         .. show this help",                                CMD_HELP_ID2    },
-	{"data",      "[on/off] .. read/set sending real-time data",               CMD_DATA_ID     },
-	{"frequency", "[Hz]     .. read/set measurement frequency (in Hz)",        CMD_FREQUENCY_ID},
-	{"hold",      "         .. toggle the display hold on/off",                CMD_HOLD_ID     },
-	{"opencal",   "         .. run the open calibration function",             CMD_OPEN_CAL_ID },
-//	{"shortcal",  "         .. run the shorted calibration function",          CMD_SHORT_CAL_ID},
-	{"series",    "         .. select series mode (best if DUT <= 100 Ohm)",   CMD_SERIES_ID   },
-	{"parallel",  "         .. select parallel mode",                          CMD_PARALLEL_ID },
-	{"reboot",    "         .. reboot this unit",                              CMD_REBOOT_ID   },
-	{"defaults",  "         .. restore defaults",                              CMD_DEFAULTS_ID },
-	{"version",   "         .. show this units version",                       CMD_VERSION_ID  },
-	{NULL,        "",                                                          CMD_NONE_ID     }    // last one, DO NOT delete this
+	{"?",         "         .. show this help",                              CMD_HELP_ID1    },
+	{"help",      "         .. show this help",                              CMD_HELP_ID2    },
+	{"data",      "[on/off] .. read/set sending real-time data",             CMD_DATA_ID     },
+	{"frequency", "[Hz]     .. read/set measurement frequency",              CMD_FREQUENCY_ID},
+	{"hold",      "         .. toggle the display hold on/off",              CMD_HOLD_ID     },
+	{"opencal",   "         .. run the open calibration function",           CMD_OPEN_CAL_ID },
+//	{"shortcal",  "         .. run the shorted calibration function",        CMD_SHORT_CAL_ID},
+	{"series",    "         .. select series mode (best if DUT <= 100 Ohm)", CMD_SERIES_ID   },
+	{"parallel",  "         .. select parallel mode",                        CMD_PARALLEL_ID },
+	{"reboot",    "         .. reboot this unit",                            CMD_REBOOT_ID   },
+	{"defaults",  "         .. restore defaults",                            CMD_DEFAULTS_ID },
+	{"version",   "         .. show this units version",                     CMD_VERSION_ID  },
+	{NULL,        "",                                                        CMD_NONE_ID     }    // last one, DO NOT delete this
 };
 
 // process any received serial commands
@@ -3060,19 +3060,21 @@ void process_serial_command(char cmd[], unsigned int len)
 	// replace any tabs with spaces
 	// and lower case all
 	for (unsigned int i = 0; i < len; i++)
-	{
-		if (cmd[i] == '\t')
-			cmd[i] = ' ';
-		else
-			cmd[i] = tolower(cmd[i]);
-	}
+		cmd[i] = (cmd[i] == '\t') ? ' ' : tolower(cmd[i]);
 
-	// trim leading
-	while (len > 0 && *cmd <= ' ')
+	// trim any leading spaces and/or control chars
+	while (len > 0 && cmd[0] <= ' ')
 		memmove(cmd, cmd + 1, --len);
+
+	// trim any trailing spaces and/or control chars
+	while (len > 0 && cmd[len - 1] <= ' ')
+		cmd[--len] = '\0';
 
 	if (len == 0)
 		return;
+
+	// ensure it's null terminated
+	cmd[len] = '\0';
 
 	// locate the end of the command/start of the params
 	// also lowercase the command
