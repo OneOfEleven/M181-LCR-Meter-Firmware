@@ -1668,7 +1668,7 @@ void draw_screen(void)
 
 			// serial/parallel mode
 			ssd1306_SetCursor(OFFSET_X, 0);
-			ssd1306_WriteString(par ? "PAR" : "SER", &Font_7x10, White);
+			ssd1306_WriteString(par ? "par" : "ser", &Font_7x10, White);
 
 			// measurement frequency
 			ssd1306_SetCursor(4 * Font_7x10.width, 0);
@@ -1744,10 +1744,19 @@ void draw_screen(void)
 						break;
 				}
 
-				ssd1306_SetCursor(OFFSET_X, LINE2_Y);
-				ssd1306_WriteString(buffer_display, &Font_11x18, White);
+				#if 0
+					ssd1306_SetCursor(OFFSET_X, LINE2_Y);
+					ssd1306_WriteString(buffer_display, &Font_11x18, White);
+					ssd1306_MoveCursor(10, 0);
+				#else
+					ssd1306_SetCursor(OFFSET_X, LINE2_Y + 4);
+					ssd1306_WriteString(buffer_display, &Font_7x10, White);
+					ssd1306_MoveCursor(8, -4);
 
-				ssd1306_MoveCursor(10, 0);    // move right
+//					ssd1306_SetCursor(OFFSET_X, LINE2_Y + 1);
+//					ssd1306_WriteString(buffer_display, &Font_8x16, White);
+//					ssd1306_MoveCursor(8, -1);
+				#endif
 
 				char unit = unit_conversion(&value);
 
@@ -1810,6 +1819,7 @@ void draw_screen(void)
 				}
 
 				ssd1306_WriteString(buffer_display, &Font_11x18, White);
+//				ssd1306_WriteString(buffer_display, &Font_8x16, White);
 
 				ssd1306_MoveCursor(6, 0);    // move right
 
@@ -1823,6 +1833,7 @@ void draw_screen(void)
 						buffer_display[i++] = 'H';
 						buffer_display[i++] = '\0';
 						ssd1306_WriteString(buffer_display, &Font_11x18, White);
+						//ssd1306_WriteString(buffer_display, &Font_8x16, White);
 						break;
 					}
 
@@ -1834,6 +1845,7 @@ void draw_screen(void)
 						buffer_display[i++] = 'F';
 						buffer_display[i++] = '\0';
 						ssd1306_WriteString(buffer_display, &Font_11x18, White);
+						//ssd1306_WriteString(buffer_display, &Font_8x16, White);
 						break;
 					}
 
@@ -1844,6 +1856,7 @@ void draw_screen(void)
 							buffer_display[0] = unit;
 							buffer_display[1] = '\0';
 							ssd1306_WriteString(buffer_display, &Font_11x18, White);
+							//ssd1306_WriteString(buffer_display, &Font_8x16, White);
 						}
 						else
 							ssd1306_MoveCursor(4, 0);    // move right
