@@ -15,9 +15,8 @@
 <img src="firmware/docs/pcb_finished.png" alt="image" style="width:500px;height:auto;">
 
 ## Main tasks to be completed on this firmware
-- [ ] Make use of the saved Open/Short calibration results
 - [ ] Auto calibration option
-- [ ] Change a couple of PCB component values to allow/add a 10kHz option (see LTspice sims)
+- [ ] Change some PCB component values to allow a 10kHz option (see LTspice sims)
 
 ## Buttons ..
 
