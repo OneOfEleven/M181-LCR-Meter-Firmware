@@ -54,8 +54,6 @@
 
 #define SQR(x)                      ((x) * (x))
 
-//#define MATLAB_SERIAL                             // use this to send UART data as ascii text (rather than binary packets)
-
 //#define UART_BAUDRATE              115200
 //#define UART_BAUDRATE              230400
 //#define UART_BAUDRATE              460800
@@ -347,6 +345,7 @@ enum {
 #define SETTING_FLAG_UART_DSO       (1u << 0)   // set if the user wants to send all sampled blocks out the serial port
 #define SETTING_FLAG_PARALLEL       (1u << 1)   // set if the user wants parallel results displayed
 #define SETTING_FLAG_FAST_UPDATES   (1u << 2)   // set if the user wants faster screen updates
+#define SETTING_FLAG_SEND_BINARY    (1u << 3)   // set if the user wants binary data rather than ascii data
 
 // this structure will be stored in flash (emulated EEPROM) so as to remember various things for the user
 //
@@ -435,6 +434,7 @@ void DebugMon_Handler(void);
 void PendSV_Handler(void);
 void SysTick_Handler(void);
 void DMA1_Channel1_IRQHandler(void);
+//void DMA1_Channel3_IRQHandler(void);
 void DMA1_Channel4_IRQHandler(void);
 void USART1_IRQHandler(void);
 

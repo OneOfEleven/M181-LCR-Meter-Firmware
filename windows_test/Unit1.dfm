@@ -24,7 +24,7 @@ object Form1: TForm1
     Left = 0
     Top = 45
     Width = 792
-    Height = 466
+    Height = 441
     Align = alClient
     Color = clBlack
     Font.Charset = ANSI_CHARSET
@@ -38,9 +38,9 @@ object Form1: TForm1
   end
   object StatusBar1: TStatusBar
     Left = 0
-    Top = 511
+    Top = 518
     Width = 792
-    Height = 29
+    Height = 22
     Font.Charset = ANSI_CHARSET
     Font.Color = clBtnText
     Font.Height = -13
@@ -186,7 +186,7 @@ object Form1: TForm1
       Caption = 'Capture'
       ParentShowHint = False
       ShowHint = True
-      TabOrder = 2
+      TabOrder = 3
       OnClick = CaptureButtonClick
     end
     object NormaliseTrackBar: TTrackBar
@@ -204,10 +204,44 @@ object Form1: TForm1
       SelEnd = 0
       SelStart = 0
       ShowHint = True
-      TabOrder = 3
+      TabOrder = 2
       TickMarks = tmBoth
       TickStyle = tsNone
       OnChange = NormaliseTrackBarChange
+    end
+  end
+  object Panel1: TPanel
+    Left = 0
+    Top = 486
+    Width = 792
+    Height = 32
+    Align = alBottom
+    BevelOuter = bvNone
+    TabOrder = 0
+    DesignSize = (
+      792
+      32)
+    object TxEdit: TEdit
+      Left = 4
+      Top = 6
+      Width = 729
+      Height = 21
+      Anchors = [akLeft, akTop, akRight]
+      TabOrder = 0
+      Text = 'TxEdit'
+      OnKeyPress = TxEditKeyPress
+    end
+    object TxButton: TButton
+      Left = 740
+      Top = 6
+      Width = 45
+      Height = 21
+      Cursor = crHandPoint
+      Anchors = [akTop, akRight]
+      Caption = 'Send'
+      Default = True
+      TabOrder = 1
+      OnClick = TxButtonClick
     end
   end
   object OpenDialog1: TOpenDialog

@@ -185,6 +185,9 @@ __published:
 	TButton *CaptureButton;
 	TTrackBar *NormaliseTrackBar;
 	TSpeedButton *HistogramSpeedButton;
+	TPanel *Panel1;
+	TEdit *TxEdit;
+	TButton *TxButton;
 	void __fastcall FormCreate(TObject *Sender);
 	void __fastcall FormDestroy(TObject *Sender);
 	void __fastcall FormClose(TObject *Sender, TCloseAction &Action);
@@ -200,6 +203,8 @@ __published:
 	void __fastcall CaptureButtonClick(TObject *Sender);
 	void __fastcall NormaliseTrackBarChange(TObject *Sender);
 	void __fastcall HistogramSpeedButtonClick(TObject *Sender);
+	void __fastcall TxEditKeyPress(TObject *Sender, char &Key);
+	void __fastcall TxButtonClick(TObject *Sender);
 
 private:
 

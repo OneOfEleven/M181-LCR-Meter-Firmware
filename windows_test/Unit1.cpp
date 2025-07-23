@@ -439,12 +439,15 @@ void __fastcall TForm1::FormCreate(TObject *Sender)
 	}
 
 	this->DoubleBuffered  = true;
+	Panel1->DoubleBuffered = true;
 	Panel2->DoubleBuffered = true;
 //	Memo1->DoubleBuffered = true;
 
 	PaintBox1->ControlStyle = PaintBox1->ControlStyle << csOpaque;
 
 //	Memo1->Clear();
+
+	TxEdit->Text = "";
 
 	m_bitmap_main = NULL;
 
@@ -744,6 +747,9 @@ void __fastcall TForm1::WMInitGUI(TMessage &msg)
 	// open the serial port
 	SerialPortComboBoxSelect(NULL);
 
+	if (TxEdit->CanFocus())
+		TxEdit->SetFocus();
+
 	Timer1->Interval = (m_thread.thread == NULL) ? 1 : 100;
 	Timer1->Enabled = true;
 }
@@ -945,6 +951,11 @@ void __fastcall TForm1::serialDisconnect()
 
 	m_serial.client.ready = false;
 
+	// disable data sending
+	m_serial.port.TxBytes("data off\n");
+
+	Sleep(100);
+
 	m_serial.port.rts = false;
 	m_serial.port.dtr = false;
 	m_serial.port.Disconnect();
@@ -1020,6 +1031,9 @@ bool __fastcall TForm1::serialConnect()
 		while (m_serial.port.RxBytes(&m_serial.client.rx.buffer[0], m_serial.client.rx.buffer.size()) > 0)
 			Sleep(50);
 	#endif
+
+	// enable binary sending
+	m_serial.port.TxBytes("data bin\n");
 
 	m_serial.client.ready = true;
 
@@ -1900,5 +1914,58 @@ void __fastcall TForm1::NormaliseTrackBarChange(TObject *Sender)
 void __fastcall TForm1::HistogramSpeedButtonClick(TObject *Sender)
 {
 	PaintBox1->Invalidate();
+}
+
+void __fastcall TForm1::TxEditKeyPress(TObject *Sender, char &Key)
+{
+	if (!m_serial.port.connected)
+		return;
+
+	if (Key == VK_RETURN)
+	{
+		Key = 0;
+
+		String s = TxEdit->Text.Trim();
+		TxEdit->Text = "";
+		if (s.IsEmpty())
+			return;
+
+		const int num_bytes_tx = m_serial.port.TxBytes(s + "\n");
+		if (num_bytes_tx <= 0)
+		{
+			printf("error: serial TxData()\n");
+			return;
+		}
+
+		if (ConsoleWindowSpeedButton->Down)
+			printf("tx serial [%2d] .. %s", num_bytes_tx, s.c_str());
+
+		if (TxEdit->CanFocus())
+			TxEdit->SetFocus();
+	}
+}
+
+void __fastcall TForm1::TxButtonClick(TObject *Sender)
+{
+	if (TxEdit->CanFocus())
+		TxEdit->SetFocus();
+
+	if (!m_serial.port.connected)
+		return;
+
+	String s = TxEdit->Text.Trim();
+	TxEdit->Text = "";
+	if (s.IsEmpty())
+		return;
+
+	const int num_bytes_tx = m_serial.port.TxBytes(s + "\n");
+	if (num_bytes_tx <= 0)
+	{
+		printf("error: serial TxData()\n");
+		return;
+	}
+
+	if (ConsoleWindowSpeedButton->Down)
+		printf("tx serial [%2d] .. %s", num_bytes_tx, s.c_str());
 }
 
