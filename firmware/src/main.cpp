@@ -1148,14 +1148,16 @@ void process_data(void)
 				zs = v_cal_rms / i_cal_rms;
 			}
 
-			//const float zstd = ;  // used when wer do anopen/short/load calibration
-			const float zx = system_data.impedance;
+			//const float zstd = ;  // used with open/short/load calibration
+			//const float zsm  = ;  // used with open/short/load calibration
+			const float zxm = system_data.impedance;
 			if (settings.open_probe_calibration->done && settings.shorted_probe_calibration->done)
-				//system_data.impedance = (zstd * (zo - zx) * (zx - zs)) / ((zx - zs) * (zo - zx));
-				system_data.impedance = (zo * (zx - zs)) / (zo - (zx - zs));
+				//system_data.impedance = zstd * (((zs - zxm) * (zsm - zo)) / ((zxm - zo) * (zs - zsm)));   // page 136 Keysight-Technologies-impedance-measurement-handbook.pdf
+//				system_data.impedance = (zo * (zxm - zs)) / (zo - (zxm - zs));
+				system_data.impedance = zo * ((zs - zxm) / (zxm - zo));   // page 135 Keysight-Technologies-impedance-measurement-handbook.pdf
 			else
 			if (settings.open_probe_calibration->done)
-				system_data.impedance = (zo * zx) / (zo - zx);
+				system_data.impedance = (zo * zxm) / (zo - zxm);
 			//else
 			//if (settings.shorted_probe_calibration->done)
 

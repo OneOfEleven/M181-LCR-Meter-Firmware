@@ -355,6 +355,8 @@ typedef struct t_settings {
 
 	float        series_ohms;         // the exact value of the series resistor
 
+	uint32_t     baudrate;            // uart baud rate
+
 	uint16_t     measurement_Hz;      // the sine wave measurement frequency the user is using
 	uint8_t      lcr_mode;            // the LCR mode the user is using
 	uint8_t      flags;
@@ -387,34 +389,36 @@ typedef struct t_settings {
 typedef struct t_system_data {
 	unsigned int vi_measure_mode;
 
-	float        rms_voltage_adc;
-	float        rms_voltage_afc;
-	float        rms_current_adc;
-	float        rms_current_afc;
+	float     rms_voltage_adc;
+	float     rms_voltage_afc;
+	float     rms_current_adc;
+	float     rms_current_afc;
 
-	float        impedance;
+	float     impedance;
 
-	float        voltage_phase_deg;
-	float        current_phase_deg;
+	float     voltage_phase_deg;
+	float     current_phase_deg;
 
-	float        vi_phase_deg;
+	float     vi_phase_deg;
 
 	struct {
-		float    capacitance;
-		float    inductance;
-		float    resistance;
-		float    esr;
-		float    tan_delta;
-		float    qf;
+		float capacitance;
+		float inductance;
+		float resistance;
+		float esr;
+		float tan_delta;
+		float qf;
+		float reactance;
 	} series;
 
 	struct {
-		float    capacitance;
-		float    inductance;
-		float    resistance;
-		float    esr;
-		float    tan_delta;
-		float    qf;
+		float capacitance;
+		float inductance;
+		float resistance;
+		float esr;
+		float tan_delta;
+		float qf;
+		float reactance;
 	} parallel;
 
 } t_system_data;
