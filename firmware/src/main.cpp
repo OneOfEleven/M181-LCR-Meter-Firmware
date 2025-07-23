@@ -262,9 +262,9 @@ void stop(uint32_t ms = 0)
 	}
 }
 
-// wait till the serial TX DMA has completed it's send
+// wait untill the serial TX DMA has completed it's send
 //
-void wait_tx(uint32_t ms = 0)
+void wait_tx_dma(uint32_t ms = 0)
 {
 	ms = (ms == 0) ? 200 : ms;
 	const uint32_t tick = sys_tick;
@@ -274,7 +274,7 @@ void wait_tx(uint32_t ms = 0)
 
 // feed the serial TX DMA with more data to send
 //
-int start_UART_TX_DMA(const void *data, const unsigned int size)
+int start_tx_dma(const void *data, const unsigned int size)
 {
 	if (data == NULL || size == 0)
 		return -1;
@@ -295,18 +295,15 @@ int start_UART_TX_DMA(const void *data, const unsigned int size)
 	// start sending
 	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_4);
 
-	return 0; // OK
+	return 0;    // OK
 }
 
 // intercept printf, dprintf etc
 //
 int _write(int file, char *ptr, int len)
 {
-	if (ptr != NULL && len > 0)
-	{
-		wait_tx(100);
-		start_UART_TX_DMA(ptr, len);
-	}
+	start_tx_dma(ptr, len);
+	wait_tx_dma();
 	return len;
 }
 
@@ -2016,9 +2013,11 @@ void draw_screen(void)
 	// ***************************
 	// Line 4: UART mode
 
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_7x10.width), LINE4_Y);
-	snprintf(buffer_display, sizeof(buffer_display), (settings.flags & SETTING_FLAG_UART_DSO) ? "U" : " ");       // ON/OFF
-	ssd1306_WriteString(buffer_display, &Font_7x10, White);
+	if (settings.flags & SETTING_FLAG_UART_DSO)
+	{
+		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_7x10.width), LINE4_Y);
+		ssd1306_WriteString((settings.flags & SETTING_FLAG_SEND_BINARY) ? "B" : "A", &Font_7x10, White);
+	}
 
 	// ***************************
 	// send the display buffer to the screen
@@ -2972,33 +2971,13 @@ void process_uart_send(void)
 	if ((settings.flags & SETTING_FLAG_UART_DSO) == 0)
 		return;
 
-//	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
-//		return;     // uart is still busy sending
+	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+		return;     // uart is still busy sending
 
-	// the UART is available to use
-	//
 	// send the sampled data down the serial link
 
-	#ifdef MATLAB_SERIAL
-		// send as ASCII
-
-		const unsigned int cols = 8;
-		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-		{
-			wait_tx(100);
-			dprintf(0, "%3u,", 1 + i);
-			for (unsigned int col = 0; col < (cols - 1); col++)
-			{
-				wait_tx(10);
-				dprintf(0, "%0.1f,", adc_data[col][i]);
-			}
-			wait_tx(10);
-			dprintf(0, "%0.1f" NEWLINE, adc_data[col - 1][i]);
-		}
-	#else
-		// send as binary packet
-
-		// STM32's are little endian (data is LS-Byte 1st)
+	if (settings.flags & SETTING_FLAG_SEND_BINARY)
+	{	// send as binary packet
 
 		// create TX packet
 		tx_packet.marker = PACKET_MARKER;                                         // packet start marker
@@ -3006,9 +2985,19 @@ void process_uart_send(void)
 		tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
 
 		// sen dit
-		wait_tx(100);
-		start_UART_TX_DMA(&tx_packet, sizeof(tx_packet));
-	#endif
+		start_tx_dma(&tx_packet, sizeof(tx_packet));
+	}
+	else
+	{	// send as ASCII
+		const unsigned int cols = 8;
+		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+		{
+			printf("%3u,", 1 + i);
+			for (unsigned int col = 0; col < (cols - 1); col++)
+				printf("%0.1f,", adc_data[col][i]);
+			printf("%0.1f" NEWLINE, adc_data[cols - 1][i]);
+		}
+	}
 }
 
 enum t_cmd_id : uint8_t {
@@ -3035,19 +3024,19 @@ typedef struct {
 
 // serial command table
 const t_cmd cmds[] = {
-	{"?",         "         .. show this help",                              CMD_HELP_ID1    },
-	{"help",      "         .. show this help",                              CMD_HELP_ID2    },
-	{"data",      "[on/off] .. read/set sending real-time data",             CMD_DATA_ID     },
-	{"frequency", "[Hz]     .. read/set measurement frequency",              CMD_FREQUENCY_ID},
-	{"hold",      "         .. toggle the display hold on/off",              CMD_HOLD_ID     },
-	{"opencal",   "         .. run the open calibration function",           CMD_OPEN_CAL_ID },
-//	{"shortcal",  "         .. run the shorted calibration function",        CMD_SHORT_CAL_ID},
-	{"series",    "         .. select series mode (best if DUT <= 100 Ohm)", CMD_SERIES_ID   },
-	{"parallel",  "         .. select parallel mode",                        CMD_PARALLEL_ID },
-	{"reboot",    "         .. reboot this unit",                            CMD_REBOOT_ID   },
-	{"defaults",  "         .. restore defaults",                            CMD_DEFAULTS_ID },
-	{"version",   "         .. show this units version",                     CMD_VERSION_ID  },
-	{NULL,        "",                                                        CMD_NONE_ID     }    // last one, DO NOT delete this
+	{"?",         "              .. show this help",                              CMD_HELP_ID1    },
+	{"help",      "              .. show this help",                              CMD_HELP_ID2    },
+	{"data",      "[off/asc/bin] .. read/set sending real-time data",             CMD_DATA_ID     },
+	{"frequency", "[Hz]          .. read/set measurement frequency",              CMD_FREQUENCY_ID},
+	{"hold",      "              .. toggle the display hold on/off",              CMD_HOLD_ID     },
+	{"opencal",   "              .. run the open calibration function",           CMD_OPEN_CAL_ID },
+//	{"shortcal",  "              .. run the shorted calibration function",        CMD_SHORT_CAL_ID},
+	{"series",    "              .. select series mode (best if DUT <= 100 Ohm)", CMD_SERIES_ID   },
+	{"parallel",  "              .. select parallel mode",                        CMD_PARALLEL_ID },
+	{"reboot",    "              .. reboot this unit",                            CMD_REBOOT_ID   },
+	{"defaults",  "              .. restore defaults",                            CMD_DEFAULTS_ID },
+	{"version",   "              .. show this units version",                     CMD_VERSION_ID  },
+	{NULL,        "",                                                             CMD_NONE_ID     }    // last one, DO NOT delete this
 };
 
 // process any received serial commands
@@ -3116,12 +3105,10 @@ void process_serial_command(char cmd[], unsigned int len)
 
 	// point to start of param
 	param_pos = (param_len > 0) ? param_pos + 1 : param_pos;
-	const char *param  = &cmd[param_pos];
+	const char *param = &cmd[param_pos];
 
 	// **********
 	// process the command
-
-	wait_tx(100);
 
 	switch (cmd_id)
 	{
@@ -3135,18 +3122,14 @@ void process_serial_command(char cmd[], unsigned int len)
 				cmd_max_len = (cmd_max_len < cmd_len) ? cmd_len : cmd_max_len;
 			}
 
-			dprintf(0, NEWLINE "Commands [params] (case insensitive, can be shortened) .." NEWLINE);
+			printf(NEWLINE "Commands [params] (case insensitive, can be shortened) .." NEWLINE);
 			for (unsigned int i = 0; cmds[i].token != NULL; i++)
-			{
-				wait_tx();
-				dprintf(0, "  %-*s %s" NEWLINE, cmd_max_len, cmds[i].token, cmds[i].description);
-			}
+				printf("  %-*s %s" NEWLINE, cmd_max_len, cmds[i].token, cmds[i].description);
 			return;
 		}
 
 		case CMD_DEFAULTS_ID:
-			dprintf(0, NEWLINE "restoring defaults .." NEWLINE);
-			wait_tx();
+			printf(NEWLINE "restoring defaults .." NEWLINE);
 			clear_settings();
 			reboot();
 			break;
@@ -3154,7 +3137,7 @@ void process_serial_command(char cmd[], unsigned int len)
 		case CMD_OPEN_CAL_ID:
 			if (op_mode == OP_MODE_MEASURING)
 			{
-				dprintf(0, NEWLINE "open probe calibration .." NEWLINE);
+				printf(NEWLINE "open probe calibration .." NEWLINE);
 				display_hold = 0;
 				memset((void *)&calibrate, 0, sizeof(calibrate));
 				op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
@@ -3162,13 +3145,13 @@ void process_serial_command(char cmd[], unsigned int len)
 				draw_screen();
 			}
 			else
-				dprintf(0, NEWLINE "busy" NEWLINE);
+				printf(NEWLINE "busy" NEWLINE);
 			return;
 
 		case CMD_SHORT_CAL_ID:
 			if (op_mode == OP_MODE_MEASURING)
 			{
-				dprintf(0, NEWLINE "shorted probe calibration .." NEWLINE);
+				printf(NEWLINE "shorted probe calibration .." NEWLINE);
 				display_hold = 0;
 				memset((void *)&calibrate, 0, sizeof(calibrate));
 				op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
@@ -3176,13 +3159,13 @@ void process_serial_command(char cmd[], unsigned int len)
 				draw_screen();
 			}
 			else
-				dprintf(0, NEWLINE "busy" NEWLINE);
+				printf(NEWLINE "busy" NEWLINE);
 			return;
 
 		case CMD_FREQUENCY_ID:
 			if (param_len == 0)
 			{
-				dprintf(0, NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
+				printf(NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
 			}
 			else
 			{
@@ -3199,23 +3182,20 @@ void process_serial_command(char cmd[], unsigned int len)
 						save_settings_timer = SAVE_SETTINGS_MS;
 						draw_screen();
 					}
-					dprintf(0, NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
+					printf(NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
 				}
 				else
-					dprintf(0, NEWLINE "error: frequency param '%s'" NEWLINE, param);
+					printf(NEWLINE "error: frequency param '%s'" NEWLINE, param);
 			}
 			return;
 
 		case CMD_DATA_ID:
 			if (param_len == 0)
-				dprintf(0, NEWLINE "live data %s" NEWLINE, (settings.flags & SETTING_FLAG_UART_DSO) ? "on" : "off");
-			else
-			if (strcmp(param, "on") == 0)
 			{
-				settings.flags |= SETTING_FLAG_UART_DSO;
-				save_settings_timer = SAVE_SETTINGS_MS;
-				draw_screen();
-				dprintf(0, NEWLINE "live data on" NEWLINE);
+				if (settings.flags & SETTING_FLAG_UART_DSO)
+					printf(NEWLINE "live data off" NEWLINE);
+				else
+					printf(NEWLINE "live data %s" NEWLINE, (settings.flags & SETTING_FLAG_SEND_BINARY) ? "binary" : "ascii");
 			}
 			else
 			if (strcmp(param, "off") == 0)
@@ -3223,10 +3203,27 @@ void process_serial_command(char cmd[], unsigned int len)
 				settings.flags &= ~SETTING_FLAG_UART_DSO;
 				save_settings_timer = SAVE_SETTINGS_MS;
 				draw_screen();
-				dprintf(0, NEWLINE "live data off" NEWLINE);
+				printf(NEWLINE "live data off" NEWLINE);
 			}
 			else
-				dprintf(0, NEWLINE "error: data param '%s'" NEWLINE, param);
+			if (strcmp(param, "bin") == 0)
+			{
+				settings.flags |= SETTING_FLAG_SEND_BINARY | SETTING_FLAG_UART_DSO;
+				save_settings_timer = SAVE_SETTINGS_MS;
+				draw_screen();
+				printf(NEWLINE "live data binary" NEWLINE);
+			}
+			else
+			if (strcmp(param, "asc") == 0)
+			{
+				settings.flags &= ~SETTING_FLAG_SEND_BINARY;
+				settings.flags |= SETTING_FLAG_UART_DSO;
+				save_settings_timer = SAVE_SETTINGS_MS;
+				draw_screen();
+				printf(NEWLINE "live data ascii" NEWLINE);
+			}
+			else
+				printf(NEWLINE "error: data param '%s'" NEWLINE, param);
 			return;
 
 		case CMD_HOLD_ID:
@@ -3235,12 +3232,12 @@ void process_serial_command(char cmd[], unsigned int len)
 				display_hold ^= 1u;
 				draw_screen();
 				if (display_hold)
-					dprintf(0, NEWLINE "display hold" NEWLINE);
+					printf(NEWLINE "display hold" NEWLINE);
 				else
-					dprintf(0, NEWLINE "display run" NEWLINE);
+					printf(NEWLINE "display run" NEWLINE);
 			}
 			else
-				dprintf(0, NEWLINE "busy" NEWLINE);
+				printf(NEWLINE "busy" NEWLINE);
 			return;
 
 		case CMD_SERIES_ID:
@@ -3251,7 +3248,7 @@ void process_serial_command(char cmd[], unsigned int len)
 				save_settings_timer = SAVE_SETTINGS_MS;
 				draw_screen();
 			}
-			dprintf(0, NEWLINE "mode series" NEWLINE);
+			printf(NEWLINE "mode series" NEWLINE);
 			return;
 
 		case CMD_PARALLEL_ID:
@@ -3262,17 +3259,16 @@ void process_serial_command(char cmd[], unsigned int len)
 				save_settings_timer = SAVE_SETTINGS_MS;
 				draw_screen();
 			}
-			dprintf(0, NEWLINE "mode parallel" NEWLINE);
+			printf(NEWLINE "mode parallel" NEWLINE);
 			return;
 
 		case CMD_REBOOT_ID:
-			dprintf(0, NEWLINE "rebooting .." NEWLINE);
-			wait_tx();
+			printf(NEWLINE "rebooting .." NEWLINE);
 			reboot();
 			return;
 
 		case CMD_VERSION_ID:
-			dprintf(0, NEWLINE "M181 LCR Meter v%0.2f %s %s %s %s %s %s %s" NEWLINE,
+			printf(NEWLINE "M181 LCR Meter v%0.2f %s %s %s %s %s %s %s" NEWLINE,
 				FW_VERSION,
 				reset_cause.por    ? "POR"    : "por",
 				reset_cause.pin    ? "PIN"    : "pin",
@@ -3285,7 +3281,7 @@ void process_serial_command(char cmd[], unsigned int len)
 
 		default:
 		case CMD_NONE_ID:
-			dprintf(0, NEWLINE "error: unknown command '%s'" NEWLINE, cmd);
+			printf(NEWLINE "error: unknown command '%s'" NEWLINE, cmd);
 			return;
 	}
 }
@@ -3422,9 +3418,7 @@ void process_op_mode(void)
 				}
 				else
 				{	// done
-
-					wait_tx(100);
-					dprintf(0, NEWLINE "open probe calibration done" NEWLINE);
+					printf(NEWLINE "open probe calibration done" NEWLINE);
 
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
@@ -3480,9 +3474,7 @@ void process_op_mode(void)
 				}
 				else
 				{	// done
-
-					wait_tx(100);
-					dprintf(0, NEWLINE "shorted probe calibration done" NEWLINE);
+					printf(NEWLINE "shorted probe calibration done" NEWLINE);
 
 					// restore original measurement frequency
 					set_measurement_frequency(settings.measurement_Hz);
@@ -3538,6 +3530,9 @@ int main(void)
 	}
 
 	{	// disable printf(), fread(), fwrite(), sscanf() etc buffering
+		//
+		// none of these actually work :(
+		//
 		setbuf( stdin,  NULL);
 		setbuf( stdout, NULL);
 		setbuf( stderr, NULL);
@@ -3557,13 +3552,14 @@ int main(void)
 	}
 
 	{	// set defaults
-		settings.series_ohms    = SERIES_RESISTOR_OHMS;    // this can be calibrated using a DUT with a known resistance value
+		settings.series_ohms    = SERIES_RESISTOR_OHMS;      // this can be calibrated using a DUT with a known resistance value
 		settings.measurement_Hz = 1000;
 //		settings.lcr_mode       = LCR_MODE_INDUCTANCE;
 		settings.lcr_mode       = LCR_MODE_CAPACITANCE;
 //		settings.lcr_mode       = LCR_MODE_RESISTANCE;
 //		settings.flags          = 0;
-		settings.flags         |= SETTING_FLAG_UART_DSO;   // send ADC data via the serial port
+		settings.flags         |= SETTING_FLAG_UART_DSO;     // send ADC data via the serial port
+		settings.flags         |= SETTING_FLAG_SEND_BINARY;  // binary data
 	}
 
 	DWT_Delay_Init();
@@ -3594,7 +3590,7 @@ int main(void)
 	screen_init();
 	bootup_screen();
 
-	dprintf(0, NEWLINE NEWLINE "rebooted M181 LCR Meter v%0.2f %s %s %s %s %s %s %s" NEWLINE,
+	printf(NEWLINE NEWLINE "rebooted M181 LCR Meter v%0.2f %s %s %s %s %s %s %s" NEWLINE,
 		FW_VERSION,
 		reset_cause.por    ? "POR"    : "por",
 		reset_cause.pin    ? "PIN"    : "pin",
@@ -3699,8 +3695,7 @@ int main(void)
 				write_settings();         // failed, have a 2nd go
 			save_settings_timer = -1;     // don't try saving again (until the next time)
 
-			wait_tx(100);
-			dprintf(0, NEWLINE "settings saved" NEWLINE);
+			printf(NEWLINE "settings saved" NEWLINE);
 		}
 
 		#ifdef USE_IWDG
