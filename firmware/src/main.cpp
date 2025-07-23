@@ -2420,7 +2420,7 @@ void MX_USART1_UART_Init(void)
 		NVIC_EnableIRQ(DMA1_Channel4_IRQn);
 	}
 
-	USART_InitStruct.BaudRate            = UART_BAUDRATE;
+	USART_InitStruct.BaudRate            = settings.baudrate;
 	USART_InitStruct.DataWidth           = LL_USART_DATAWIDTH_8B;
 	USART_InitStruct.StopBits            = LL_USART_STOPBITS_1;
 	USART_InitStruct.Parity              = LL_USART_PARITY_NONE;
@@ -3028,6 +3028,7 @@ enum t_cmd_id : uint8_t {
 	CMD_NONE_ID = 0,
 	CMD_HELP_ID1,
 	CMD_HELP_ID2,
+	CMD_BAUDRATE_ID,
 	CMD_DEFAULTS_ID,
 	CMD_OPEN_CAL_ID,
 	CMD_SHORT_CAL_ID,
@@ -3050,6 +3051,7 @@ typedef struct {
 const t_cmd cmds[] = {
 	{"?",         "              .. show this help",                              CMD_HELP_ID1    },
 	{"help",      "              .. show this help",                              CMD_HELP_ID2    },
+	{"baudrate",  "[baudrate]    .. read/set the serial baudrate",                CMD_BAUDRATE_ID },
 	{"data",      "[off/asc/bin] .. read/set sending real-time data",             CMD_DATA_ID     },
 	{"frequency", "[Hz]          .. read/set measurement frequency",              CMD_FREQUENCY_ID},
 	{"hold",      "              .. toggle the display hold on/off",              CMD_HOLD_ID     },
@@ -3157,6 +3159,34 @@ void process_serial_command(char cmd[], unsigned int len)
 			clear_settings();
 			reboot();
 			break;
+
+		case CMD_BAUDRATE_ID:
+			if (param_len == 0)
+			{
+				printf(NEWLINE "baudrate %lu" NEWLINE, settings.baudrate);
+			}
+			else
+			{
+				char     *endptr = NULL;
+				const int val    = strtol(param, &endptr, 10);
+				if (errno == 0 && param != endptr)
+				{
+					const uint32_t baudrate = (val < 115200) ? 115200 : (val > 1843200) ? 1843200 : val;
+					if (settings.baudrate != baudrate)
+					{
+						settings.baudrate = baudrate;
+
+						LL_USART_SetBaudRate(USART1, rcc_clocks.PCLK2_Frequency, settings.baudrate);
+
+						save_settings_timer = SAVE_SETTINGS_MS;
+						draw_screen();
+					}
+					printf(NEWLINE "baudrate %lu" NEWLINE, settings.baudrate);
+				}
+				else
+					printf(NEWLINE "error: baudrate param '%s'" NEWLINE, param);
+			}
+			return;
 
 		case CMD_OPEN_CAL_ID:
 			if (op_mode == OP_MODE_MEASURING)
@@ -3576,6 +3606,7 @@ int main(void)
 
 	{	// set defaults
 		settings.series_ohms    = SERIES_RESISTOR_OHMS;      // this can be calibrated using a DUT with a known resistance value
+		settings.baudrate       = UART_BAUDRATE;
 		settings.measurement_Hz = 1000;
 //		settings.lcr_mode       = LCR_MODE_INDUCTANCE;
 		settings.lcr_mode       = LCR_MODE_CAPACITANCE;
