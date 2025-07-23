@@ -207,6 +207,11 @@ t_system_data         system_data = {0};                     // various results 
 // temp buffer used for the Goerttzel output samples
 t_comp                tmp_buf[ADC_DATA_LENGTH];
 
+// temp buffer for the DMA to save it's sample block into
+t_adc_dma_data_16     tmp_adc_buffer[ADC_DATA_LENGTH];
+volatile uint8_t      tmp_adc_buffer_ready = 0;
+
+
 // for TX'ing binary packets via the serial port
 t_packet              tx_packet;
 
@@ -1153,7 +1158,15 @@ void process_data(void)
 				system_data.impedance = (zo * zx) / (zo - zx);
 			//else
 			//if (settings.shorted_probe_calibration->done)
+
+			system_data.impedance = fabsf(system_data.impedance);
 		}
+	#endif
+
+	#if 0
+		// sanity check
+		if (op_mode == OP_MODE_MEASURING)
+			system_data.impedance = (system_data.impedance > 10e9f) ? 10e9f : system_data.impedance;
 	#endif
 
 	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
@@ -1173,9 +1186,9 @@ void process_data(void)
 	const float cs               = cosf(vi_phase_rad);
 	const float sn               = sinf(vi_phase_rad);
 
-	// TODO: find out if the following 'fabsf()'s should be there or not
-	//
-	const float ser_resistive    = system_data.impedance * fabsf(cs);                // Rs
+//	const float ser_resistive    = system_data.impedance * fabsf(cs);                // Rs
+//	const float ser_reactance    = system_data.impedance * fabsf(sn);                // Xs
+	const float ser_resistive    = system_data.impedance * cs;                       // Rs
 	const float ser_reactance    = system_data.impedance * fabsf(sn);                // Xs
 
 	if (ser_resistive == 0 || ser_reactance == 0 || omega == 0)
@@ -1185,61 +1198,63 @@ void process_data(void)
 	const float ser_capacitance  = 1.0f / (omega * ser_reactance);                   // C = 1 / (ωX)
 	const float ser_esr          = ser_resistive;                                    // R
 	const float ser_tan_delta    = ser_resistive / ser_reactance;                    // D = R / X
-
-	// these are each the same result, just done in a different way
-//	const float ser_qf_ind       = (omega * ser_inductance) / ser_resistive;         // Q = (ωL) / R
-//	const float ser_qf_cap       = 1.0f / (omega * ser_capacitance * ser_resistive); // Q = 1 / (ωCR)
-	const float ser_qf_res       = ser_reactance / ser_resistive;                    // Q = X / R or 1 / D
+//	const float ser_qf           = (omega * ser_inductance) / ser_resistive;         // Q = (ωL) / R
+//	const float ser_qf           = 1.0f / (omega * ser_capacitance * ser_resistive); // Q = 1 / (ωCR)
+	const float ser_qf           = ser_reactance / ser_resistive;                    // Q = X / R or 1 / D
 
 	// series to parallel
 	const float p                = SQR(ser_resistive) + SQR(ser_reactance);
 	const float par_resistive    = p / ser_resistive;
 	const float par_reactance    = p / ser_reactance;
-
 	const float par_inductance   = par_reactance / omega;                            // L = X / ω
 	const float par_capacitance  = 1.0f / (omega * par_reactance);                   // C = 1 / (ωX)
 	const float par_esr          = par_resistive;                                    // R
 	const float par_tan_delta    = par_resistive / par_reactance;                    // D = R / X
-
-	// these are each the same result, just done in a different way
-//	const float par_qf_ind       = (omega * par_inductance) / par_resistive;         // Q = (ωL) / R
-//	const float par_qf_cap       = 1.0f / (omega * par_capacitance * par_resistive); // Q = 1 / (ωCR)
-	const float par_qf_res       = par_reactance / par_resistive;                    // Q = X / R or 1 / D
+//	const float par_qf           = (omega * par_inductance) / par_resistive;         // Q = (ωL) / R
+//	const float par_qf           = 1.0f / (omega * par_capacitance * par_resistive); // Q = 1 / (ωCR)
+	const float par_qf           = par_reactance / par_resistive;                    // Q = X / R or 1 / D
 
 	system_data.series.inductance    = ser_inductance;
 	system_data.series.capacitance   = ser_capacitance;
-	system_data.series.resistance    = system_data.impedance;
+	system_data.series.resistance    = ser_resistive; // system_data.impedance;
 	system_data.series.esr           = ser_esr;
 	system_data.series.tan_delta     = ser_tan_delta;
-//	system_data.series.qf            = ser_qf_ind;
-//	system_data.series.qf            = ser_qf_cap;
-	system_data.series.qf            = ser_qf_res;
+	system_data.series.qf            = ser_qf;
+	system_data.series.reactance     = ser_reactance;
 
 	system_data.parallel.inductance  = par_inductance;
 	system_data.parallel.capacitance = par_capacitance;
-	system_data.parallel.resistance  = system_data.impedance;
+	system_data.parallel.resistance  = par_resistive; // system_data.impedance;
 	system_data.parallel.esr         = par_esr;
 	system_data.parallel.tan_delta   = par_tan_delta;
-//	system_data.parallel.qf          = par_qf_ind;
-//	system_data.parallel.qf          = par_qf_cap;
-	system_data.parallel.qf          = par_qf_res;
+	system_data.parallel.qf          = par_qf;
+	system_data.parallel.reactance   = par_reactance;
 
 	// **************************
+	// sanity checks
+
+	#if 1
+		if (op_mode == OP_MODE_MEASURING)
+		{
+			system_data.series.inductance    = (system_data.series.inductance  >    1e3f) ? 1e3f  : system_data.series.inductance;
+			system_data.series.capacitance   = (system_data.series.capacitance <      0) ? 0      : system_data.series.capacitance;
+			system_data.series.resistance    = (system_data.series.resistance  > 100e6f) ? 100e6f : system_data.series.resistance;
+
+			system_data.parallel.inductance  = (system_data.parallel.inductance  >   1e3f) ? 1e3f   : system_data.parallel.inductance;
+			system_data.parallel.capacitance = (system_data.parallel.capacitance <      0) ? 0      : system_data.parallel.capacitance;
+			system_data.parallel.resistance  = (system_data.parallel.resistance  > 100e6f) ? 100e6f : system_data.parallel.resistance;
+		}
+	#endif
 }
 
-// temp buffer for copying the ADC DMA samples into
-//
-t_adc_dma_data_16 tmp_adc_buffer[ADC_DATA_LENGTH];
-volatile uint8_t  tmp_adc_buffer_ready = 0;
-
-void process_ADC(const void *buffer)
+void process_ADC_DMA(const void *buffer)
 {
 	if (initialising || tmp_adc_buffer_ready)
-		return;        // ignore the ADC blocks
+		return;   // don't save the new sample block, the exec hasn't yet processed the previous block (slow CPU)
 
-	// just copy the entire buffer so as not to hod up the ADC DMA
+	// just copy the entire buffer as quickly as possible so as not to hold up the DMA
 	memcpy(tmp_adc_buffer, buffer, sizeof(tmp_adc_buffer));
-	tmp_adc_buffer_ready = 1;
+	tmp_adc_buffer_ready = 1;    // let the exec know that their is a new sample block ready
 }
 
 // process the incoming raw ADC sample blocks
@@ -1670,24 +1685,19 @@ void draw_screen(void)
 				ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			}
 
-			// hold/fast
+			// hold or fast
+			ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * Font_7x10.width), 0);
 			if (display_hold)
-			{
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * Font_7x10.width), 0);
 				ssd1306_WriteString("HOLD", &Font_7x10, White);
-			}
 			else
 			if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-			{
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * Font_7x10.width), 0);
 				ssd1306_WriteString("fast", &Font_7x10, White);
-			}
-
-			#if 0
-				// VI phase
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * 7), 0);
-				print_sprint(4, system_data.vi_phase_deg, buffer_display, sizeof(buffer_display));
+			#if 1
+			else
+			{	// VI phase
+				print_sprint(3, system_data.vi_phase_deg, buffer_display, sizeof(buffer_display));
 				ssd1306_WriteString(buffer_display, &Font_7x10, White);
+			}
 			#endif
 
 			// ***************************
@@ -2745,13 +2755,13 @@ void DMA1_Channel1_IRQHandler(void)
 
 	if (LL_DMA_IsActiveFlag_HT1(DMA1))
 	{
-		process_ADC(&adc_dma_buffer[0]);  // lower half of ADC buffer
+		process_ADC_DMA(&adc_dma_buffer[0]);  // lower half of ADC buffer
 		LL_DMA_ClearFlag_HT1(DMA1);
 	}
 
 	if (LL_DMA_IsActiveFlag_TC1(DMA1))
 	{
-		process_ADC(&adc_dma_buffer[1]);  // upper half of ADC buffer
+		process_ADC_DMA(&adc_dma_buffer[1]);  // upper half of ADC buffer
 		LL_DMA_ClearFlag_TC1(DMA1);
 	}
 }
