@@ -222,9 +222,9 @@ object Form1: TForm1
       792
       32)
     object TxEdit: TEdit
-      Left = 4
+      Left = 6
       Top = 6
-      Width = 729
+      Width = 721
       Height = 21
       Anchors = [akLeft, akTop, akRight]
       TabOrder = 0
@@ -232,7 +232,7 @@ object Form1: TForm1
       OnKeyPress = TxEditKeyPress
     end
     object TxButton: TButton
-      Left = 740
+      Left = 735
       Top = 6
       Width = 45
       Height = 21

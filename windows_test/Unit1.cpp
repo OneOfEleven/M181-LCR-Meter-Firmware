@@ -1637,7 +1637,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 				const unsigned int levels = 6;
 
-				for (unsigned int i = 2; i <= levels; i++)
+				for (unsigned int i = 1; i <= levels; i++)
 				{
 					const int level = (peak_value * i) / levels;
 					const int y1    = cy - (int)(level * y_scale);
@@ -1645,6 +1645,9 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 					g.DrawLine(&pen, x + left_margin, y1, x + x_size - right_margin, y1);
 					g.DrawLine(&pen, x + left_margin, y2, x + x_size - right_margin, y2);
 
+					if (i < 2)
+						continue;
+						
 					String s1, s2;
 					s1.printf(" %d ", level);
 					s2.printf(" %d ", -level);

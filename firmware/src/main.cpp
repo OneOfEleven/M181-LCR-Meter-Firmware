@@ -1124,29 +1124,35 @@ void process_data(void)
 	#if 1
 		if (op_mode == OP_MODE_MEASURING)
 		{
+			const unsigned int freq_index = (measurement_Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+
+			float zo = 0;
+			float zs = 0;
+
 			if (settings.open_probe_calibration->done)
 			{	// apply open probe calibration
-
-				const unsigned int freq_index = (measurement_Hz == 100) ? 0 : 1;   // 100Hz/1kHz
-
-				const float v_cal_rms_lo = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_VOLT_LO_GAIN * 2];
-				const float i_cal_rms_hi = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_AMP_HI_GAIN  * 2] * inv_series_ohms * high_scale;
-
-			 	const float imp_cal = v_cal_rms_lo / i_cal_rms_hi;
-
-				system_data.impedance = (imp_cal * system_data.impedance) / (imp_cal - system_data.impedance);
+				const float v_cal_rms = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_VOLT_LO_GAIN * 2];
+				const float i_cal_rms = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_AMP_HI_GAIN  * 2] * inv_series_ohms * high_scale;
+			 	zo = v_cal_rms / i_cal_rms;
 			}
 
 			if (settings.shorted_probe_calibration->done)
 			{	// apply shorted probe calibration
-
-
-
-				// TODO:
-
-
-
+				const float v_cal_rms = settings.shorted_probe_calibration[freq_index].mag_rms[VI_MODE_VOLT_HI_GAIN * 2] * high_scale;
+				const float i_cal_rms = settings.shorted_probe_calibration[freq_index].mag_rms[VI_MODE_AMP_LO_GAIN  * 2] * inv_series_ohms;
+				zs = v_cal_rms / i_cal_rms;
 			}
+
+			//const float zstd = ;  // used when wer do anopen/short/load calibration
+			const float zx = system_data.impedance;
+			if (settings.open_probe_calibration->done && settings.shorted_probe_calibration->done)
+				//system_data.impedance = (zstd * (zo - zx) * (zx - zs)) / ((zx - zs) * (zo - zx));
+				system_data.impedance = (zo * (zx - zs)) / (zo - (zx - zs));
+			else
+			if (settings.open_probe_calibration->done)
+				system_data.impedance = (zo * zx) / (zo - zx);
+			//else
+			//if (settings.shorted_probe_calibration->done)
 		}
 	#endif
 
@@ -3059,8 +3065,8 @@ const t_cmd cmds[] = {
 	{"data",      "[off/asc/bin] .. read/set sending real-time data",             CMD_DATA_ID     },
 	{"frequency", "[Hz]          .. read/set measurement frequency",              CMD_FREQUENCY_ID},
 	{"hold",      "              .. toggle the display hold on/off",              CMD_HOLD_ID     },
-	{"opencal",   "              .. run the open calibration function",           CMD_OPEN_CAL_ID },
-//	{"shortcal",  "              .. run the shorted calibration function",        CMD_SHORT_CAL_ID},
+	{"opencal",   "              .. run the open probe calibration",              CMD_OPEN_CAL_ID },
+	{"shortcal",  "              .. run the shorted probe calibration",           CMD_SHORT_CAL_ID},
 	{"series",    "              .. select series mode (best if DUT <= 100 Ohm)", CMD_SERIES_ID   },
 	{"parallel",  "              .. select parallel mode",                        CMD_PARALLEL_ID },
 	{"reboot",    "              .. reboot this unit",                            CMD_REBOOT_ID   },
