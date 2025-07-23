@@ -1221,24 +1221,42 @@ void process_data(void)
 	// **************************
 }
 
+// temp buffer for copying the ADC DMA samples into
+//
+t_adc_dma_data_16 tmp_adc_buffer[ADC_DATA_LENGTH];
+volatile uint8_t  tmp_adc_buffer_ready = 0;
+
+void process_ADC(const void *buffer)
+{
+	if (initialising || tmp_adc_buffer_ready)
+		return;        // ignore the ADC blocks
+
+	// just copy the entire buffer so as not to hod up the ADC DMA
+	memcpy(tmp_adc_buffer, buffer, sizeof(tmp_adc_buffer));
+	tmp_adc_buffer_ready = 1;
+}
+
 // process the incoming raw ADC sample blocks
 //
-void process_ADC(const void *buffer)
+void process_ADC_exec(void)
 {
 	// process the new ADC 12-bit samples
 
-	if (initialising)
-		return;                                              // ignore the ADC blocks
+	if (!tmp_adc_buffer_ready)
+		return;
 
 	// point to the new block of ADC samples
-	const t_adc_dma_data_16 *adc_buffer = (t_adc_dma_data_16 *)buffer;
+	const t_adc_dma_data_16 *adc_buffer = tmp_adc_buffer;
 
 	// current VI mode index
 	unsigned int vi_index = vi_measure_index;
 
 	// ignore this sample block if we've completed the VI measurement scan
 	if (vi_index >= VI_MODE_DONE)
+	{
+		tmp_adc_buffer_ready = 0;
 		return;
+	}
 
 	// use a table to set HD mode pins in a custom order to cope with a HW design floor
 	const unsigned int vi_mode = vi_measure_mode_table[vi_index];
@@ -1333,6 +1351,9 @@ void process_ADC(const void *buffer)
 		}
 	}
 
+	// free up the temporary buffer
+	tmp_adc_buffer_ready = 0;
+
 	// decide which modes are useful (or not)
 	//
 	// we drop the hi-gain blocks if they are clipped (makes the data useless)
@@ -1359,7 +1380,10 @@ void process_ADC(const void *buffer)
 		average_count = (average_count >= 3) ? average_count / 3 : average_count;
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
-		return;                                          // not yet summed the desired number of sample blocks
+	{	// not yet summed the desired number of sample blocks
+		return;
+	}
+
 
 
 
@@ -2966,13 +2990,13 @@ void process_buttons(void)
 //
 // we pass the data over to the serial TX DMA for it to send out
 //
-void process_uart_send(void)
+void send_data(void)
 {
 	if ((settings.flags & SETTING_FLAG_UART_DSO) == 0)
 		return;
 
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
-		return;     // uart is still busy sending
+		return;     // uart DMA is still busy sending
 
 	// send the sampled data down the serial link
 
@@ -3529,16 +3553,15 @@ int main(void)
 		#pragma GCC diagnostic pop
 	}
 
+	#if 0
 	{	// disable printf(), fread(), fwrite(), sscanf() etc buffering
-		//
-		// none of these actually work :(
-		//
 		setbuf( stdin,  NULL);
 		setbuf( stdout, NULL);
 		setbuf( stderr, NULL);
 		setvbuf(stdout, NULL, _IONBF, 0);
 		setvbuf(stderr, NULL, _IONBF, 0);
 	}
+	#endif
 
 	{
 		button[BUTTON_HOLD].gpio_port = BUTT_HOLD_GPIO_Port;
@@ -3669,6 +3692,9 @@ int main(void)
 		// process any data received via the serial port
 		process_uart_receive();
 
+		// process the new ADC sample block
+		process_ADC_exec();
+
 //		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
 		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 
@@ -3678,7 +3704,7 @@ int main(void)
 			process_data();
 			process_op_mode();
 			draw_screen();
-			process_uart_send();
+			send_data();
 
 			frames++;
 
