@@ -9,13 +9,15 @@
  ******************************************************************************
  */
 
-#define __BUFSIZ__ 0
+#define __BUFSIZ__ 0  // zero length printf() buffer
 #include <stdio.h>
 
 #include <string.h>
+#include <stdlib.h>   // strtol()
 #include <ctype.h>    // tolower()
 #include <float.h>    // INF
 #include <limits.h>
+#include <errno.h>
 
 #include "main.h"
 #include "delay.h"
@@ -780,6 +782,7 @@ void set_measurement_frequency(const uint32_t Hz)
 	if (measurement_Hz > 0)
 	{	// set the timer rate
 		const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * measurement_Hz;
+//		const uint32_t period        = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), timer_rate_Hz);
 		const uint32_t period        = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
 		LL_TIM_SetAutoReload(TIM3, period);
 	}
@@ -1333,7 +1336,7 @@ void process_ADC(const void *buffer)
 		}
 	}
 
-	// decide which modes are useful and which are not
+	// decide which modes are useful (or not)
 	//
 	// we drop the hi-gain blocks if they are clipped (makes the data useless)
 	// we drop the lo-gain blocks if the hi-gain blocks are usable (no high-gain clipping detected)
@@ -1354,8 +1357,9 @@ void process_ADC(const void *buffer)
 			average_count = FAST_ADC_AVERAGE_COUNT;      // user has selected faster display updates, which just means we average less blocks together
 	}
 
+	// speed up the lower frequency modes by reducing the average count (number of blocks we average)
 	if (measurement_Hz <= 200)
-		average_count = (average_count >= 3) ? average_count / 3 : average_count;  // speed up the lower frequency modes
+		average_count = (average_count >= 3) ? average_count / 3 : average_count;
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 		return;                                          // not yet summed the desired number of sample blocks
@@ -2331,6 +2335,7 @@ void MX_TIM3_Init(void)
 		TIM_InitStruct.Prescaler     = 0;
 		TIM_InitStruct.CounterMode   = LL_TIM_COUNTERMODE_UP;
 		TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
+//		TIM_InitStruct.Autoreload    = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, TIM_InitStruct.Prescaler, timer_rate_Hz);
 		TIM_InitStruct.Autoreload    = (((rcc_clocks.HCLK_Frequency / (TIM_InitStruct.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
 		LL_TIM_Init(TIM3, &TIM_InitStruct);
 
@@ -2339,7 +2344,7 @@ void MX_TIM3_Init(void)
 		LL_TIM_SetTriggerOutput(      TIM3, LL_TIM_TRGO_UPDATE);
 		LL_TIM_DisableMasterSlaveMode(TIM3);
 
-		// as well as clocking the ADC and it's DMA, this timer also clocks the DAC DMA
+		// connect the timer to the DAC DMA
 		LL_TIM_EnableDMAReq_UPDATE(TIM3);
 	}
 
@@ -2403,6 +2408,7 @@ void MX_USART1_UART_Init(void)
 
 	LL_USART_ConfigAsyncMode(USART1);
 
+	// connect the UART to the DMA
 	LL_USART_EnableDMAReq_TX(USART1);
 	//LL_USART_EnableDMAReq_RX(USART1);
 
@@ -2471,7 +2477,7 @@ void MX_GPIO_Init(void)
 
 	// *****************
 	// input pins
-	
+
 	GPIO_InitStruct.Mode       = LL_GPIO_MODE_INPUT;
 	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
 	GPIO_InitStruct.Pin        = BUTT_HOLD_Pin;
@@ -2559,90 +2565,6 @@ void MX_GPIO_Init(void)
 #endif
 
 // *******************************************
-
-// fetch any received data bytes and save thgem into our RX buffer
-//
-void process_USART1_IRQ(void)
-{
-	{	// RX
-
-		//if (LL_USART_IsActiveFlag_IDLE(USART1))
-		//	LL_USART_ClearFlag_IDLE(USART1);
-
-		register uint32_t wr = serial.rx.buffer_wr;
-
-		while (LL_USART_IsActiveFlag_RXNE(USART1))
-		{
-			serial.rx.buffer[wr] = LL_USART_ReceiveData8(USART1);
-			wr = (++wr >= sizeof(serial.rx.buffer)) ? 0 : wr;
-			serial.rx.buffer_wr = wr;
-			serial.rx.timer     = 0;
-
-			if (wr == serial.rx.buffer_rd)
-			{	// RX buffer overrun
-			}
-		}
-
-		#if 0
-			if (LL_USART_IsEnabledIT_ERROR(USART1))
-			{
-				if (LL_USART_IsActiveFlag_PE(USART1))
-				{	// parity error
-				}
-
-				if (LL_USART_IsActiveFlag_FE(USART1))
-				{	// RX line is LOW (BREAK character/error)
-				}
-
-				if (LL_USART_IsActiveFlag_NE(USART1))
-				{	// RX line noise
-				}
-
-				if (LL_USART_IsActiveFlag_ORE(USART1))
-				{	// RX overrun
-				}
-			}
-		#endif
-
-		// clear RX error flags .. clearing any one of these also clears all the others
-		LL_USART_ClearFlag_ORE(USART1);    // OverRun Error Flag
-		//LL_USART_ClearFlag_PE(USART1);   // Parity Error Flag
-		//LL_USART_ClearFlag_NE(USART1);   // Noise detected Flag
-		//LL_USART_ClearFlag_FE(USART1);   // Framing Error Flag
-		//LL_USART_ClearFlag_IDLE(USART1); // IDLE line detected Flag
-	}
-
-	#if 0
-	{	// TX
-
-		const uint8_t enabled = LL_USART_IsEnabledIT_TXE(USART1);
-		//if (enabled)
-		{
-			const uint32_t wr = serial.tx.buffer_wr;
-			      uint32_t rd = serial.tx.buffer_rd;
-
-			while (rd != wr && LL_USART_IsActiveFlag_TXE(USART1))
-			{	// send the next byte
-				LL_USART_TransmitData8(USART1, serial.tx.buffer[rd]);
-				rd = (++rd >= sizeof(serial.tx.buffer)) ? 0 : rd;
-				serial.tx.buffer_rd = rd;
-				serial.tx.timer     = 0;
-			}
-
-			if (rd == wr)
-			{
-				if (enabled)
-					LL_USART_DisableIT_TXE(USART1);        // all done
-			}
-			else
-			{
-				if (!enabled)
-					LL_USART_EnableIT_TXE(USART1);         // enable interrupt to continue sending
-			}
-		}
-	}
-	#endif
-}
 
 void Error_Handler(void)
 {
@@ -2791,8 +2713,20 @@ void DMA1_Channel1_IRQHandler(void)
 	}
 }
 
+/*
+// DAC DMA
+void DMA1_Channel3_IRQHandler(void)
+{
+	if (LL_DMA_IsActiveFlag_TC3(DMA1))
+	{
+
+		LL_DMA_ClearFlag_TC3(DMA1);
+	}
+}
+*/
+
 // UART TX DMA
-// the serial DMA TX has completed, disable it ready for the next serial send
+// the serial TX DMA has completed, disable it ready for the next serial send
 //
 void DMA1_Channel4_IRQHandler(void)
 {
@@ -2809,7 +2743,65 @@ void DMA1_Channel4_IRQHandler(void)
 //
 void USART1_IRQHandler(void)
 {
-	process_USART1_IRQ();
+	{	// RX
+
+		//if (LL_USART_IsActiveFlag_IDLE(USART1))
+		//	LL_USART_ClearFlag_IDLE(USART1);
+
+		register uint32_t wr = serial.rx.buffer_wr;
+
+		while (LL_USART_IsActiveFlag_RXNE(USART1))
+		{
+			serial.rx.buffer[wr] = LL_USART_ReceiveData8(USART1);      // save new received byte
+			wr = (++wr >= sizeof(serial.rx.buffer)) ? 0 : wr;          // update write index
+			serial.rx.buffer_wr = wr;                                  // save it
+
+			serial.rx.timer     = 0;                                   // reset RX time-out timer
+
+			if (wr == serial.rx.buffer_rd)
+			{	// RX buffer overrun
+			}
+		}
+
+		// clear RX error flags .. clearing any one of these also clears all the others
+		LL_USART_ClearFlag_ORE(USART1);    // OverRun Error Flag
+		//LL_USART_ClearFlag_PE(USART1);   // Parity Error Flag
+		//LL_USART_ClearFlag_NE(USART1);   // Noise detected Flag
+		//LL_USART_ClearFlag_FE(USART1);   // Framing Error Flag
+		//LL_USART_ClearFlag_IDLE(USART1); // IDLE line detected Flag
+	}
+
+	#if 0
+	{	// TX
+
+		const uint8_t enabled = LL_USART_IsEnabledIT_TXE(USART1);
+		//if (enabled)
+		{
+			const uint32_t wr = serial.tx.buffer_wr;
+			      uint32_t rd = serial.tx.buffer_rd;
+
+			while (rd != wr && LL_USART_IsActiveFlag_TXE(USART1))
+			{	// send the next byte
+				LL_USART_TransmitData8(USART1, serial.tx.buffer[rd]);
+				rd = (++rd >= sizeof(serial.tx.buffer)) ? 0 : rd;
+				serial.tx.buffer_rd = rd;
+
+				serial.tx.timer     = 0;
+			}
+
+			if (rd == wr)
+			{
+				if (enabled)
+					LL_USART_DisableIT_TXE(USART1);        // all done
+			}
+			else
+			{
+				if (!enabled)
+					LL_USART_EnableIT_TXE(USART1);         // enable interrupt to continue sending
+			}
+		}
+	}
+	#endif
 }
 
 #ifdef  USE_FULL_ASSERT
@@ -3026,9 +3018,9 @@ enum t_cmd_id : uint8_t {
 	CMD_DEFAULTS_ID,
 	CMD_OPEN_CAL_ID,
 	CMD_SHORT_CAL_ID,
-	CMD_DATA_OFF_ID,
-	CMD_DATA_ON_ID,
+	CMD_DATA_ID,
 	CMD_HOLD_ID,
+	CMD_FREQUENCY_ID,
 	CMD_SERIES_ID,
 	CMD_PARALLEL_ID,
 	CMD_REBOOT_ID,
@@ -3043,19 +3035,19 @@ typedef struct {
 
 // serial command table
 const t_cmd cmds[] = {
-	{"?",        "show this help",                              CMD_HELP_ID1    },
-	{"help",     "show this help",                              CMD_HELP_ID2    },
-	{"dataoff",  "disable sending real-time data",              CMD_DATA_OFF_ID },
-	{"dataon",   "enable sending real-time data",               CMD_DATA_ON_ID  },
-	{"hold",     "toggle the display hold on/off",              CMD_HOLD_ID     },
-	{"opencal",  "run the open calibration function",           CMD_OPEN_CAL_ID },
-//	{"shortcal", "run the shorted calibration function",        CMD_SHORT_CAL_ID},
-	{"series",   "select series mode (best if DUT <= 100 Ohm)", CMD_SERIES_ID   },
-	{"parallel", "select parallel mode",                        CMD_PARALLEL_ID },
-	{"reboot",   "reboot this unit",                            CMD_REBOOT_ID   },
-	{"defaults", "restore defaults",                            CMD_DEFAULTS_ID },
-	{"version",  "show this units version",                     CMD_VERSION_ID  },
-	{NULL,       "",                                            CMD_NONE_ID     }    // last one, DO NOT delete this
+	{"?",         "show this help",                                CMD_HELP_ID1    },
+	{"help",      "show this help",                                CMD_HELP_ID2    },
+	{"data",      "[on/off] read/set sending real-time data",      CMD_DATA_ID     },
+	{"hold",      "toggle the display hold on/off",                CMD_HOLD_ID     },
+	{"frequency", "[Hz] read/set measurement frequency (in Hz)",   CMD_FREQUENCY_ID},
+	{"opencal",   "run the open calibration function",             CMD_OPEN_CAL_ID },
+//	{"shortcal",  "run the shorted calibration function",          CMD_SHORT_CAL_ID},
+	{"series",    "select series mode (best if DUT <= 100 Ohm)",   CMD_SERIES_ID   },
+	{"parallel",  "select parallel mode",                          CMD_PARALLEL_ID },
+	{"reboot",    "reboot this unit",                              CMD_REBOOT_ID   },
+	{"defaults",  "restore defaults",                              CMD_DEFAULTS_ID },
+	{"version",   "show this units version",                       CMD_VERSION_ID  },
+	{NULL,        "",                                              CMD_NONE_ID     }    // last one, DO NOT delete this
 };
 
 // process any received serial commands
@@ -3064,6 +3056,16 @@ void process_serial_command(char cmd[], unsigned int len)
 {
 	if (cmd == NULL || len == 0)
 		return;
+
+	// replace any tabs with spaces
+	// and lower case all
+	for (unsigned int i = 0; i < len; i++)
+	{
+		if (cmd[i] == '\t')
+			cmd[i] = ' ';
+		else
+			cmd[i] = tolower(cmd[i]);
+	}
 
 	// trim leading
 	while (len > 0 && *cmd <= ' ')
@@ -3075,18 +3077,18 @@ void process_serial_command(char cmd[], unsigned int len)
 	// locate the end of the command/start of the params
 	// also lowercase the command
 	unsigned int param_pos = 0;
+	unsigned int param_len = 0;
 	while (param_pos < len && cmd[param_pos] > ' ')
 	{
-		cmd[param_pos] = tolower(cmd[param_pos]);
+//		cmd[param_pos] = tolower(cmd[param_pos]);
 		param_pos++;
 	}
 
 	if (param_pos < len)
-		cmd[param_pos] = '\0';     // null term the command
-
-
-	// todo: process any params that might follow the command text
-
+	{
+		cmd[param_pos] = '\0';               // null term the command
+		param_len = (len >= (param_pos + 1)) ? len - (param_pos + 1) : 0;  // length of the parameter text
+	}
 
 	// **********
 	// process the command
@@ -3105,6 +3107,16 @@ void process_serial_command(char cmd[], unsigned int len)
 		}
 
 		cmd_id = cmds[i].id;
+	}
+
+	// find the start of the parameter text
+	if (param_len > 0)
+	{
+		param_pos++;  // skip over the NULL term byte
+		while (param_pos < len && cmd[param_pos] == ' ')
+			param_pos++;
+		if (param_pos >= len)
+			param_len = 0;
 	}
 
 	wait_tx(100);
@@ -3137,44 +3149,104 @@ void process_serial_command(char cmd[], unsigned int len)
 			break;
 
 		case CMD_OPEN_CAL_ID:
-			dprintf(0, NEWLINE "open probe calibration .." NEWLINE);
-			display_hold = 0;
-			memset((void *)&calibrate, 0, sizeof(calibrate));
-			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
-			set_measurement_frequency(100);
-			draw_screen();
+			if (op_mode == OP_MODE_MEASURING)
+			{
+				dprintf(0, NEWLINE "open probe calibration .." NEWLINE);
+				display_hold = 0;
+				memset((void *)&calibrate, 0, sizeof(calibrate));
+				op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
+				set_measurement_frequency(100);
+				draw_screen();
+			}
+			else
+				dprintf(0, NEWLINE "currently busy" NEWLINE);
 			return;
 
 		case CMD_SHORT_CAL_ID:
-			dprintf(0, NEWLINE "shorted probe calibration .." NEWLINE);
-			display_hold = 0;
-			memset((void *)&calibrate, 0, sizeof(calibrate));
-			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
-			set_measurement_frequency(100);
-			draw_screen();
+			if (op_mode == OP_MODE_MEASURING)
+			{
+				dprintf(0, NEWLINE "shorted probe calibration .." NEWLINE);
+				display_hold = 0;
+				memset((void *)&calibrate, 0, sizeof(calibrate));
+				op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
+				set_measurement_frequency(100);
+				draw_screen();
+			}
+			else
+				dprintf(0, NEWLINE "currently busy" NEWLINE);
 			return;
 
-		case CMD_DATA_OFF_ID:
-			settings.flags &= ~SETTING_FLAG_UART_DSO;
-			save_settings_timer = SAVE_SETTINGS_MS;
-			dprintf(0, NEWLINE "live data disabled" NEWLINE);
-			draw_screen();
+		case CMD_FREQUENCY_ID:
+			if (param_len == 0)
+			{
+				dprintf(0, NEWLINE "measurement frequency %uHz" NEWLINE, measurement_Hz);
+			}
+			else
+			if (op_mode == OP_MODE_MEASURING)
+			{
+				char       *endptr = NULL;
+				const char *p      = &cmd[param_pos];
+				const int   param  = strtol(p, &endptr, 10);
+				if (errno == 0 && p != endptr)
+				{
+					const uint16_t Hz = (param <= 300) ? 100 : 1000;
+					if (measurement_Hz != Hz)
+					{
+						set_measurement_frequency(Hz);
+						save_settings_timer = SAVE_SETTINGS_MS;
+						draw_screen();
+						dprintf(0, NEWLINE "measurement frequency set to %uHz" NEWLINE, measurement_Hz);
+					}
+					else
+						dprintf(0, NEWLINE "no change in measurement frequency" NEWLINE);
+				}
+				else
+					dprintf(0, NEWLINE "error: frequency param '%s'" NEWLINE, &cmd[param_pos]);
+			}
+			else
+				dprintf(0, NEWLINE "currently busy" NEWLINE);
 			return;
 
-		case CMD_DATA_ON_ID:
-			settings.flags |= SETTING_FLAG_UART_DSO;
-			save_settings_timer = SAVE_SETTINGS_MS;
-			dprintf(0, NEWLINE "live data enabled" NEWLINE);
-			draw_screen();
+		case CMD_DATA_ID:
+			if (param_len == 0)
+			{
+				dprintf(0, NEWLINE "live data %s" NEWLINE, (settings.flags & SETTING_FLAG_UART_DSO) ? "on" : "off");
+			}
+			else
+			{
+				const char *p = &cmd[param_pos];
+				if (strcmp(p, "on") == 0)
+				{
+					settings.flags |= SETTING_FLAG_UART_DSO;
+					save_settings_timer = SAVE_SETTINGS_MS;
+					dprintf(0, NEWLINE "live data on" NEWLINE);
+					draw_screen();
+				}
+				else
+				if (strcmp(p, "off") == 0)
+				{
+					settings.flags &= ~SETTING_FLAG_UART_DSO;
+					save_settings_timer = SAVE_SETTINGS_MS;
+					dprintf(0, NEWLINE "live data off" NEWLINE);
+					draw_screen();
+				}
+				else
+					dprintf(0, NEWLINE "error: data on/off param '%s'" NEWLINE, &cmd[param_pos]);
+			}
 			return;
 
 		case CMD_HOLD_ID:
-			display_hold ^= 1u;
-			if (display_hold)
-				dprintf(0, NEWLINE "display hold" NEWLINE);
+			if (op_mode == OP_MODE_MEASURING)
+			{
+				display_hold ^= 1u;
+				if (display_hold)
+					dprintf(0, NEWLINE "display hold" NEWLINE);
+				else
+					dprintf(0, NEWLINE "display run" NEWLINE);
+				draw_screen();
+			}
 			else
-				dprintf(0, NEWLINE "display run" NEWLINE);
-			draw_screen();
+				dprintf(0, NEWLINE "currently busy" NEWLINE);
 			return;
 
 		case CMD_SERIES_ID:
@@ -3193,7 +3265,7 @@ void process_serial_command(char cmd[], unsigned int len)
 
 		case CMD_REBOOT_ID:
 			dprintf(0, NEWLINE "rebooting .." NEWLINE);
-			LL_mDelay(100);
+			LL_mDelay(10);
 			reboot();
 			return;
 
@@ -3220,72 +3292,80 @@ void process_serial_command(char cmd[], unsigned int len)
 //
 void process_uart_receive(void)
 {
-	if (serial.rx.timer >= 3000 && (serial.rx.buffer_wr != serial.rx.buffer_rd || serial.rx.line.buffer_wr > 0))
-	{	// receiver timeout
-		serial.rx.buffer_rd      = serial.rx.buffer_wr;
-		serial.rx.line.buffer_wr = 0;
+	const uint32_t buf_wr = serial.rx.buffer_wr;
+	uint32_t       buf_rd = serial.rx.buffer_rd;
+
+	if (serial.rx.timer >= 3000 && (buf_rd != buf_wr || serial.rx.line.buffer_wr > 0))
+	{	// serial RX time-out
+		serial.rx.buffer_rd = buf_rd = buf_wr;   // drop any received data in the buffer
+		serial.rx.line.buffer_wr = 0;            //   "        "
+		return;
 	}
 
-	const uint32_t rx_buf_size = ARRAY_SIZE(serial.rx.buffer);
+	if (buf_rd == buf_wr)
+		return;                          // no new RX data to process
 
-	uint32_t rd = serial.rx.buffer_rd;
-	if (rd == serial.rx.buffer_wr)
-		return;
+	// process the new RX'ed data
 
-	while (rd != serial.rx.buffer_wr)
+	const uint32_t rx_buf_size   = ARRAY_SIZE(serial.rx.buffer);
+	const uint32_t line_buf_size = ARRAY_SIZE(serial.rx.line.buffer);
+	uint32_t       line_wr       = serial.rx.line.buffer_wr;
+
+	while (buf_rd != buf_wr)
 	{
-		const uint32_t line_buf_size = ARRAY_SIZE(serial.rx.line.buffer);
-
-		// ********************
-		// fetch rx'ed data into the text line buffer
-
-		const uint32_t wr = serial.rx.buffer_wr;
-		uint32_t num = (wr >= rd) ? wr - rd : rx_buf_size - rd;      // number of bytes in our RX buffer waiting to be processed
+		// number of bytes in our RX buffer waiting to be processed
+		uint32_t num = (buf_wr >= buf_rd) ? buf_wr - buf_rd : rx_buf_size - buf_rd;
 		if (num == 0)
-			break;
+			break;                       // hmm, no new data ??
 
 		// limit to fit into our RX text line buffer
-		num = (num > (line_buf_size - serial.rx.line.buffer_wr)) ? line_buf_size - serial.rx.line.buffer_wr : num;
+		num = (num > (line_buf_size - line_wr)) ? line_buf_size - line_wr : num;
+		if (num == 0)
+		{	// no room left, somethings not right, clear everything
+			serial.rx.buffer_rd = buf_rd = buf_wr;
+			serial.rx.line.buffer_wr = line_wr = 0;
+			return;
+		}
 
-		// move the RX'ed data into our RX text line buffer
-		memcpy((void *)&serial.rx.line.buffer[serial.rx.line.buffer_wr], (void *)&serial.rx.buffer[rd], num);
-		serial.rx.line.buffer_wr += num;
+		// copy the RX'ed data into our RX text line buffer
+		memcpy((void *)&serial.rx.line.buffer[line_wr], (void *)&serial.rx.buffer[buf_rd], num);
+		serial.rx.line.buffer_wr = line_wr = line_wr + num;
 
-		// update read index
-		rd += num;
-		rd = (rd >= rx_buf_size) ? 0 : rd;
-		serial.rx.buffer_rd = rd;
+		// update the read index
+		buf_rd += num;
+		serial.rx.buffer_rd = buf_rd = (buf_rd >= rx_buf_size) ? 0 : buf_rd;
 
 		// ********************
 		// process the rx'ed text line
 
 		// find the 1st LF or CR (end of text line)
 		char *p = (char *)serial.rx.line.buffer;
-		while (p < ((char *)serial.rx.line.buffer + serial.rx.line.buffer_wr) && *p != '\r' && *p != '\n' && *p != '\0')
+		while (p < ((char *)serial.rx.line.buffer + line_wr) && *p != '\r' && *p != '\n' && *p != '\0')
 			p++;
-		if (p >= ((char *)serial.rx.line.buffer + serial.rx.line.buffer_wr))
-		{	// no LF or CR found (yet)
-			if (serial.rx.line.buffer_wr >= (line_buf_size - 1))
-				serial.rx.line.buffer_wr = 0;       // buffer is full and without a CR or LF in sight, discard the entire text line buffer
+		if (p >= ((char *)serial.rx.line.buffer + line_wr))
+		{	// no LF or CR found
+			if (line_wr >= (line_buf_size - 1))           // buffer full ?
+				serial.rx.line.buffer_wr = line_wr = 0;   // yes, discard the entire text line buffer
 			continue;
 		}
 
-		// found a LF and/or CR in the text line buffer - process the text line
+		// found a LF and/or CR in the text line buffer - process the new text line
 
 		// reset RX time-out timer
 		serial.rx.timer = 0;
 
-		const int pos = (int)(p - (char *)serial.rx.line.buffer);
+		const unsigned int pos = (unsigned int)(p - (char *)serial.rx.line.buffer);  // position of 1st CR or LF found
 		if (pos > 0)
 		{
 			// null terminate the text line
 			serial.rx.line.buffer[pos] = '\0';
 
+			// process the new text line
 			process_serial_command((char *)serial.rx.line.buffer, pos);
 		}
 
-		// finished with the text line
-		serial.rx.line.buffer_wr = 0;
+		// reset the text line buffer
+		serial.rx.line.buffer_wr = line_wr = 0;
 	}
 }
 
