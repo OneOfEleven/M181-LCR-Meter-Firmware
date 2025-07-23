@@ -477,26 +477,26 @@ void __fastcall TForm1::FormCreate(TObject *Sender)
 		const TNotifyEvent ne = SerialSpeedComboBox->OnChange;
 		SerialSpeedComboBox->OnChange = NULL;
 		SerialSpeedComboBox->Clear();
-		SerialSpeedComboBox->AddItem("300",     (TObject *)300);
-		SerialSpeedComboBox->AddItem("600",     (TObject *)600);
-		SerialSpeedComboBox->AddItem("1200",    (TObject *)1200);
-		SerialSpeedComboBox->AddItem("2400",    (TObject *)2400);
-		SerialSpeedComboBox->AddItem("4800",    (TObject *)4800);
-		SerialSpeedComboBox->AddItem("9600",    (TObject *)9600);
-		SerialSpeedComboBox->AddItem("19200",   (TObject *)19200);
-		SerialSpeedComboBox->AddItem("38400",   (TObject *)38400);
-		SerialSpeedComboBox->AddItem("57600",   (TObject *)57600);
-		SerialSpeedComboBox->AddItem("76800",   (TObject *)76800);
+//		SerialSpeedComboBox->AddItem("300",     (TObject *)300);
+//		SerialSpeedComboBox->AddItem("600",     (TObject *)600);
+//		SerialSpeedComboBox->AddItem("1200",    (TObject *)1200);
+//		SerialSpeedComboBox->AddItem("2400",    (TObject *)2400);
+//		SerialSpeedComboBox->AddItem("4800",    (TObject *)4800);
+//		SerialSpeedComboBox->AddItem("9600",    (TObject *)9600);
+//		SerialSpeedComboBox->AddItem("19200",   (TObject *)19200);
+//		SerialSpeedComboBox->AddItem("38400",   (TObject *)38400);
+//		SerialSpeedComboBox->AddItem("57600",   (TObject *)57600);
+//		SerialSpeedComboBox->AddItem("76800",   (TObject *)76800);
 		SerialSpeedComboBox->AddItem("115200",  (TObject *)115200);
 		SerialSpeedComboBox->AddItem("230400",  (TObject *)230400);
-		SerialSpeedComboBox->AddItem("250000",  (TObject *)250000);
+//		SerialSpeedComboBox->AddItem("250000",  (TObject *)250000);
 		SerialSpeedComboBox->AddItem("460800",  (TObject *)460800);
-		SerialSpeedComboBox->AddItem("500000",  (TObject *)500000);
+//		SerialSpeedComboBox->AddItem("500000",  (TObject *)500000);
 		SerialSpeedComboBox->AddItem("921600",  (TObject *)921600);
-		SerialSpeedComboBox->AddItem("1000000", (TObject *)1000000);
-		SerialSpeedComboBox->AddItem("1843200", (TObject *)1843200);
-		SerialSpeedComboBox->AddItem("2000000", (TObject *)2000000);
-		SerialSpeedComboBox->AddItem("3000000", (TObject *)3000000);
+//		SerialSpeedComboBox->AddItem("1000000", (TObject *)1000000);
+//		SerialSpeedComboBox->AddItem("1843200", (TObject *)1843200);
+//		SerialSpeedComboBox->AddItem("2000000", (TObject *)2000000);
+//		SerialSpeedComboBox->AddItem("3000000", (TObject *)3000000);
 		SerialSpeedComboBox->ItemIndex = SerialSpeedComboBox->Items->IndexOfObject((TObject *)DEFAULT_SERIAL_SPEED);
 		SerialSpeedComboBox->OnChange = ne;
 	}
@@ -967,15 +967,6 @@ bool __fastcall TForm1::serialConnect()
 {
 	String s;
 
-	serialDisconnect();
-
-	m_serial.client.ready = false;
-
-	String name = SerialPortComboBox->Text.Trim();
-
-	if (name.IsEmpty() || name.LowerCase() == "none")
-		return false;
-
 	const int i = SerialSpeedComboBox->ItemIndex;
 	if (i < 0)
 	{	// error
@@ -989,6 +980,24 @@ bool __fastcall TForm1::serialConnect()
 		printf("error: serial baudrate .. %d\n", baudrate);
 		return false;
 	}
+
+	if (m_serial.port.connected)
+	{	// tell the unit to also switch baudrate
+		m_serial.client.ready = false;
+		s.printf("\nbaudrate %u\n", baudrate);
+		m_serial.port.TxBytes(s);
+		Sleep(100);
+		m_serial.client.ready = true;
+	}
+
+	serialDisconnect();
+
+	m_serial.client.ready = false;
+
+	String name = SerialPortComboBox->Text.Trim();
+
+	if (name.IsEmpty() || name.LowerCase() == "none")
+		return false;
 
 	for (unsigned int i = 0; i < ARRAY_SIZE(m_waveform_info); i++)
 	{
@@ -1033,7 +1042,7 @@ bool __fastcall TForm1::serialConnect()
 	#endif
 
 	// enable binary sending
-	m_serial.port.TxBytes("data bin\n");
+	m_serial.port.TxBytes("\ndata bin\n");
 
 	m_serial.client.ready = true;
 
@@ -1930,7 +1939,7 @@ void __fastcall TForm1::TxEditKeyPress(TObject *Sender, char &Key)
 		if (s.IsEmpty())
 			return;
 
-		const int num_bytes_tx = m_serial.port.TxBytes(s + "\n");
+		const int num_bytes_tx = m_serial.port.TxBytes("\n" + s + "\n");
 		if (num_bytes_tx <= 0)
 		{
 			printf("error: serial TxData()\n");
@@ -1958,7 +1967,7 @@ void __fastcall TForm1::TxButtonClick(TObject *Sender)
 	if (s.IsEmpty())
 		return;
 
-	const int num_bytes_tx = m_serial.port.TxBytes(s + "\n");
+	const int num_bytes_tx = m_serial.port.TxBytes("\n" + s + "\n");
 	if (num_bytes_tx <= 0)
 	{
 		printf("error: serial TxData()\n");

@@ -1593,6 +1593,10 @@ void bootup_screen(void)
 	ssd1306_SetCursor(0, 0);
 	ssd1306_WriteString("M181", &Font_7x10, White);
 
+	sprintf(buffer_display, "%lu", settings.baudrate);
+	ssd1306_SetCursor(5 * Font_7x10.width, 0);
+	ssd1306_WriteString(buffer_display, &Font_7x10, White);
+
 	sprintf(buffer_display, "v%.2f", FW_VERSION);
 	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(buffer_display) * Font_7x10.width), 0);
 	ssd1306_WriteString(buffer_display, &Font_7x10, White);
@@ -3171,13 +3175,11 @@ void process_serial_command(char cmd[], unsigned int len)
 				const int val    = strtol(param, &endptr, 10);
 				if (errno == 0 && param != endptr)
 				{
-					const uint32_t baudrate = (val < 115200) ? 115200 : (val > 1843200) ? 1843200 : val;
+					const uint32_t baudrate = (val < 115200) ? 115200 : (val > 921600) ? 921600 : val;
 					if (settings.baudrate != baudrate)
 					{
 						settings.baudrate = baudrate;
-
 						LL_USART_SetBaudRate(USART1, rcc_clocks.PCLK2_Frequency, settings.baudrate);
-
 						save_settings_timer = SAVE_SETTINGS_MS;
 						draw_screen();
 					}
@@ -3633,6 +3635,8 @@ int main(void)
 
 	// fetch saved settings from flash
 	read_settings();
+
+	settings.baudrate = (settings.baudrate < 115200) ? 115200 : (settings.baudrate > 921600) ? 921600 : settings.baudrate;
 
 	inv_series_ohms = 1.0f / settings.series_ohms;
 

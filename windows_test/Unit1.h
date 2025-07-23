@@ -47,6 +47,7 @@
 
 #define ARRAY_SIZE(array)     (sizeof(array) / sizeof((array)[0]))
 
+//#define DEFAULT_SERIAL_SPEED  115200
 #define DEFAULT_SERIAL_SPEED  921600
 
 #define DMA_ADC_DATA_LENGTH   128           // must be 2^n (2, 4, 8 .. 1024 etc)
