@@ -3057,16 +3057,19 @@ void process_serial_command(char cmd[], unsigned int len)
 	if (cmd == NULL || len == 0)
 		return;
 
+	// ****************
+	// clean up
+
 	// replace any tabs with spaces
 	// and lower case all
 	for (unsigned int i = 0; i < len; i++)
 		cmd[i] = (cmd[i] == '\t') ? ' ' : tolower(cmd[i]);
 
-	// trim any leading spaces and/or control chars
+	// trim leading
 	while (len > 0 && cmd[0] <= ' ')
 		memmove(cmd, cmd + 1, --len);
 
-	// trim any trailing spaces and/or control chars
+	// trim trailing
 	while (len > 0 && cmd[len - 1] <= ' ')
 		cmd[--len] = '\0';
 
@@ -3076,27 +3079,27 @@ void process_serial_command(char cmd[], unsigned int len)
 	// ensure it's null terminated
 	cmd[len] = '\0';
 
-	// locate the end of the command/start of the params
+	// ****************
+
+	// determine the length of the command
 	// also lowercase the command
 	unsigned int param_pos = 0;
-	unsigned int param_len = 0;
 	while (param_pos < len && cmd[param_pos] > ' ')
 	{
 //		cmd[param_pos] = tolower(cmd[param_pos]);
 		param_pos++;
 	}
 
-	if (param_pos < len)
-	{
-		cmd[param_pos] = '\0';               // null term the command
-		param_len = (len >= (param_pos + 1)) ? len - (param_pos + 1) : 0;  // length of the parameter text
-	}
+	// null term the command
+	cmd[param_pos] = '\0';
+
+	// determine the length of any present param
+	const unsigned int param_len = (len >= (param_pos + 1)) ? len - (param_pos + 1) : 0;
 
 	// **********
-	// process the command
 
-	// determine what the command is (longest match)
-	int cmd_id = CMD_NONE_ID;
+	// determine what the command is
+	t_cmd_id cmd_id = CMD_NONE_ID;
 	for (unsigned int i = 0; cmds[i].token != NULL; i++)
 	{
 		if (strncmp(cmd, cmds[i].token, param_pos) != 0)
@@ -3111,15 +3114,12 @@ void process_serial_command(char cmd[], unsigned int len)
 		cmd_id = cmds[i].id;
 	}
 
-	// find the start of the parameter text
-	if (param_len > 0)
-	{
-		param_pos++;  // skip over the NULL term byte
-		while (param_pos < len && cmd[param_pos] == ' ')
-			param_pos++;
-		if (param_pos >= len)
-			param_len = 0;
-	}
+	// point to start of param
+	param_pos = (param_len > 0) ? param_pos + 1 : param_pos;
+	const char *param  = &cmd[param_pos];
+
+	// **********
+	// process the command
 
 	wait_tx(100);
 
@@ -3138,7 +3138,7 @@ void process_serial_command(char cmd[], unsigned int len)
 			dprintf(0, NEWLINE "Commands [params] (case insensitive, can be shortened) .." NEWLINE);
 			for (unsigned int i = 0; cmds[i].token != NULL; i++)
 			{
-				wait_tx(10);
+				wait_tx();
 				dprintf(0, "  %-*s %s" NEWLINE, cmd_max_len, cmds[i].token, cmds[i].description);
 			}
 			return;
@@ -3146,6 +3146,7 @@ void process_serial_command(char cmd[], unsigned int len)
 
 		case CMD_DEFAULTS_ID:
 			dprintf(0, NEWLINE "restoring defaults .." NEWLINE);
+			wait_tx();
 			clear_settings();
 			reboot();
 			break;
@@ -3161,7 +3162,7 @@ void process_serial_command(char cmd[], unsigned int len)
 				draw_screen();
 			}
 			else
-				dprintf(0, NEWLINE "currently busy" NEWLINE);
+				dprintf(0, NEWLINE "busy" NEWLINE);
 			return;
 
 		case CMD_SHORT_CAL_ID:
@@ -3175,81 +3176,71 @@ void process_serial_command(char cmd[], unsigned int len)
 				draw_screen();
 			}
 			else
-				dprintf(0, NEWLINE "currently busy" NEWLINE);
+				dprintf(0, NEWLINE "busy" NEWLINE);
 			return;
 
 		case CMD_FREQUENCY_ID:
 			if (param_len == 0)
 			{
-				dprintf(0, NEWLINE "measurement frequency %uHz" NEWLINE, measurement_Hz);
+				dprintf(0, NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
 			}
 			else
-			if (op_mode == OP_MODE_MEASURING)
 			{
-				char       *endptr = NULL;
-				const char *p      = &cmd[param_pos];
-				const int   param  = strtol(p, &endptr, 10);
-				if (errno == 0 && p != endptr)
+				char     *endptr = NULL;
+				const int val    = strtol(param, &endptr, 10);
+				if (errno == 0 && param != endptr)
 				{
-					const uint16_t Hz = (param <= 300) ? 100 : 1000;
-					if (measurement_Hz != Hz)
+					const uint16_t Hz = (val <= 300) ? 100 : 1000;
+					if (settings.measurement_Hz != Hz)
 					{
-						set_measurement_frequency(Hz);
 						settings.measurement_Hz = Hz;
+						if (op_mode == OP_MODE_MEASURING)
+							set_measurement_frequency(Hz);
 						save_settings_timer = SAVE_SETTINGS_MS;
 						draw_screen();
-						dprintf(0, NEWLINE "measurement frequency set to %uHz" NEWLINE, measurement_Hz);
 					}
-					else
-						dprintf(0, NEWLINE "no change in measurement frequency" NEWLINE);
+					dprintf(0, NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
 				}
 				else
-					dprintf(0, NEWLINE "error: frequency param '%s'" NEWLINE, &cmd[param_pos]);
+					dprintf(0, NEWLINE "error: frequency param '%s'" NEWLINE, param);
 			}
-			else
-				dprintf(0, NEWLINE "currently busy" NEWLINE);
 			return;
 
 		case CMD_DATA_ID:
 			if (param_len == 0)
-			{
 				dprintf(0, NEWLINE "live data %s" NEWLINE, (settings.flags & SETTING_FLAG_UART_DSO) ? "on" : "off");
+			else
+			if (strcmp(param, "on") == 0)
+			{
+				settings.flags |= SETTING_FLAG_UART_DSO;
+				save_settings_timer = SAVE_SETTINGS_MS;
+				draw_screen();
+				dprintf(0, NEWLINE "live data on" NEWLINE);
 			}
 			else
+			if (strcmp(param, "off") == 0)
 			{
-				const char *p = &cmd[param_pos];
-				if (strcmp(p, "on") == 0)
-				{
-					settings.flags |= SETTING_FLAG_UART_DSO;
-					save_settings_timer = SAVE_SETTINGS_MS;
-					dprintf(0, NEWLINE "live data on" NEWLINE);
-					draw_screen();
-				}
-				else
-				if (strcmp(p, "off") == 0)
-				{
-					settings.flags &= ~SETTING_FLAG_UART_DSO;
-					save_settings_timer = SAVE_SETTINGS_MS;
-					dprintf(0, NEWLINE "live data off" NEWLINE);
-					draw_screen();
-				}
-				else
-					dprintf(0, NEWLINE "error: data on/off param '%s'" NEWLINE, &cmd[param_pos]);
+				settings.flags &= ~SETTING_FLAG_UART_DSO;
+				save_settings_timer = SAVE_SETTINGS_MS;
+				draw_screen();
+				dprintf(0, NEWLINE "live data off" NEWLINE);
 			}
+			else
+				dprintf(0, NEWLINE "error: data param '%s'" NEWLINE, param);
 			return;
 
 		case CMD_HOLD_ID:
 			if (op_mode == OP_MODE_MEASURING)
 			{
 				display_hold ^= 1u;
+				draw_screen();
 				if (display_hold)
 					dprintf(0, NEWLINE "display hold" NEWLINE);
 				else
 					dprintf(0, NEWLINE "display run" NEWLINE);
-				draw_screen();
 			}
 			else
-				dprintf(0, NEWLINE "currently busy" NEWLINE);
+				dprintf(0, NEWLINE "busy" NEWLINE);
 			return;
 
 		case CMD_SERIES_ID:
@@ -3276,7 +3267,7 @@ void process_serial_command(char cmd[], unsigned int len)
 
 		case CMD_REBOOT_ID:
 			dprintf(0, NEWLINE "rebooting .." NEWLINE);
-			LL_mDelay(10);
+			wait_tx();
 			reboot();
 			return;
 
