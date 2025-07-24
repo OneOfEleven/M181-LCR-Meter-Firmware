@@ -160,13 +160,21 @@ void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR
 //  color   => Black or White
 char ssd1306_WriteChar(const char ch, const t_font *font, const SSD1306_COLOR color)
 {
-	if (SSD1306_WIDTH <= (SSD1306.CurrentX + font->width) || SSD1306_HEIGHT <= (SSD1306.CurrentY + font->height))
-		return 0;    // not enough space on current line
+	if (SSD1306_WIDTH  <= (SSD1306.CurrentX + font->width))
+		return 0;
+	if (SSD1306_HEIGHT <= (SSD1306.CurrentY + font->height))
+		return 0;
+	if (ch < font->char_first || ch > font->char_last)
+		return 0;
 
-	for (unsigned int i = 0; i < font->height; i++)
+	const unsigned int h = font->height;
+	const unsigned int w = font->width;
+	const unsigned int m = ((unsigned int)ch - font->char_first) * h;
+
+	for (unsigned int i = 0; i < h; i++)
 	{
-		const unsigned int b = font->data[(ch - 32) * font->height + i];
-		for (unsigned int j = 0; j < font->width; j++)
+		const unsigned int b = font->data[m + i];
+		for (unsigned int j = 0; j < w; j++)
 			ssd1306_DrawPixel(SSD1306.CurrentX + j, (SSD1306.CurrentY + i), ((b << j) & 0x8000) ? color : !color);
 	}
 
