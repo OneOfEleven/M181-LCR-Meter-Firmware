@@ -1528,9 +1528,10 @@ void process_ADC_exec(void)
 //
 //  Font_7x10  .. small
 //  Font_11x18 .. bigger than small
-//  Font_16x26 .. bigger than the bigger than small (but not used)
+//  Font_16x26 .. bigger than the bigger than small
 
 //#define DRAW_LINES          // if you want horizontal lines drawn
+//#define DISPLAY_LCR_MODE    // if you want the 'R' 'L' or 'C' before the DUT value
 
 #define     OFFSET_X      0
 #define     LINE_SPACING  13
@@ -1735,17 +1736,23 @@ void draw_screen(void)
 				{
 					case LCR_MODE_INDUCTANCE:
 						value = par ? system_data.parallel.inductance : system_data.series.inductance;
-						snprintf(buffer_display, sizeof(buffer_display), "L");
+						#if DISPLAY_LCR_MODE
+							snprintf(buffer_display, sizeof(buffer_display), "L");
+						#endif
 						break;
 
 					case LCR_MODE_CAPACITANCE:
 						value = par ? system_data.parallel.capacitance : system_data.series.capacitance;
-						snprintf(buffer_display, sizeof(buffer_display), "C");
+						#if DISPLAY_LCR_MODE
+							snprintf(buffer_display, sizeof(buffer_display), "C");
+						#endif
 						break;
 
 					case LCR_MODE_RESISTANCE:
 						value = par ? system_data.parallel.resistance : system_data.series.resistance;
-						snprintf(buffer_display, sizeof(buffer_display), "R");
+						#if DISPLAY_LCR_MODE
+							snprintf(buffer_display, sizeof(buffer_display), "R");
+						#endif
 						break;
 
 					case LCR_MODE_AUTO:
@@ -1754,7 +1761,10 @@ void draw_screen(void)
 				}
 
 				ssd1306_SetCursor(OFFSET_X, LINE2_Y + 6);
-				ssd1306_WriteString(buffer_display, &Font_11x18, White);
+
+				#if DISPLAY_LCR_MODE
+					ssd1306_WriteString(buffer_display, &Font_11x18, White);
+				#endif
 
 				char unit = unit_conversion(&value);
 
