@@ -6,7 +6,7 @@
 #include "delay.h"
 
 // 1-bit per pixel screen buffer
-uint8_t SSD1306_Buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
+uint8_t SSD1306_Buffer[SSD1306_WIDTH * (SSD1306_HEIGHT / 8)];
 
 #define USE_LINE_TABLE           // to speed up the pixel drawing
 
@@ -15,7 +15,7 @@ uint8_t SSD1306_Buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
 	uint8_t  line_table_pixel[SSD1306_HEIGHT] = {0};
 #endif
 
-SSD1306_t SSD1306;
+SSD1306_t SSD1306 = {0};
 
 //  Send a byte to the command register
 static uint8_t ssd1306_WriteCommand(const uint8_t command)
@@ -32,6 +32,8 @@ static uint8_t ssd1306_WriteCommand(const uint8_t command)
 // uint8_t ssd1306_Init(I2C_HandleTypeDef *hi2c)
 uint8_t ssd1306_Init(void)
 {
+	SSD1306.Initialized = 0;
+
 	#ifdef USE_LINE_TABLE
 		for (uint16_t y = 0; y < SSD1306_HEIGHT; y++)
 		{
@@ -133,15 +135,15 @@ void ssd1306_UpdateScreen(void)
 //  color => Pixel color
 void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR color)
 {
-	if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT)
+	if (!SSD1306.Initialized || x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT)
 		return;
 
 	if (SSD1306.Inverted)
 		color = !color;
 
 	#ifdef USE_LINE_TABLE
-		const unsigned int m = line_table[y] + x;
-		const unsigned int p = line_table_pixel[y];
+		register const unsigned int m = line_table[y] + x;
+		register const unsigned int p = line_table_pixel[y];
 		if (color == White)
 			SSD1306_Buffer[m] |=  p;
 		else
@@ -160,6 +162,8 @@ void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR
 //  color   => Black or White
 char ssd1306_WriteChar(const char ch, const t_font *font, const SSD1306_COLOR color)
 {
+	if (!SSD1306.Initialized)
+		return;
 	if (SSD1306_WIDTH  <= (SSD1306.CurrentX + font->width))
 		return 0;
 	if (SSD1306_HEIGHT <= (SSD1306.CurrentY + font->height))
@@ -222,21 +226,25 @@ void ssd1306_MoveCursor(const int x, const int y)
 }
 
 // Draw a filled rectangle
-void ssd1306_FillRectangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, SSD1306_COLOR color)
+void ssd1306_FillRectangle(const uint8_t x1, const uint8_t y1, const uint8_t x2, const uint8_t y2, const SSD1306_COLOR color)
 {
-	const unsigned int x_start = (x1 <= x2) ? x1 : x2;
-	const unsigned int x_end   = (x1 <= x2) ? x2 : x1;
-	const unsigned int y_start = (y1 <= y2) ? y1 : y2;
-	const unsigned int y_end   = (y1 <= y2) ? y2 : y1;
+	if (SSD1306.Initialized)
+	{
+		const unsigned int x_start = (x1 <= x2) ? x1 : x2;
+		const unsigned int x_end   = (x1 <= x2) ? x2 : x1;
+		const unsigned int y_start = (y1 <= y2) ? y1 : y2;
+		const unsigned int y_end   = (y1 <= y2) ? y2 : y1;
 
-	for (unsigned int y = y_start; y <= y_end && y < SSD1306_HEIGHT; y++)
-		for (unsigned int x = x_start; x <= x_end && x < SSD1306_WIDTH; x++)
-			ssd1306_DrawPixel(x, y, color);
+		for (unsigned int y = y_start; y <= y_end && y < SSD1306_HEIGHT; y++)
+			for (unsigned int x = x_start; x <= x_end && x < SSD1306_WIDTH; x++)
+				ssd1306_DrawPixel(x, y, color);
+	}
 }
 
 // dotted line
 void ssd1306_dotted_hline(const unsigned int x1, const unsigned int x2, const unsigned int x_step, const unsigned int y, const SSD1306_COLOR colour)
 {
-	for (unsigned int x = x1; x <= x2; x += x_step)
-		ssd1306_DrawPixel(x, y, colour);
+	if (SSD1306.Initialized)
+		for (unsigned int x = x1; x <= x2; x += x_step)
+			ssd1306_DrawPixel(x, y, colour);
 }
