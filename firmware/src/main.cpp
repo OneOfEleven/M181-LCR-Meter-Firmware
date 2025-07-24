@@ -204,13 +204,8 @@ t_settings            settings            = {0};             // the users settin
 
 t_system_data         system_data = {0};                     // various results saved in here
 
-// temp buffer used for the Goerttzel output samples
-t_comp                tmp_buf[ADC_DATA_LENGTH];
-
-// temp buffer for the DMA to save it's sample block into
-t_adc_dma_data_16     tmp_adc_buffer[ADC_DATA_LENGTH];
-volatile uint8_t      tmp_adc_buffer_ready = 0;
-
+uint8_t               tmp_buffer[sizeof(t_comp) * ADC_DATA_LENGTH];   // buffer must be big enough for what uses it
+volatile uint8_t      tmp_buffer_in_use = 0;
 
 // for TX'ing binary packets via the serial port
 t_packet              tx_packet;
@@ -843,6 +838,9 @@ int process_Goertzel(void)
 	//
 	// STM32F103CBT6 drop-in replacements .. STM32F303CBT6, STM32L412CBT6, STM32L431CCT6 and STM32L433CBT6
 
+	// tell DMA not to use the temp buffer
+	tmp_buffer_in_use = 1;
+
 	for (unsigned int buf_index = 0; buf_index < ARRAY_SIZE(adc_data); buf_index++)
 	{
 		const unsigned int vi_mode = buf_index >> 1;
@@ -902,7 +900,7 @@ int process_Goertzel(void)
 		else
 		{	// use Goertzel DFT to filter the waveform
 
-			register t_comp *buf = tmp_buf;           // point to Goertzel dft output buffer
+			register t_comp *buf = (t_comp *)tmp_buffer;           // point to Goertzel dft output buffer
 
 			// do it
 			if (goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
@@ -927,6 +925,9 @@ int process_Goertzel(void)
 			}
 		}
 	}
+
+	// free up the temp buffer
+	tmp_buffer_in_use = 0;
 
 	return 0;
 }
@@ -1251,12 +1252,12 @@ void process_data(void)
 
 void process_ADC_DMA(const void *buffer)
 {
-	if (initialising || tmp_adc_buffer_ready)
-		return;   // don't save the new sample block, the exec hasn't yet processed the previous block (slow CPU)
+	if (initialising || tmp_buffer_in_use)
+		return;               // the temp buffer is not available for use, drop this sample block
 
-	// just copy the entire buffer as quickly as possible so as not to hold up the DMA
-	memcpy(tmp_adc_buffer, buffer, sizeof(tmp_adc_buffer));
-	tmp_adc_buffer_ready = 1;    // let the exec know that their is a new sample block ready
+	// copy the new ADC sample block as quickly as possible so as not to hold up the DMA
+	memcpy(tmp_buffer, buffer, sizeof(t_adc_dma_data_16) * ADC_DATA_LENGTH);
+	tmp_buffer_in_use = 1;    // let the exec know that their is a new sample block ready
 }
 
 // process the incoming raw ADC sample blocks
@@ -1265,11 +1266,11 @@ void process_ADC_exec(void)
 {
 	// process the new ADC 12-bit samples
 
-	if (!tmp_adc_buffer_ready)
-		return;
+	if (!tmp_buffer_in_use)
+		return;                   // DMA hasn't yet given us a new sample block
 
-	// point to the new block of ADC samples
-	const t_adc_dma_data_16 *adc_buffer = tmp_adc_buffer;
+	// point to the new ADC sample block from the DMA
+	const t_adc_dma_data_16 *adc_buffer = (t_adc_dma_data_16 *)tmp_buffer;
 
 	// current VI mode index
 	unsigned int vi_index = vi_measure_index;
@@ -1277,7 +1278,7 @@ void process_ADC_exec(void)
 	// ignore this sample block if we've completed the VI measurement scan
 	if (vi_index >= VI_MODE_DONE)
 	{
-		tmp_adc_buffer_ready = 0;
+		tmp_buffer_in_use = 0;
 		return;
 	}
 
@@ -1375,7 +1376,7 @@ void process_ADC_exec(void)
 	}
 
 	// free up the temporary buffer
-	tmp_adc_buffer_ready = 0;
+	tmp_buffer_in_use = 0;
 
 	// decide which modes are useful (or not)
 	//
