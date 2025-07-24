@@ -64,7 +64,7 @@
 * D → Dissipation factor (or) Tan Delta
 
 # New firmware displays
-<img src="firmware/docs/new_firmware.png" alt="image" style="width:200px;height:auto;">
+<img src="firmware/docs/new_firmware.png" alt="image" style="width:500px;height:auto;">
 
 # Windows test GUI
 
