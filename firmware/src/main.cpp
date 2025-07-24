@@ -1753,8 +1753,8 @@ void draw_screen(void)
 						break;
 				}
 
-				ssd1306_SetCursor(OFFSET_X, LINE2_Y + 10);
-				ssd1306_WriteString(buffer_display, &Font_7x10, White);
+				ssd1306_SetCursor(OFFSET_X, LINE2_Y + 6);
+				ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 				char unit = unit_conversion(&value);
 
@@ -1816,10 +1816,10 @@ void draw_screen(void)
 						break;
 				}
 
-				ssd1306_MoveCursor(4, -7);
+				ssd1306_MoveCursor(4, -3);
 				ssd1306_WriteString(buffer_display, &Font_16x26, White);
 
-				ssd1306_MoveCursor(6, 1);
+				ssd1306_MoveCursor(6, -1);
 
 				switch (settings.lcr_mode)
 				{
