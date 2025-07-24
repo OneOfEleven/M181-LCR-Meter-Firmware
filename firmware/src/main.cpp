@@ -1250,24 +1250,33 @@ void process_data(void)
 	#endif
 }
 
+// save the new ADC DMA sample block
+//
+// this is called from the ADC DMA interrupt
+//
 void process_ADC_DMA(const void *buffer)
 {
 	if (initialising || tmp_buffer_in_use)
 		return;               // the temp buffer is not available for use, drop this sample block
+
+	if (vi_measure_index >= VI_MODE_DONE)
+		return;               // wait till the exec has done it's thing
 
 	// copy the new ADC sample block as quickly as possible so as not to hold up the DMA
 	memcpy(tmp_buffer, buffer, sizeof(t_adc_dma_data_16) * ADC_DATA_LENGTH);
 	tmp_buffer_in_use = 1;    // let the exec know that their is a new sample block ready
 }
 
-// process the incoming raw ADC sample blocks
+// process the new ADC raw sample block that the ADSC DMA saved for us
+//
+// this is called from the main exec loop
 //
 void process_ADC_exec(void)
 {
 	// process the new ADC 12-bit samples
 
 	if (!tmp_buffer_in_use)
-		return;                   // DMA hasn't yet given us a new sample block
+		return;               // DMA hasn't yet given us a new sample block
 
 	// point to the new ADC sample block from the DMA
 	const t_adc_dma_data_16 *adc_buffer = (t_adc_dma_data_16 *)tmp_buffer;
@@ -1284,8 +1293,6 @@ void process_ADC_exec(void)
 
 	// use a table to set HD mode pins in a custom order to cope with a HW design floor
 	const unsigned int vi_mode = vi_measure_mode_table[vi_index];
-
-	const unsigned int buf_index = vi_mode * 2;
 
 	if (vi_index == 0 && adc_buffer_sum_count == 0)
 	{	// the first sample block after setting the HW mode pins
@@ -1306,14 +1313,14 @@ void process_ADC_exec(void)
 	const unsigned int skip_block_count = MODE_SWITCH_BLOCK_WAIT_LONG;
 
 	if (adc_buffer_sum_count >= skip_block_count)
-	{	// add the new sample block to the averaging buffer
+	{	// add the new sample block to the averaging buffer (to reduce noise)
 
 		// invert the current (I) ADC waveform to counter-act the inverting OP-AMP stage
 		register const int16_t adc_sign = (vi_mode == VI_MODE_AMP_LO_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) ? -1 : 1;
 		register const int16_t afc_sign = 1;
 
 		if (vi_mode >= VI_MODE_VOLT_HI_GAIN)
-		{	// only bother doing a histogram for the HIGH gain modes
+		{	// only bother doing a histogram for the HIGH gain modes, the LOW gain modes never clip/saturate
 
 			// for detecting waveform clipping
 			#define HISTOGRAM_SIZE        (2048 / (1 << 5))
@@ -1421,6 +1428,8 @@ void process_ADC_exec(void)
 
 	{	// fetch & re-scale the summed ADC sample blocks to create an averaged single block (reduces noise)
 
+		const unsigned int buf_index = vi_mode * 2;
+
 		register float *buf_adc = adc_data[buf_index + 0];
 		register float *buf_afc = adc_data[buf_index + 1];
 
@@ -1521,7 +1530,7 @@ void process_ADC_exec(void)
 //  Font_11x18 .. bigger than small
 //  Font_16x26 .. bigger than the bigger than small (but not used)
 
-#define DRAW_LINES          // if you want horizontal lines drawn
+//#define DRAW_LINES          // if you want horizontal lines drawn
 
 #define     OFFSET_X      0
 #define     LINE_SPACING  13
@@ -1533,8 +1542,6 @@ void process_ADC_exec(void)
 	#define LINE2_Y      (LINE_SPACING + 3)
 	#define LINE3_Y      (10 + LINE2_Y + 1 + LINE_SPACING)
 #endif
-
-#define     LINE4_Y      (LINE3_Y + LINE_SPACING)
 
 void print_sprint(const unsigned int digit, const float value, char *output_char, const unsigned int out_max_size)
 {
@@ -1746,19 +1753,8 @@ void draw_screen(void)
 						break;
 				}
 
-				#if 0
-					ssd1306_SetCursor(OFFSET_X, LINE2_Y);
-					ssd1306_WriteString(buffer_display, &Font_11x18, White);
-					ssd1306_MoveCursor(10, 0);
-				#else
-					ssd1306_SetCursor(OFFSET_X, LINE2_Y + 4);
-					ssd1306_WriteString(buffer_display, &Font_7x10, White);
-					ssd1306_MoveCursor(8, -4);
-
-//					ssd1306_SetCursor(OFFSET_X, LINE2_Y + 1);
-//					ssd1306_WriteString(buffer_display, &Font_8x16, White);
-//					ssd1306_MoveCursor(8, -1);
-				#endif
+				ssd1306_SetCursor(OFFSET_X, LINE2_Y + 10);
+				ssd1306_WriteString(buffer_display, &Font_7x10, White);
 
 				char unit = unit_conversion(&value);
 
@@ -1820,10 +1816,10 @@ void draw_screen(void)
 						break;
 				}
 
-				ssd1306_WriteString(buffer_display, &Font_11x18, White);
-//				ssd1306_WriteString(buffer_display, &Font_8x16, White);
+				ssd1306_MoveCursor(4, -7);
+				ssd1306_WriteString(buffer_display, &Font_16x26, White);
 
-				ssd1306_MoveCursor(6, 0);    // move right
+				ssd1306_MoveCursor(6, 1);
 
 				switch (settings.lcr_mode)
 				{
@@ -1863,10 +1859,12 @@ void draw_screen(void)
 						else
 							ssd1306_MoveCursor(4, 0);    // move right
 
+						ssd1306_MoveCursor(3, -4);
+
 						uint16_t x;
 						uint16_t y;
 						ssd1306_GetCursor(&x, &y);
-						print_custom_symbol(x + 2, LINE2_Y - 3, omega_11x18, 11, 18);
+						print_custom_symbol(x, y, omega_11x18, 11, 18);
 
 						break;
 					}
@@ -1881,7 +1879,7 @@ void draw_screen(void)
 				buffer_display[0] = volt_gain_sel ? 'H' : 'L';
 				buffer_display[1] = amp_gain_sel  ? 'H' : 'L';
 				buffer_display[2] ='\0';
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * Font_7x10.width), LINE2_Y + 5);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * Font_7x10.width), LINE3_Y);
 				ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			}
 			#endif
@@ -1889,8 +1887,7 @@ void draw_screen(void)
 			// ***************************
 			// Line 3
 
-			# if 1
-
+			# if 0
 				{	// voltage
 					float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
 					value = adc_to_volts(value);
@@ -1920,27 +1917,10 @@ void draw_screen(void)
 					buffer_display[i++] = '\0';
 					ssd1306_WriteString(buffer_display, &Font_7x10, White);
 				}
-
-			#else
-			{	// Quality factor
-
-				float value = par ? system_data.parallel.qf : system_data.series.qf;
-				const char unit = unit_conversion(&value);
-
-				ssd1306_SetCursor(OFFSET_X, LINE3_Y);
-				ssd1306_WriteString("Q  ", &Font_7x10, White);
-
-				ssd1306_SetCursor(x1, LINE3_Y);
-				print_sprint(4, value, buffer_display, sizeof(buffer_display));
-				unsigned int i = strlen(buffer_display);
-				buffer_display[i++] = unit;
-				buffer_display[i++] = '\0';
-				ssd1306_WriteString(buffer_display, &Font_7x10, White);
-			}
 			#endif
 
 			// ***************************
-			// Line 4
+			// Bottom line
 
 			switch (settings.lcr_mode)
 			{
@@ -1952,10 +1932,10 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.esr : system_data.series.esr;
 						const char unit = unit_conversion(&value);
 
-						ssd1306_SetCursor(OFFSET_X, LINE4_Y);
+						ssd1306_SetCursor(OFFSET_X, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("ER", &Font_7x10, White);
 
-						ssd1306_SetCursor(x1, LINE4_Y);
+						ssd1306_SetCursor(x1, SSD1306_HEIGHT - 1 - Font_7x10.height);
 
 						print_sprint(3, value, buffer_display, sizeof(buffer_display));
 						unsigned int i = strlen(buffer_display);
@@ -1970,10 +1950,10 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.tan_delta : system_data.series.tan_delta;
 						const char unit = unit_conversion(&value);
 
-						ssd1306_SetCursor(x2, LINE4_Y);
+						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("D", &Font_7x10, White);
 
-						ssd1306_SetCursor(x3, LINE4_Y);
+						ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_7x10.height);
 
 						print_sprint(3, value, buffer_display, sizeof(buffer_display));
 						unsigned int i = strlen(buffer_display);
@@ -1987,10 +1967,10 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value);
 
-						ssd1306_SetCursor(x2, LINE4_Y);
+						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("Q ", &Font_7x10, White);
 
-						//ssd1306_SetCursor(x3, LINE4_Y);
+						//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						print_sprint(3, value, buffer_display, sizeof(buffer_display));
 						unsigned int i = strlen(buffer_display);
 						buffer_display[i++] = unit;
@@ -2008,7 +1988,7 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.inductance : system_data.series.inductance;
 						const char unit = unit_conversion(&value);
 
-						ssd1306_SetCursor(OFFSET_X, LINE4_Y);
+						ssd1306_SetCursor(OFFSET_X, SSD1306_HEIGHT - 1 - Font_7x10.height);
 
 						print_sprint(4, value, buffer_display, sizeof(buffer_display));
 						unsigned int i = strlen(buffer_display);
@@ -2024,7 +2004,7 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value);
 
-						ssd1306_SetCursor(x2, LINE4_Y);
+						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("Q ", &Font_7x10, White);
 
 						print_sprint(3, value, buffer_display, sizeof(buffer_display));
@@ -2046,17 +2026,13 @@ void draw_screen(void)
 
 		case OP_MODE_OPEN_PROBE_CALIBRATION:
 			snprintf(buffer_display, sizeof(buffer_display), "OPEN cal %d", CALIBRATE_COUNT - calibrate.count - 1);
-			//ssd1306_SetCursor(OFFSET_X, LINE2_Y);
 			ssd1306_SetCursor(OFFSET_X, 5);
-			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			if (measurement_Hz < 1000)
 				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", measurement_Hz);
 			else
 				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", measurement_Hz / 1000);
-			//ssd1306_SetCursor(OFFSET_X, LINE2_Y + 14);
-			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			ssd1306_SetCursor(OFFSET_X, LINE3_Y - 5);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
@@ -2064,17 +2040,13 @@ void draw_screen(void)
 
 		case OP_MODE_SHORTED_PROBE_CALIBRATION:
 			snprintf(buffer_display, sizeof(buffer_display), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
-			//ssd1306_SetCursor(OFFSET_X, LINE2_Y);
 			ssd1306_SetCursor(OFFSET_X, 5);
-			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			if (measurement_Hz < 1000)
 				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", measurement_Hz);
 			else
 				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", measurement_Hz / 1000);
-			//ssd1306_SetCursor(OFFSET_X, LINE2_Y + 14);
-			//ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			ssd1306_SetCursor(OFFSET_X, LINE3_Y - 5);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
@@ -2082,16 +2054,16 @@ void draw_screen(void)
 	}
 
 	// ***************************
-	// Line 4: UART mode
+	// Bottom line: UART mode
 
 	if (settings.flags & SETTING_FLAG_UART_DSO)
 	{
-		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_7x10.width), LINE4_Y);
+		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_7x10.width), SSD1306_HEIGHT - 1 - Font_7x10.height);
 		ssd1306_WriteString((settings.flags & SETTING_FLAG_SEND_BINARY) ? "B" : "A", &Font_7x10, White);
 	}
 
 	// ***************************
-	// send the display buffer to the screen
+	// write the display buffer to the screen
 
 	ssd1306_UpdateScreen();
 
