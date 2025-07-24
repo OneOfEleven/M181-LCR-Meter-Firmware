@@ -1671,11 +1671,11 @@ void draw_screen(void)
 			ssd1306_WriteString(par ? "par" : "ser", &Font_7x10, White);
 
 			// measurement frequency
-			ssd1306_SetCursor(4 * Font_7x10.width, 0);
+			ssd1306_SetCursor(5 * Font_7x10.width, 0);
 			if (measurement_Hz < 1000)
-				snprintf(buffer_display, sizeof(buffer_display), "%3u Hz", measurement_Hz);
+				snprintf(buffer_display, sizeof(buffer_display), "%3u", measurement_Hz);
 			else
-				snprintf(buffer_display, sizeof(buffer_display), "%2u kHz", measurement_Hz / 1000);
+				snprintf(buffer_display, sizeof(buffer_display), "%2uk", measurement_Hz / 1000);
 			ssd1306_WriteString(buffer_display, &Font_7x10, White);
 
 			{	// open/short calibration
@@ -1683,7 +1683,8 @@ void draw_screen(void)
 				buffer_display[0] = settings.open_probe_calibration[index].done    ? 'O' : '-';
 				buffer_display[1] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
 				buffer_display[2] = '\0';
-				ssd1306_SetCursor(11 * Font_7x10.width, 0);
+				//ssd1306_SetCursor(11 * Font_7x10.width, 0);
+				ssd1306_SetCursor(10 * Font_7x10.width, 0);
 				ssd1306_WriteString(buffer_display, &Font_7x10, White);
 			}
 
