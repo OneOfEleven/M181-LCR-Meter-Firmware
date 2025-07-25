@@ -148,7 +148,7 @@ t_button              button[BUTTON_NUM] = {0};    // each buttons press data
 
 uint16_t              sine_table[ADC_DATA_LENGTH / 2] = {0};  // length is matched with the ADC sampling (length = one sine cycle)
 
-uint16_t              measurement_Hz        = 1000;
+uint16_t              measurement_Hz        = 1000;           // 100 or 1000
 float                 measurement_amplitude = 1.0;            // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
 
 uint8_t               op_mode      = OP_MODE_MEASURING;       // the current operaring mode the user is in
@@ -747,20 +747,16 @@ char unit_conversion(float *value)
 	return 'G';
 }
 
-void set_measurement_frequency(const uint32_t Hz)
+void set_measurement_frequency(uint32_t Hz)
 {
-	// TODO: adjust the waveform amplitude automatically by looking for sine wave clipping
+	// limit the range
+	measurement_Hz = (Hz < 100) ? 100 : (Hz > 1500) ? 1500 : Hz;
 
-	if (Hz == 100)
-	{
-		measurement_Hz        = 100;
-		measurement_amplitude = 0.85;
-	}
-	else
-	{	// default to 1kHz
-		measurement_Hz        = 1000;
-		measurement_amplitude = 1.0;
-	}
+	// lower freq = lower amplitude (due to another HW filter design flaw)
+	//
+	measurement_amplitude = (float)measurement_Hz / 1000;                            // 0.0 ~ 1.0
+	measurement_amplitude = sqrtf(sqrtf(sqrtf(measurement_amplitude)));
+	measurement_amplitude = (measurement_amplitude < 0.8f) ? 0.8f : (measurement_amplitude > 1.0f) ? 1.0f : measurement_amplitude;
 
 	{	// fill the sine wave look-up table with one complete sine cycle
 
@@ -1128,7 +1124,7 @@ void process_data(void)
 	#if 1
 		if (op_mode == OP_MODE_MEASURING)
 		{
-			const unsigned int freq_index = (measurement_Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+			const unsigned int freq_index = (measurement_Hz <= 300) ? 0 : 1;   // 100Hz/1kHz
 
 			float zo = 0;
 			float zs = 0;
@@ -1407,7 +1403,7 @@ void process_ADC_exec(void)
 	}
 
 	// speed up the lower frequency modes by reducing the average count (number of blocks we average)
-	if (measurement_Hz <= 200)
+	if (measurement_Hz <= 300)
 		average_count = (average_count >= 3) ? average_count / 3 : average_count;
 
 	LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);                          // TEST only, LED off
@@ -1679,15 +1675,15 @@ void draw_screen(void)
 			ssd1306_WriteString(par ? "par" : "ser", &Font_7x10, White);
 
 			// measurement frequency
-			ssd1306_SetCursor(5 * Font_7x10.width, 0);
 			if (measurement_Hz < 1000)
-				snprintf(buffer_display, sizeof(buffer_display), "%3u", measurement_Hz);
+				snprintf(buffer_display, sizeof(buffer_display), "%u", measurement_Hz);
 			else
-				snprintf(buffer_display, sizeof(buffer_display), "%2uk", measurement_Hz / 1000);
+				snprintf(buffer_display, sizeof(buffer_display), "%0.1fk", measurement_Hz * 1e-3f);
+			ssd1306_SetCursor(5 * Font_7x10.width, 0);
 			ssd1306_WriteString(buffer_display, &Font_7x10, White);
 
 			{	// open/short calibration
-				const unsigned int index = (settings.measurement_Hz == 100) ? 0 : 1;
+				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;
 				buffer_display[0] = settings.open_probe_calibration[index].done    ? 'O' : '-';
 				buffer_display[1] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
 				buffer_display[2] = '\0';
@@ -2041,7 +2037,7 @@ void draw_screen(void)
 			if (measurement_Hz < 1000)
 				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", measurement_Hz);
 			else
-				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", measurement_Hz / 1000);
+				snprintf(buffer_display, sizeof(buffer_display), " %0.1f kHz", measurement_Hz * 1e-3f);
 			ssd1306_SetCursor(0, LINE3_Y - 5);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
@@ -3064,6 +3060,7 @@ enum t_cmd_id : uint8_t {
 	CMD_HOLD_ID,
 	CMD_FREQUENCY_ID,
 	CMD_LCR_MODE_ID,
+	CMD_SP_MODE_ID,
 	CMD_SERIES_ID,
 	CMD_PARALLEL_ID,
 	CMD_REBOOT_ID,
@@ -3078,21 +3075,20 @@ typedef struct {
 
 // serial command table
 const t_cmd cmds[] = {
-	{"?",         "              .. show this help",                              CMD_HELP_ID1    },
-	{"help",      "              .. show this help",                              CMD_HELP_ID2    },
-	{"baudrate",  "[baudrate]    .. read/set the serial baudrate",                CMD_BAUDRATE_ID },
-	{"data",      "[off/asc/bin] .. read/set sending real-time data",             CMD_DATA_ID     },
-	{"frequency", "[Hz]          .. read/set measurement frequency",              CMD_FREQUENCY_ID},
-	{"hold",      "              .. toggle the display hold on/off",              CMD_HOLD_ID     },
-	{"lcrmode",   "{r/l/i/c]     .. switch to desired LCR mode",                  CMD_LCR_MODE_ID },
-	{"opencal",   "              .. run the open probe calibration",              CMD_OPEN_CAL_ID },
-	{"shortcal",  "              .. run the shorted probe calibration",           CMD_SHORT_CAL_ID},
-	{"series",    "              .. select series mode (best if DUT <= 100 Ohm)", CMD_SERIES_ID   },
-	{"parallel",  "              .. select parallel mode",                        CMD_PARALLEL_ID },
-	{"reboot",    "              .. reboot this unit",                            CMD_REBOOT_ID   },
-	{"defaults",  "              .. restore defaults",                            CMD_DEFAULTS_ID },
-	{"version",   "              .. show this units version",                     CMD_VERSION_ID  },
-	{NULL,        "",                                                             CMD_NONE_ID     }    // last one, DO NOT delete this
+	{"?",         "              .. this help",                       CMD_HELP_ID1    },
+	{"help",      "              .. this help",                       CMD_HELP_ID2    },
+	{"baudrate",  "[baudrate]    .. read/set serial baudrate",        CMD_BAUDRATE_ID },
+	{"data",      "[off/asc/bin] .. read/set sending real-time data", CMD_DATA_ID     },
+	{"frequency", "[Hz]          .. read/set measurement frequency",  CMD_FREQUENCY_ID},
+	{"hold",      "              .. toggle display hold on/off",      CMD_HOLD_ID     },
+	{"lcrmode",   "[r/l/i/c]     .. read/set LCR mode",               CMD_LCR_MODE_ID },
+	{"spmode",    "[s/p]         .. read/set Series/Parallel mode",   CMD_SP_MODE_ID  },
+	{"opencal",   "              .. run open probe calibration",      CMD_OPEN_CAL_ID },
+	{"shortcal",  "              .. run shorted probe calibration",   CMD_SHORT_CAL_ID},
+	{"reboot",    "              .. reboot this unit",                CMD_REBOOT_ID   },
+	{"defaults",  "              .. restore defaults",                CMD_DEFAULTS_ID },
+	{"version",   "              .. this units version",              CMD_VERSION_ID  },
+	{NULL,        "",                                                 CMD_NONE_ID     }    // last one, DO NOT delete this
 };
 
 // process any received serial commands
@@ -3196,13 +3192,13 @@ void process_serial_command(char cmd[], unsigned int len)
 			{
 				char     *endptr = NULL;
 				const int val    = strtol(param, &endptr, 10);
-				if (errno > 0 || param == endptr)
+				if (errno > 0 || param == endptr || val < UART_BAUDRATE_MIN || val > UART_BAUDRATE_MAX)
 				{
 					printf(NEWLINE "error: baudrate param '%s'" NEWLINE, param);
 					return;
 				}
 
-				const uint32_t baudrate = (val < 115200) ? 115200 : (val > 921600) ? 921600 : val;
+				const uint32_t baudrate = (val < UART_BAUDRATE_MIN) ? UART_BAUDRATE_MIN : (val > UART_BAUDRATE_MAX) ? UART_BAUDRATE_MAX : val;
 				if (settings.baudrate != baudrate)
 				{
 					settings.baudrate = baudrate;
@@ -3255,13 +3251,13 @@ void process_serial_command(char cmd[], unsigned int len)
 			{
 				char     *endptr = NULL;
 				const int val    = strtol(param, &endptr, 10);
-				if (errno > 0 || param == endptr)
+				if (errno > 0 || param == endptr || val < 100 || val > 1500)
 				{
 					printf(NEWLINE "error: frequency param '%s'" NEWLINE, param);
 					return;
 				}
 
-				const uint16_t Hz = (val <= 300) ? 100 : 1000;
+				const uint16_t Hz = (val < 100) ? 100 : (val > 1500) ? 1500 : val;
 				if (settings.measurement_Hz != Hz)
 				{
 					settings.measurement_Hz = Hz;
@@ -3278,7 +3274,7 @@ void process_serial_command(char cmd[], unsigned int len)
 			if (settings.measurement_Hz < 1000)
 				printf(" %u Hz" NEWLINE, settings.measurement_Hz);
 			else
-				printf(" %u kHz" NEWLINE, settings.measurement_Hz / 1000);
+				printf(" %0.1f kHz" NEWLINE, settings.measurement_Hz * 1e-3f);
 
 			return;
 
@@ -3306,7 +3302,7 @@ void process_serial_command(char cmd[], unsigned int len)
 				draw_screen();
 			}
 
-			printf(NEWLINE "mode");
+			printf(NEWLINE "lcr mode");
 			fflush(NULL);
 			switch (settings.lcr_mode)
 			{
@@ -3326,6 +3322,34 @@ void process_serial_command(char cmd[], unsigned int len)
 					printf(" ERROR" NEWLINE);
 					break;
 			}
+
+			return;
+
+		case CMD_SP_MODE_ID:
+			if (param_len > 0)
+			{
+				if (strncmp(param, "series", param_len) == 0)
+					settings.flags &= ~SETTING_FLAG_PARALLEL;
+				else
+				if (strncmp(param, "parallel", param_len) == 0)
+					settings.flags |= SETTING_FLAG_PARALLEL;
+				else
+				{
+					printf(NEWLINE "error: spmode param '%s'" NEWLINE, param);
+					return;
+				}
+
+				display_hold = 0;
+				save_settings_timer = SAVE_SETTINGS_MS;
+				draw_screen();
+			}
+
+			printf(NEWLINE "sp mode");
+			fflush(NULL);
+			if (settings.flags & SETTING_FLAG_PARALLEL)
+				printf(" parallel" NEWLINE);
+			else
+				printf(" series" NEWLINE);
 
 			return;
 
@@ -3379,32 +3403,6 @@ void process_serial_command(char cmd[], unsigned int len)
 			else
 				printf(" run" NEWLINE);
 
-			return;
-
-		case CMD_SERIES_ID:
-			if (settings.flags & SETTING_FLAG_PARALLEL)
-			{
-				display_hold = 0;
-				settings.flags &= ~SETTING_FLAG_PARALLEL;
-
-				save_settings_timer = SAVE_SETTINGS_MS;
-				draw_screen();
-			}
-
-			printf(NEWLINE "mode series" NEWLINE);
-			return;
-
-		case CMD_PARALLEL_ID:
-			if (!(settings.flags & SETTING_FLAG_PARALLEL))
-			{
-				display_hold = 0;
-				settings.flags |= SETTING_FLAG_PARALLEL;
-
-				save_settings_timer = SAVE_SETTINGS_MS;
-				draw_screen();
-			}
-
-			printf(NEWLINE "mode parallel" NEWLINE);
 			return;
 
 		case CMD_REBOOT_ID:
@@ -3542,7 +3540,7 @@ void process_op_mode(void)
 			if (++calibrate.count >= CALIBRATE_COUNT)
 			{	// finished summing, save the average
 
-				const unsigned int index = (measurement_Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;   // 100Hz/1kHz
 
 				// magnitudes
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
@@ -3598,7 +3596,7 @@ void process_op_mode(void)
 			if (++calibrate.count >= CALIBRATE_COUNT)
 			{	// finished summing, save the average
 
-				const unsigned int index = (measurement_Hz == 100) ? 0 : 1;   // 100Hz/1kHz
+				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;   // 100Hz/1kHz
 
 				// magnitudes
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
