@@ -18,6 +18,7 @@
 #include <float.h>    // INF
 #include <limits.h>
 #include <errno.h>
+//#include <complex>
 
 #include "main.h"
 #include "delay.h"
@@ -44,16 +45,19 @@ typedef struct {
 	volatile uint8_t  processed;       // set to '1' by the exec once it's delt with the new button press
 } t_button;
 
+// 16-bit ADC dual channel
 typedef struct {
 	int16_t adc;
 	int16_t afc;
 } t_adc_dma_data_16;
 
+// 32-bit ADC dual channel
 typedef struct {
 	int32_t adc;
 	int32_t afc;
 } t_adc_dma_data_32;
 
+// complex number
 typedef struct t_comp {
 	float re;
 	float im;
@@ -71,56 +75,51 @@ typedef struct t_comp {
 	}
 } t_comp;
 
+// serial binary data packet
 #pragma pack(push, 1)
 	typedef struct {
-		union {
-			uint32_t marker;
-			uint8_t  marker_b[sizeof(uint32_t)];
-		};
-		union {
-			uint16_t crc;
-			uint8_t  crc_b[sizeof(uint16_t)];
-		};
-		union {
-			float    data[ADC_DATA_LENGTH * 8];
-			uint8_t  data_b[sizeof(float) * ADC_DATA_LENGTH * 8];
-		};
+		uint32_t marker;
+		uint16_t crc;
+		//uint8_t  seq_num;
+		//uint8_t  data_type;
+		//uint16_t data_size;
+		float    data[ADC_DATA_LENGTH * 8];
 	} t_packet;
 #pragma pack(pop)
 
 /*
 static const uint16_t omega_7x10[] = {
-	0b0011100,       // 1
-	0b0100010,       // 2
-	0b1000001,       // 3
-	0b1000001,       // 4
-	0b1000001,       // 5
-	0b1000001,       // 6
-	0b0100010,       // 7
-	0b0011100,       // 8
-	0b0010100,       // 9
-	0b0100010        // 10
+	0b0001110000,       // 1
+	0b0010001000,       // 2
+	0b0100000100,       // 3
+	0b0100000100,       // 4
+	0b0010001000,       // 5
+	0b0001010000,       // 6
+	0b0001010000,       // 7
+	0b0111011100,       // 8
+	0b0000000000,       // 9
+	0b0000000000        // 10
 };
 */
-static const uint16_t omega_11x18[] = {
-	0b00000000000,   // 1
-	0b00000000000,   // 2
-	0b00000000000,   // 3
-	0b00000000000,   // 4
-	0b00000000000,   // 5
-	0b00001111000,   // 6
-	0b00011111100,   // 7
-	0b00111001110,   // 8
-	0b01100000011,   // 9
-	0b01100000011,   // 10
-	0b01100000011,   // 11
-	0b01100000011,   // 12
-	0b00110000110,   // 13
-	0b00011001100,   // 14
-	0b00011001100,   // 15
-	0b00011001100,   // 16
-	0b01111001111,   // 17
-	0b01111001111    // 18
+static const uint16_t omega_13x18[] = {
+	0b0000000000000,   // 1
+	0b0000111110000,   // 2
+	0b0001111111000,   // 3
+	0b0011100011100,   // 4
+	0b0110000000110,   // 5
+	0b0110000000110,   // 6
+	0b0110000000110,   // 7
+	0b0110000000110,   // 8
+	0b0110000000110,   // 9
+	0b0011000001100,   // 10
+	0b0001100011000,   // 11
+	0b0001100011000,   // 12
+	0b0001100011000,   // 13
+	0b0101100011010,   // 14
+	0b0111100011110,   // 15
+	0b0000000000000,   // 16
+	0b0000000000000,   // 17
+	0b0000000000000    // 18
 };
 
 struct {
@@ -604,15 +603,16 @@ typedef struct {
 	float coeff;
 	float sin;
 	float cos;
-	float re;
-	float im;
 } t_goertzel;
 
 t_goertzel goertzel = {0};
 
 // feed the supplied samples through the Goertzel filter
 //
-void goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
+// this is for the phase detector, this outputs a single I/Q pair
+//
+//std::complex <float> goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
+t_comp goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 {
 	register float m1 = 0;
 	register float m2 = 0;
@@ -629,12 +629,13 @@ void goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 
 	// correct the output sample amplitude
 	const float scale = 2.0f / len;
-	g->re = re * scale;
-	g->im = im * scale;
+	return t_comp(re * scale, im * scale);
 }
 
 // this one assumes the sample buffer contains an integer number of full sine cycles
 // if it doesn't, then do not use this function
+//
+// this one os for BPF filtering the waveform, the filtered wave is saved in 'out_samples'
 //
 int goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
 {
@@ -685,9 +686,6 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 	g->coeff = wr * 2;
 	g->cos   = wr;
 	g->sin   = wi;
-
-	g->re    = 0;
-	g->im    = 0;
 }
 
 // ***********************************************************
@@ -893,8 +891,8 @@ int process_Goertzel(void)
 			}
 
 			{	// compute waveform phase
-				goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
-				phase_deg[buf_index] = (goertzel.re != 0.0f) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : NAN;
+				const t_comp g = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
+				phase_deg[buf_index] = (g.re != 0) ? fmodf((atan2f(g.im, g.re) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 		}
 		else
@@ -920,8 +918,8 @@ int process_Goertzel(void)
 			}
 
 			{	// compute waveform phase
-				goertzel_block(adc_data[buf_index], ADC_DATA_LENGTH, &goertzel);
-				phase_deg[buf_index] = (goertzel.re != 0.0f) ? fmodf((atan2f(goertzel.im, goertzel.re) * RAD_TO_DEG) + 270, 360) : NAN;
+				const t_comp g = goertzel_block(adc_data[buf_index], ADC_DATA_LENGTH, &goertzel);
+				phase_deg[buf_index] = (g.re != 0.0f) ? fmodf((atan2f(g.im, g.re) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 		}
 	}
@@ -1262,6 +1260,8 @@ void process_ADC_DMA(const void *buffer)
 	if (vi_measure_index >= VI_MODE_DONE)
 		return;               // wait till the exec has done it's thing
 
+	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);                          // TEST only, LED on
+
 	// copy the new ADC sample block as quickly as possible so as not to hold up the DMA
 	memcpy(tmp_buffer, buffer, sizeof(t_adc_dma_data_16) * ADC_DATA_LENGTH);
 	tmp_buffer_in_use = 1;    // let the exec know that their is a new sample block ready
@@ -1302,7 +1302,7 @@ void process_ADC_exec(void)
 		// reset the waveform clip/saturation detection flags (one for each VI mode)
 		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
 
-		LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);                       // TEST only, LED on
+//		LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);                       // TEST only, LED on
 	}
 
 	// each time the HW VI mode is changed, the ADC input sees a large unwanted spike/DC-offset that takes time to settle :(
@@ -1409,6 +1409,8 @@ void process_ADC_exec(void)
 	// speed up the lower frequency modes by reducing the average count (number of blocks we average)
 	if (measurement_Hz <= 200)
 		average_count = (average_count >= 3) ? average_count / 3 : average_count;
+
+	LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);                          // TEST only, LED off
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 	{	// not yet summed the desired number of sample blocks
@@ -1517,8 +1519,6 @@ void process_ADC_exec(void)
 			volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;      // '0' = LOW gain mode   '1' = HIGH gain mode
 			amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;      // '0' = LOW gain mode   '1' = HIGH gain mode
 		}
-
-		LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);                          // TEST only, LED off
 	}
 }
 
@@ -1533,8 +1533,7 @@ void process_ADC_exec(void)
 //#define DRAW_LINES          // if you want horizontal lines drawn
 //#define DISPLAY_LCR_MODE    // if you want the 'R' 'L' or 'C' before the DUT value
 
-#define     OFFSET_X      0
-#define     LINE_SPACING  13
+#define LINE_SPACING     13
 
 #ifdef DRAW_LINES
 	#define LINE2_Y      (LINE_SPACING + 5)
@@ -1676,7 +1675,7 @@ void draw_screen(void)
 			// Line 1
 
 			// serial/parallel mode
-			ssd1306_SetCursor(OFFSET_X, 0);
+			ssd1306_SetCursor(0, 0);
 			ssd1306_WriteString(par ? "par" : "ser", &Font_7x10, White);
 
 			// measurement frequency
@@ -1760,7 +1759,7 @@ void draw_screen(void)
 						break;
 				}
 
-				ssd1306_SetCursor(OFFSET_X, LINE2_Y + 6);
+				ssd1306_SetCursor(0, LINE2_Y + 6);
 
 				#if DISPLAY_LCR_MODE
 					ssd1306_WriteString(buffer_display, &Font_11x18, White);
@@ -1869,12 +1868,12 @@ void draw_screen(void)
 						else
 							ssd1306_MoveCursor(4, 0);    // move right
 
-						ssd1306_MoveCursor(3, -4);
+						ssd1306_MoveCursor(3, 0);
 
 						uint16_t x;
 						uint16_t y;
 						ssd1306_GetCursor(&x, &y);
-						print_custom_symbol(x, y, omega_11x18, 11, 18);
+						print_custom_symbol(x, y, omega_13x18, 13, 18);
 
 						break;
 					}
@@ -1903,7 +1902,7 @@ void draw_screen(void)
 					value = adc_to_volts(value);
 					const char unit = unit_conversion(&value);
 
-					ssd1306_SetCursor(OFFSET_X, LINE3_Y);
+					ssd1306_SetCursor(0, LINE3_Y);
 					print_sprint(4, value, buffer_display, sizeof(buffer_display));
 					unsigned int i = strlen(buffer_display);
 					if (unit != ' ')
@@ -1942,7 +1941,7 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.esr : system_data.series.esr;
 						const char unit = unit_conversion(&value);
 
-						ssd1306_SetCursor(OFFSET_X, SSD1306_HEIGHT - 1 - Font_7x10.height);
+						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("ER", &Font_7x10, White);
 
 						ssd1306_SetCursor(x1, SSD1306_HEIGHT - 1 - Font_7x10.height);
@@ -1998,7 +1997,7 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.inductance : system_data.series.inductance;
 						const char unit = unit_conversion(&value);
 
-						ssd1306_SetCursor(OFFSET_X, SSD1306_HEIGHT - 1 - Font_7x10.height);
+						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_7x10.height);
 
 						print_sprint(4, value, buffer_display, sizeof(buffer_display));
 						unsigned int i = strlen(buffer_display);
@@ -2036,28 +2035,28 @@ void draw_screen(void)
 
 		case OP_MODE_OPEN_PROBE_CALIBRATION:
 			snprintf(buffer_display, sizeof(buffer_display), "OPEN cal %d", CALIBRATE_COUNT - calibrate.count - 1);
-			ssd1306_SetCursor(OFFSET_X, 5);
+			ssd1306_SetCursor(0, 5);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			if (measurement_Hz < 1000)
 				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", measurement_Hz);
 			else
 				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", measurement_Hz / 1000);
-			ssd1306_SetCursor(OFFSET_X, LINE3_Y - 5);
+			ssd1306_SetCursor(0, LINE3_Y - 5);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			break;
 
 		case OP_MODE_SHORTED_PROBE_CALIBRATION:
 			snprintf(buffer_display, sizeof(buffer_display), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
-			ssd1306_SetCursor(OFFSET_X, 5);
+			ssd1306_SetCursor(0, 5);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			if (measurement_Hz < 1000)
 				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", measurement_Hz);
 			else
 				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", measurement_Hz / 1000);
-			ssd1306_SetCursor(OFFSET_X, LINE3_Y - 5);
+			ssd1306_SetCursor(0, LINE3_Y - 5);
 			ssd1306_WriteString(buffer_display, &Font_11x18, White);
 
 			break;
@@ -3064,6 +3063,7 @@ enum t_cmd_id : uint8_t {
 	CMD_DATA_ID,
 	CMD_HOLD_ID,
 	CMD_FREQUENCY_ID,
+	CMD_LCR_MODE_ID,
 	CMD_SERIES_ID,
 	CMD_PARALLEL_ID,
 	CMD_REBOOT_ID,
@@ -3084,6 +3084,7 @@ const t_cmd cmds[] = {
 	{"data",      "[off/asc/bin] .. read/set sending real-time data",             CMD_DATA_ID     },
 	{"frequency", "[Hz]          .. read/set measurement frequency",              CMD_FREQUENCY_ID},
 	{"hold",      "              .. toggle the display hold on/off",              CMD_HOLD_ID     },
+	{"lcrmode",   "{r/i/c]       .. switch to desired LCR mode",                  CMD_LCR_MODE_ID },
 	{"opencal",   "              .. run the open probe calibration",              CMD_OPEN_CAL_ID },
 	{"shortcal",  "              .. run the shorted probe calibration",           CMD_SHORT_CAL_ID},
 	{"series",    "              .. select series mode (best if DUT <= 100 Ohm)", CMD_SERIES_ID   },
@@ -3190,84 +3191,127 @@ void process_serial_command(char cmd[], unsigned int len)
 			break;
 
 		case CMD_BAUDRATE_ID:
-			if (param_len == 0)
-			{
-				printf(NEWLINE "baudrate %lu" NEWLINE, settings.baudrate);
-			}
-			else
+			if (param_len > 0)
 			{
 				char     *endptr = NULL;
 				const int val    = strtol(param, &endptr, 10);
-				if (errno == 0 && param != endptr)
+				if (errno > 0 || param == endptr)
 				{
-					const uint32_t baudrate = (val < 115200) ? 115200 : (val > 921600) ? 921600 : val;
-					if (settings.baudrate != baudrate)
-					{
-						settings.baudrate = baudrate;
-						LL_USART_SetBaudRate(USART1, rcc_clocks.PCLK2_Frequency, settings.baudrate);
-						save_settings_timer = SAVE_SETTINGS_MS;
-						draw_screen();
-					}
-					printf(NEWLINE "baudrate %lu" NEWLINE, settings.baudrate);
-				}
-				else
 					printf(NEWLINE "error: baudrate param '%s'" NEWLINE, param);
+					return;
+				}
+
+				const uint32_t baudrate = (val < 115200) ? 115200 : (val > 921600) ? 921600 : val;
+				if (settings.baudrate != baudrate)
+				{
+					settings.baudrate = baudrate;
+					LL_USART_SetBaudRate(USART1, rcc_clocks.PCLK2_Frequency, settings.baudrate);
+					save_settings_timer = SAVE_SETTINGS_MS;
+					draw_screen();
+				}
 			}
+
+			printf(NEWLINE "baudrate %lu" NEWLINE, settings.baudrate);
 			return;
 
 		case CMD_OPEN_CAL_ID:
-			if (op_mode == OP_MODE_MEASURING)
+			if (op_mode != OP_MODE_MEASURING)
 			{
-				printf(NEWLINE "open probe calibration .." NEWLINE);
-				display_hold = 0;
-				memset((void *)&calibrate, 0, sizeof(calibrate));
-				op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
-				set_measurement_frequency(100);
-				draw_screen();
-			}
-			else
 				printf(NEWLINE "busy" NEWLINE);
+				return;
+			}
+
+			printf(NEWLINE "open probe calibration .." NEWLINE);
+
+			display_hold = 0;
+			memset((void *)&calibrate, 0, sizeof(calibrate));
+			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
+			set_measurement_frequency(100);
+			draw_screen();
+
 			return;
 
 		case CMD_SHORT_CAL_ID:
-			if (op_mode == OP_MODE_MEASURING)
+			if (op_mode != OP_MODE_MEASURING)
 			{
-				printf(NEWLINE "shorted probe calibration .." NEWLINE);
-				display_hold = 0;
-				memset((void *)&calibrate, 0, sizeof(calibrate));
-				op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
-				set_measurement_frequency(100);
-				draw_screen();
-			}
-			else
 				printf(NEWLINE "busy" NEWLINE);
+				return;
+			}
+
+			printf(NEWLINE "shorted probe calibration .." NEWLINE);
+
+			display_hold = 0;
+			memset((void *)&calibrate, 0, sizeof(calibrate));
+			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
+			set_measurement_frequency(100);
+			draw_screen();
+
 			return;
 
 		case CMD_FREQUENCY_ID:
-			if (param_len == 0)
-			{
-				printf(NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
-			}
-			else
+			if (param_len > 0)
 			{
 				char     *endptr = NULL;
 				const int val    = strtol(param, &endptr, 10);
-				if (errno == 0 && param != endptr)
+				if (errno > 0 || param == endptr)
 				{
-					const uint16_t Hz = (val <= 300) ? 100 : 1000;
-					if (settings.measurement_Hz != Hz)
-					{
-						settings.measurement_Hz = Hz;
-						if (op_mode == OP_MODE_MEASURING)
-							set_measurement_frequency(Hz);
-						save_settings_timer = SAVE_SETTINGS_MS;
-						draw_screen();
-					}
-					printf(NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
-				}
-				else
 					printf(NEWLINE "error: frequency param '%s'" NEWLINE, param);
+					return;
+				}
+
+				const uint16_t Hz = (val <= 300) ? 100 : 1000;
+				if (settings.measurement_Hz != Hz)
+				{
+					settings.measurement_Hz = Hz;
+					if (op_mode == OP_MODE_MEASURING)
+						set_measurement_frequency(Hz);
+					save_settings_timer = SAVE_SETTINGS_MS;
+					draw_screen();
+				}
 			}
+
+			printf(NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
+			return;
+
+		case CMD_LCR_MODE_ID:
+			if (param_len > 0)
+			{
+				if (strncmp(param, "resistance", param_len) == 0)
+					settings.lcr_mode = LCR_MODE_RESISTANCE;
+				else
+				if (strncmp(param, "inductance", param_len) == 0 || strncmp(param, "lenz", param_len) == 0)
+					settings.lcr_mode = LCR_MODE_INDUCTANCE;
+				else
+				if (strncmp(param, "capacitance", param_len) == 0)
+					settings.lcr_mode = LCR_MODE_CAPACITANCE;
+				else
+				{
+					printf(NEWLINE "error: mode param '%s'" NEWLINE, param);
+					return;
+				}
+				save_settings_timer = SAVE_SETTINGS_MS;
+				draw_screen();
+			}
+
+			switch (settings.lcr_mode)
+			{
+				case LCR_MODE_INDUCTANCE:
+					printf(NEWLINE "mode inductance" NEWLINE);
+					break;
+				case LCR_MODE_CAPACITANCE:
+					printf(NEWLINE "mode capacitance" NEWLINE);
+					break;
+				case LCR_MODE_RESISTANCE:
+					printf(NEWLINE "mode resistance" NEWLINE);
+					break;
+				case LCR_MODE_AUTO:
+					printf(NEWLINE "mode auto" NEWLINE);
+					break;
+				default:
+					printf(NEWLINE "mode ERROR" NEWLINE);
+					break;
+			}
+
 			return;
 
 		case CMD_DATA_ID:
@@ -3279,7 +3323,7 @@ void process_serial_command(char cmd[], unsigned int len)
 					printf(NEWLINE "live data %s" NEWLINE, (settings.flags & SETTING_FLAG_SEND_BINARY) ? "binary" : "ascii");
 			}
 			else
-			if (strcmp(param, "off") == 0)
+			if (strncmp(param, "off", param_len) == 0)
 			{
 				settings.flags &= ~SETTING_FLAG_UART_DSO;
 				save_settings_timer = SAVE_SETTINGS_MS;
@@ -3287,7 +3331,7 @@ void process_serial_command(char cmd[], unsigned int len)
 				printf(NEWLINE "live data off" NEWLINE);
 			}
 			else
-			if (strcmp(param, "bin") == 0)
+			if (strncmp(param, "bin", param_len) == 0)
 			{
 				settings.flags |= SETTING_FLAG_SEND_BINARY | SETTING_FLAG_UART_DSO;
 				save_settings_timer = SAVE_SETTINGS_MS;
@@ -3295,7 +3339,7 @@ void process_serial_command(char cmd[], unsigned int len)
 				printf(NEWLINE "live data binary" NEWLINE);
 			}
 			else
-			if (strcmp(param, "asc") == 0)
+			if (strncmp(param, "asc", param_len) == 0)
 			{
 				settings.flags &= ~SETTING_FLAG_SEND_BINARY;
 				settings.flags |= SETTING_FLAG_UART_DSO;
