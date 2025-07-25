@@ -3084,7 +3084,7 @@ const t_cmd cmds[] = {
 	{"data",      "[off/asc/bin] .. read/set sending real-time data",             CMD_DATA_ID     },
 	{"frequency", "[Hz]          .. read/set measurement frequency",              CMD_FREQUENCY_ID},
 	{"hold",      "              .. toggle the display hold on/off",              CMD_HOLD_ID     },
-	{"lcrmode",   "{r/i/c]       .. switch to desired LCR mode",                  CMD_LCR_MODE_ID },
+	{"lcrmode",   "{r/l/i/c]     .. switch to desired LCR mode",                  CMD_LCR_MODE_ID },
 	{"opencal",   "              .. run the open probe calibration",              CMD_OPEN_CAL_ID },
 	{"shortcal",  "              .. run the shorted probe calibration",           CMD_SHORT_CAL_ID},
 	{"series",    "              .. select series mode (best if DUT <= 100 Ohm)", CMD_SERIES_ID   },
@@ -3181,6 +3181,7 @@ void process_serial_command(char cmd[], unsigned int len)
 			printf(NEWLINE "Commands [params] (case insensitive, can be shortened) .." NEWLINE);
 			for (unsigned int i = 0; cmds[i].token != NULL; i++)
 				printf("  %-*s %s" NEWLINE, cmd_max_len, cmds[i].token, cmds[i].description);
+
 			return;
 		}
 
@@ -3206,6 +3207,7 @@ void process_serial_command(char cmd[], unsigned int len)
 				{
 					settings.baudrate = baudrate;
 					LL_USART_SetBaudRate(USART1, rcc_clocks.PCLK2_Frequency, settings.baudrate);
+
 					save_settings_timer = SAVE_SETTINGS_MS;
 					draw_screen();
 				}
@@ -3265,12 +3267,19 @@ void process_serial_command(char cmd[], unsigned int len)
 					settings.measurement_Hz = Hz;
 					if (op_mode == OP_MODE_MEASURING)
 						set_measurement_frequency(Hz);
+
 					save_settings_timer = SAVE_SETTINGS_MS;
 					draw_screen();
 				}
 			}
 
-			printf(NEWLINE "measurement frequency %uHz" NEWLINE, settings.measurement_Hz);
+			printf(NEWLINE "measurement frequency");
+			fflush(NULL);
+			if (settings.measurement_Hz < 1000)
+				printf(" %u Hz" NEWLINE, settings.measurement_Hz);
+			else
+				printf(" %u kHz" NEWLINE, settings.measurement_Hz / 1000);
+
 			return;
 
 		case CMD_LCR_MODE_ID:
@@ -3285,84 +3294,91 @@ void process_serial_command(char cmd[], unsigned int len)
 				if (strncmp(param, "capacitance", param_len) == 0)
 					settings.lcr_mode = LCR_MODE_CAPACITANCE;
 				else
+//				if (strncmp(param, "auto", param_len) == 0)
+//					settings.lcr_mode = LCR_MODE_AUTO;               // todo:
+//				else
 				{
 					printf(NEWLINE "error: mode param '%s'" NEWLINE, param);
 					return;
 				}
+
 				save_settings_timer = SAVE_SETTINGS_MS;
 				draw_screen();
 			}
 
+			printf(NEWLINE "mode");
+			fflush(NULL);
 			switch (settings.lcr_mode)
 			{
 				case LCR_MODE_INDUCTANCE:
-					printf(NEWLINE "mode inductance" NEWLINE);
+					printf(" inductance" NEWLINE);
 					break;
 				case LCR_MODE_CAPACITANCE:
-					printf(NEWLINE "mode capacitance" NEWLINE);
+					printf(" capacitance" NEWLINE);
 					break;
 				case LCR_MODE_RESISTANCE:
-					printf(NEWLINE "mode resistance" NEWLINE);
+					printf(" resistance" NEWLINE);
 					break;
 				case LCR_MODE_AUTO:
-					printf(NEWLINE "mode auto" NEWLINE);
+					printf(" auto" NEWLINE);
 					break;
 				default:
-					printf(NEWLINE "mode ERROR" NEWLINE);
+					printf(" ERROR" NEWLINE);
 					break;
 			}
 
 			return;
 
 		case CMD_DATA_ID:
-			if (param_len == 0)
+			if (param_len > 0)
 			{
-				if (settings.flags & SETTING_FLAG_UART_DSO)
-					printf(NEWLINE "live data off" NEWLINE);
+				if (strncmp(param, "off", param_len) == 0)
+					settings.flags &= ~SETTING_FLAG_UART_DSO;
 				else
-					printf(NEWLINE "live data %s" NEWLINE, (settings.flags & SETTING_FLAG_SEND_BINARY) ? "binary" : "ascii");
-			}
-			else
-			if (strncmp(param, "off", param_len) == 0)
-			{
-				settings.flags &= ~SETTING_FLAG_UART_DSO;
+				if (strncmp(param, "bin", param_len) == 0)
+					settings.flags |= SETTING_FLAG_SEND_BINARY | SETTING_FLAG_UART_DSO;
+				else
+				if (strncmp(param, "asc", param_len) == 0)
+					settings.flags = (settings.flags & ~SETTING_FLAG_SEND_BINARY) | SETTING_FLAG_UART_DSO;
+				else
+				{
+					printf(NEWLINE "error: data param '%s'" NEWLINE, param);
+					return;
+				}
+
 				save_settings_timer = SAVE_SETTINGS_MS;
 				draw_screen();
-				printf(NEWLINE "live data off" NEWLINE);
 			}
+
+			printf(NEWLINE "live data");
+			fflush(NULL);
+			if (settings.flags & SETTING_FLAG_UART_DSO)
+				printf(" off" NEWLINE);
 			else
-			if (strncmp(param, "bin", param_len) == 0)
-			{
-				settings.flags |= SETTING_FLAG_SEND_BINARY | SETTING_FLAG_UART_DSO;
-				save_settings_timer = SAVE_SETTINGS_MS;
-				draw_screen();
-				printf(NEWLINE "live data binary" NEWLINE);
-			}
+			if (settings.flags & SETTING_FLAG_SEND_BINARY)
+				printf(" binary" NEWLINE);
 			else
-			if (strncmp(param, "asc", param_len) == 0)
-			{
-				settings.flags &= ~SETTING_FLAG_SEND_BINARY;
-				settings.flags |= SETTING_FLAG_UART_DSO;
-				save_settings_timer = SAVE_SETTINGS_MS;
-				draw_screen();
-				printf(NEWLINE "live data ascii" NEWLINE);
-			}
-			else
-				printf(NEWLINE "error: data param '%s'" NEWLINE, param);
+				printf(" ascii" NEWLINE);
+
 			return;
 
 		case CMD_HOLD_ID:
-			if (op_mode == OP_MODE_MEASURING)
+			if (op_mode != OP_MODE_MEASURING)
 			{
-				display_hold ^= 1u;
-				draw_screen();
-				if (display_hold)
-					printf(NEWLINE "display hold" NEWLINE);
-				else
-					printf(NEWLINE "display run" NEWLINE);
-			}
-			else
 				printf(NEWLINE "busy" NEWLINE);
+				return;
+			}
+
+			display_hold ^= 1u;        // toggle hold flag
+			draw_screen();
+
+			printf(NEWLINE "display");
+			fflush(NULL);
+			if (display_hold)
+				printf(" hold" NEWLINE);
+			else
+				printf(" run" NEWLINE);
+
 			return;
 
 		case CMD_SERIES_ID:
@@ -3370,9 +3386,11 @@ void process_serial_command(char cmd[], unsigned int len)
 			{
 				display_hold = 0;
 				settings.flags &= ~SETTING_FLAG_PARALLEL;
+
 				save_settings_timer = SAVE_SETTINGS_MS;
 				draw_screen();
 			}
+
 			printf(NEWLINE "mode series" NEWLINE);
 			return;
 
@@ -3381,9 +3399,11 @@ void process_serial_command(char cmd[], unsigned int len)
 			{
 				display_hold = 0;
 				settings.flags |= SETTING_FLAG_PARALLEL;
+
 				save_settings_timer = SAVE_SETTINGS_MS;
 				draw_screen();
 			}
+
 			printf(NEWLINE "mode parallel" NEWLINE);
 			return;
 
