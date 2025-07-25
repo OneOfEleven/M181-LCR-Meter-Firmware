@@ -57,23 +57,23 @@ typedef struct {
 	int32_t afc;
 } t_adc_dma_data_32;
 
-// complex number
-typedef struct t_comp {
-	float re;
-	float im;
+// complex float number
+typedef struct t_complex {
+	float real;
+	float imag;
 
-	t_comp()
+	t_complex()
 	{
-		re = 0.0f;
-		im = 0.0f;
+		real = 0;
+		imag = 0;
 	}
 
-	t_comp(const float _re, const float _im)
+	t_complex(const float _real, const float _imag)
 	{
-		re = _re;
-		im = _im;
+		real = _real;
+		imag = _imag;
 	}
-} t_comp;
+} t_complex;
 
 // serial binary data packet
 #pragma pack(push, 1)
@@ -141,8 +141,8 @@ volatile uint32_t     sys_tick = 0;                // our own system tick value
 
 LL_RCC_ClocksTypeDef  rcc_clocks = {0};            // various CPU clock frequencies
 
-uint32_t              draw_screen_count  = 0;
-char                  buffer_display[26] = {0};
+uint32_t              draw_screen_count = 0;
+char                  str_buf[32]       = {0};
 
 t_button              button[BUTTON_NUM] = {0};    // each buttons press data
 
@@ -161,7 +161,7 @@ unsigned int          display_hold = 0;                       // '1' to hold/pau
 struct {
 	int               count;
 	float             mag_sum[8];
-	t_comp            phase_sum[8];
+	t_complex         phase_sum[8];
 } calibrate = {0};
 
 unsigned int          volt_gain_sel   = 0;
@@ -203,7 +203,7 @@ t_settings            settings            = {0};             // the users settin
 
 t_system_data         system_data = {0};                     // various results saved in here
 
-uint8_t               tmp_buffer[sizeof(t_comp) * ADC_DATA_LENGTH];   // buffer must be big enough for what uses it
+uint8_t               tmp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];   // buffer must be big enough for what uses it
 volatile uint8_t      tmp_buffer_in_use = 0;
 
 // for TX'ing binary packets via the serial port
@@ -259,6 +259,38 @@ void stop(uint32_t ms = 0)
 		LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);  // LED off
 		DWT_Delay_ms(ms);
 	}
+}
+
+// remove any trailing zeros from a float string
+void trim_trailing_zeros(char buf[])
+{
+	if (buf == NULL)
+		return;
+
+	if (strchr(buf, '.') == NULL)
+		return;                    // no DP found
+
+	const unsigned int len = strlen(buf);
+	if (len == 0)
+		return;
+
+	unsigned int index = len - 1;
+
+	while (index > 0 && (buf[index] < '0' || buf[index] > '9'))
+		index--;
+
+	if (index == 0)
+		return;
+
+	unsigned int index2 = index++;
+
+	while (index2 > 0 && (buf[index2] == '0' || buf[index2] == '.'))
+		index2--;
+
+	if (++index2 >= index)
+		return;
+
+	memmove(buf + index2, buf + index, len + (index - index2));
 }
 
 // wait untill the serial TX DMA has completed it's send
@@ -612,7 +644,7 @@ t_goertzel goertzel = {0};
 // this is for the phase detector, this outputs a single I/Q pair
 //
 //std::complex <float> goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
-t_comp goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
+t_complex goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 {
 	register float m1 = 0;
 	register float m2 = 0;
@@ -629,7 +661,7 @@ t_comp goertzel_block(const float *samples, const unsigned int len, t_goertzel *
 
 	// correct the output sample amplitude
 	const float scale = 2.0f / len;
-	return t_comp(re * scale, im * scale);
+	return t_complex(re * scale, im * scale);
 }
 
 // this one assumes the sample buffer contains an integer number of full sine cycles
@@ -637,7 +669,8 @@ t_comp goertzel_block(const float *samples, const unsigned int len, t_goertzel *
 //
 // this one os for BPF filtering the waveform, the filtered wave is saved in 'out_samples'
 //
-int goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
+//int goertzel_wrap(const float *in_samples, std::complex *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
+int goertzel_wrap(const float *in_samples, t_complex *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
 {
 	const float scale = 2.0f / g_len;  // for correcting the output amplitude
 
@@ -655,12 +688,12 @@ int goertzel_wrap(const float *in_samples, t_comp *out_samples, const unsigned i
 				n = 0;
 		}
 
-		const float re = (m1 * g->cos) - m2;
-		const float im = -m1 * g->sin;
+		const float real = (m1 * g->cos) - m2;
+		const float imag = -m1 * g->sin;
 
 		// correct the output sample amplitude
-		out_samples[k].re = re * scale;
-		out_samples[k].im = im * scale;
+		out_samples[k].real = real * scale;
+		out_samples[k].imag = imag * scale;
 
 		// exit if a button is pressed
 		//
@@ -780,20 +813,20 @@ void set_measurement_frequency(uint32_t Hz)
 }
 
 #if 1
-	float phase_diff(const t_comp c1, const t_comp c2)
+	float phase_diff(const t_complex c1, const t_complex c2)
 	{
 		// conj multiply
-		const t_comp d = t_comp((c1.re * c2.re) + (c1.im * c2.im), (c1.re * c2.im) - (c1.im * c2.re));
+		const t_complex d = t_complex((c1.real * c2.real) + (c1.imag * c2.imag), (c1.real * c2.imag) - (c1.imag * c2.real));
 
 		// phase
-		return (d.re != 0.0f) ? atan2f(d.im, d.re) * RAD_TO_DEG : NAN;
+		return (d.real != 0.0f) ? atan2f(d.imag, d.real) * RAD_TO_DEG : NAN;
 	}
 
 	float phase_diff(const float phase_deg_1, const float phase_deg_2)
 	{
 		const float phi1 = phase_deg_1 * DEG_TO_RAD;
 		const float phi2 = phase_deg_2 * DEG_TO_RAD;
-		return phase_diff(t_comp(cosf(phi1), sinf(phi1)), t_comp(cosf(phi2), sinf(phi2)));
+		return phase_diff(t_complex(cosf(phi1), sinf(phi1)), t_complex(cosf(phi2), sinf(phi2)));
 	}
 #else
 	float phase_diff(float phase_deg_1, float phase_deg_2)
@@ -887,14 +920,14 @@ int process_Goertzel(void)
 			}
 
 			{	// compute waveform phase
-				const t_comp g = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
-				phase_deg[buf_index] = (g.re != 0) ? fmodf((atan2f(g.im, g.re) * RAD_TO_DEG) + 270, 360) : NAN;
+				const t_complex g = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
+				phase_deg[buf_index] = (g.real != 0) ? fmodf((atan2f(g.imag, g.real) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 		}
 		else
 		{	// use Goertzel DFT to filter the waveform
 
-			register t_comp *buf = (t_comp *)tmp_buffer;           // point to Goertzel dft output buffer
+			register t_complex *buf = (t_complex *)tmp_buffer;           // point to Goertzel dft output buffer
 
 			// do it
 			if (goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
@@ -905,17 +938,17 @@ int process_Goertzel(void)
 				register float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
-					register const t_comp samp = buf[k];
-					sum += SQR(samp.re) + SQR(samp.im);
-					buf_out[k] = samp.re;             // replace the unfiltered sample with the Goertzel filtered sample
+					register const t_complex samp = buf[k];
+					sum += SQR(samp.real) + SQR(samp.imag);
+					buf_out[k] = samp.real;             // replace the unfiltered sample with the Goertzel filtered sample
 				}
 				sum *= 1.0f / ADC_DATA_LENGTH;
 				mag_rms[buf_index] = sqrtf(sum);
 			}
 
 			{	// compute waveform phase
-				const t_comp g = goertzel_block(adc_data[buf_index], ADC_DATA_LENGTH, &goertzel);
-				phase_deg[buf_index] = (g.re != 0.0f) ? fmodf((atan2f(g.im, g.re) * RAD_TO_DEG) + 270, 360) : NAN;
+				const t_complex g = goertzel_block(adc_data[buf_index], ADC_DATA_LENGTH, &goertzel);
+				phase_deg[buf_index] = (g.real != 0.0f) ? fmodf((atan2f(g.imag, g.real) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 		}
 	}
@@ -933,7 +966,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 	unsigned int sum_count = 0;
 	float        sum_rms   = 0;
-	t_comp       sum_phase = {0, 0};
+	t_complex       sum_phase = {0, 0};
 
 	for (unsigned int mode = 0; mode < 8; mode += 2)
 	{
@@ -964,14 +997,14 @@ void combine_afc(float *avg_rms, float *avg_deg)
 		sum_rms += mag_rms[mode + 1];
 
 		const float phase_rad = phase_deg[mode + 1] * DEG_TO_RAD;
-		sum_phase.re += cosf(phase_rad);
-		sum_phase.im += sinf(phase_rad);
+		sum_phase.real += cosf(phase_rad);
+		sum_phase.imag += sinf(phase_rad);
 
 		sum_count++;
 	}
 
 	*avg_rms = sum_rms / sum_count;
-	*avg_deg = (sum_phase.re != 0.0f) ? atan2f(sum_phase.im, sum_phase.re) * RAD_TO_DEG : NAN;
+	*avg_deg = (sum_phase.real != 0) ? atan2f(sum_phase.imag, sum_phase.real) * RAD_TO_DEG : NAN;
 }
 
 #if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
@@ -1620,13 +1653,13 @@ void bootup_screen(void)
 	ssd1306_SetCursor(0, 0);
 	ssd1306_WriteString("M181", &Font_7x10, White);
 
-	sprintf(buffer_display, "%lu", settings.baudrate);
+	sprintf(str_buf, "%lu", settings.baudrate);
 	ssd1306_SetCursor(5 * Font_7x10.width, 0);
-	ssd1306_WriteString(buffer_display, &Font_7x10, White);
+	ssd1306_WriteString(str_buf, &Font_7x10, White);
 
-	sprintf(buffer_display, "v%.2f", FW_VERSION);
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(buffer_display) * Font_7x10.width), 0);
-	ssd1306_WriteString(buffer_display, &Font_7x10, White);
+	sprintf(str_buf, "v%.2f", FW_VERSION);
+	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(str_buf) * Font_7x10.width), 0);
+	ssd1306_WriteString(str_buf, &Font_7x10, White);
 
 	ssd1306_SetCursor(16, 14);
 	ssd1306_WriteString("LCR Meter", &Font_11x18, White);
@@ -1645,8 +1678,8 @@ void bootup_screen(void)
 void draw_measurement_mode(void)
 {
 	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_7x10.width), 0);
-	snprintf(buffer_display, sizeof(buffer_display), "%u", system_data.vi_measure_mode);
-	ssd1306_WriteString(buffer_display, &Font_7x10, White);
+	snprintf(str_buf, sizeof(str_buf), "%u", system_data.vi_measure_mode);
+	ssd1306_WriteString(str_buf, &Font_7x10, White);
 
 	ssd1306_UpdateScreen();
 }
@@ -1672,24 +1705,24 @@ void draw_screen(void)
 
 			// serial/parallel mode
 			ssd1306_SetCursor(0, 0);
-			ssd1306_WriteString(par ? "par" : "ser", &Font_7x10, White);
+			ssd1306_WriteString(par ? "par " : "ser ", &Font_7x10, White);
 
 			// measurement frequency
 			if (measurement_Hz < 1000)
-				snprintf(buffer_display, sizeof(buffer_display), "%u", measurement_Hz);
+				snprintf(str_buf, sizeof(str_buf), "%u", measurement_Hz);
 			else
-				snprintf(buffer_display, sizeof(buffer_display), "%0.1fk", measurement_Hz * 1e-3f);
-			ssd1306_SetCursor(5 * Font_7x10.width, 0);
-			ssd1306_WriteString(buffer_display, &Font_7x10, White);
+				snprintf(str_buf, sizeof(str_buf), "%0.1fk", measurement_Hz * 1e-3f);
+			trim_trailing_zeros(str_buf);
+			ssd1306_MoveCursor(3, 0);
+			ssd1306_WriteString(str_buf, &Font_7x10, White);
 
 			{	// open/short calibration
 				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;
-				buffer_display[0] = settings.open_probe_calibration[index].done    ? 'O' : '-';
-				buffer_display[1] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
-				buffer_display[2] = '\0';
-				//ssd1306_SetCursor(11 * Font_7x10.width, 0);
+				str_buf[0] = settings.open_probe_calibration[index].done    ? 'O' : '-';
+				str_buf[1] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
+				str_buf[2] = '\0';
 				ssd1306_SetCursor(10 * Font_7x10.width, 0);
-				ssd1306_WriteString(buffer_display, &Font_7x10, White);
+				ssd1306_WriteString(str_buf, &Font_7x10, White);
 			}
 
 			// hold or fast
@@ -1702,8 +1735,8 @@ void draw_screen(void)
 			#if 1
 			else
 			{	// VI phase
-				print_sprint(3, system_data.vi_phase_deg, buffer_display, sizeof(buffer_display));
-				ssd1306_WriteString(buffer_display, &Font_7x10, White);
+				print_sprint(3, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
+				ssd1306_WriteString(str_buf, &Font_7x10, White);
 			}
 			#endif
 
@@ -1732,21 +1765,21 @@ void draw_screen(void)
 					case LCR_MODE_INDUCTANCE:
 						value = par ? system_data.parallel.inductance : system_data.series.inductance;
 						#if DISPLAY_LCR_MODE
-							snprintf(buffer_display, sizeof(buffer_display), "L");
+							snprintf(str_buf, sizeof(str_buf), "L");
 						#endif
 						break;
 
 					case LCR_MODE_CAPACITANCE:
 						value = par ? system_data.parallel.capacitance : system_data.series.capacitance;
 						#if DISPLAY_LCR_MODE
-							snprintf(buffer_display, sizeof(buffer_display), "C");
+							snprintf(str_buf, sizeof(str_buf), "C");
 						#endif
 						break;
 
 					case LCR_MODE_RESISTANCE:
 						value = par ? system_data.parallel.resistance : system_data.series.resistance;
 						#if DISPLAY_LCR_MODE
-							snprintf(buffer_display, sizeof(buffer_display), "R");
+							snprintf(str_buf, sizeof(str_buf), "R");
 						#endif
 						break;
 
@@ -1758,7 +1791,7 @@ void draw_screen(void)
 				ssd1306_SetCursor(0, LINE2_Y + 6);
 
 				#if DISPLAY_LCR_MODE
-					ssd1306_WriteString(buffer_display, &Font_11x18, White);
+					ssd1306_WriteString(str_buf, &Font_11x18, White);
 				#endif
 
 				char unit = unit_conversion(&value);
@@ -1779,16 +1812,16 @@ void draw_screen(void)
 						}
 
 						if (unit == 'u')
-							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
+							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
 						else
-							print_sprint(4, value, buffer_display, sizeof(buffer_display));
+							print_sprint(4, value, str_buf, sizeof(str_buf));
 						break;
 
 					case LCR_MODE_CAPACITANCE:
 						if (unit == 'p')
-							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
+							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
 						else
-							print_sprint(4, value, buffer_display, sizeof(buffer_display));
+							print_sprint(4, value, str_buf, sizeof(str_buf));
 						break;
 
 					case LCR_MODE_RESISTANCE:
@@ -1811,18 +1844,20 @@ void draw_screen(void)
 						}
 
 						if (unit == 'm')
-							snprintf(buffer_display, sizeof(buffer_display), "%0.1f", value);
-							//snprintf(buffer_display, sizeof(buffer_display), "%d", (int)value);
+							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+							//snprintf(str_buf, sizeof(str_buf), "%d", (int)value);
 						else
-							print_sprint(4, value, buffer_display, sizeof(buffer_display));
+							print_sprint(4, value, str_buf, sizeof(str_buf));
 						break;
 
 					case LCR_MODE_AUTO:
 						break;
 				}
 
+				trim_trailing_zeros(str_buf);
+
 				ssd1306_MoveCursor(4, -3);
-				ssd1306_WriteString(buffer_display, &Font_16x26, White);
+				ssd1306_WriteString(str_buf, &Font_16x26, White);
 
 				ssd1306_MoveCursor(6, -1);
 
@@ -1832,11 +1867,11 @@ void draw_screen(void)
 					{
 						unsigned int i = 0;
 						if (unit != ' ')
-							buffer_display[i++] = unit;
-						buffer_display[i++] = 'H';
-						buffer_display[i++] = '\0';
-						ssd1306_WriteString(buffer_display, &Font_11x18, White);
-						//ssd1306_WriteString(buffer_display, &Font_8x16, White);
+							str_buf[i++] = unit;
+						str_buf[i++] = 'H';
+						str_buf[i++] = '\0';
+						ssd1306_WriteString(str_buf, &Font_11x18, White);
+						//ssd1306_WriteString(str_buf, &Font_8x16, White);
 						break;
 					}
 
@@ -1844,11 +1879,11 @@ void draw_screen(void)
 					{
 						unsigned int i = 0;
 						if (unit != ' ')
-							buffer_display[i++] = unit;
-						buffer_display[i++] = 'F';
-						buffer_display[i++] = '\0';
-						ssd1306_WriteString(buffer_display, &Font_11x18, White);
-						//ssd1306_WriteString(buffer_display, &Font_8x16, White);
+							str_buf[i++] = unit;
+						str_buf[i++] = 'F';
+						str_buf[i++] = '\0';
+						ssd1306_WriteString(str_buf, &Font_11x18, White);
+						//ssd1306_WriteString(str_buf, &Font_8x16, White);
 						break;
 					}
 
@@ -1856,10 +1891,10 @@ void draw_screen(void)
 					{
 						if (unit != ' ')
 						{
-							buffer_display[0] = unit;
-							buffer_display[1] = '\0';
-							ssd1306_WriteString(buffer_display, &Font_11x18, White);
-							//ssd1306_WriteString(buffer_display, &Font_8x16, White);
+							str_buf[0] = unit;
+							str_buf[1] = '\0';
+							ssd1306_WriteString(str_buf, &Font_11x18, White);
+							//ssd1306_WriteString(str_buf, &Font_8x16, White);
 						}
 						else
 							ssd1306_MoveCursor(4, 0);    // move right
@@ -1881,11 +1916,11 @@ void draw_screen(void)
 
 			#if 1
 			{	// show gain setting for V and I modes
-				buffer_display[0] = volt_gain_sel ? 'H' : 'L';
-				buffer_display[1] = amp_gain_sel  ? 'H' : 'L';
-				buffer_display[2] ='\0';
+				str_buf[0] = volt_gain_sel ? 'H' : 'L';
+				str_buf[1] = amp_gain_sel  ? 'H' : 'L';
+				str_buf[2] ='\0';
 				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * Font_7x10.width), LINE3_Y);
-				ssd1306_WriteString(buffer_display, &Font_7x10, White);
+				ssd1306_WriteString(str_buf, &Font_7x10, White);
 			}
 			#endif
 
@@ -1899,13 +1934,14 @@ void draw_screen(void)
 					const char unit = unit_conversion(&value);
 
 					ssd1306_SetCursor(0, LINE3_Y);
-					print_sprint(4, value, buffer_display, sizeof(buffer_display));
-					unsigned int i = strlen(buffer_display);
+					print_sprint(4, value, str_buf, sizeof(str_buf));
+					unsigned int i = strlen(str_buf);
 					if (unit != ' ')
-						buffer_display[i++] = unit;
-					buffer_display[i++] = 'V';
-					buffer_display[i++] = '\0';
-					ssd1306_WriteString(buffer_display, &Font_7x10, White);
+						str_buf[i++] = unit;
+					str_buf[i++] = 'V';
+					str_buf[i++] = '\0';
+					trim_trailing_zeros(str_buf);
+					ssd1306_WriteString(str_buf, &Font_7x10, White);
 				}
 
 				{	// current
@@ -1914,13 +1950,14 @@ void draw_screen(void)
 					const char unit = unit_conversion(&value);
 
 					ssd1306_SetCursor(62, LINE3_Y);
-					print_sprint(4, value, buffer_display, sizeof(buffer_display));
-					unsigned int i = strlen(buffer_display);
+					print_sprint(4, value, str_buf, sizeof(str_buf));
+					unsigned int i = strlen(str_buf);
 					if (unit != ' ')
-						buffer_display[i++] = unit;
-					buffer_display[i++] = 'A';
-					buffer_display[i++] = '\0';
-					ssd1306_WriteString(buffer_display, &Font_7x10, White);
+						str_buf[i++] = unit;
+					str_buf[i++] = 'A';
+					str_buf[i++] = '\0';
+					trim_trailing_zeros(str_buf);
+					ssd1306_WriteString(str_buf, &Font_7x10, White);
 				}
 			#endif
 
@@ -1942,11 +1979,12 @@ void draw_screen(void)
 
 						ssd1306_SetCursor(x1, SSD1306_HEIGHT - 1 - Font_7x10.height);
 
-						print_sprint(3, value, buffer_display, sizeof(buffer_display));
-						unsigned int i = strlen(buffer_display);
-						buffer_display[i++] = unit;
-						buffer_display[i++] = '\0';
-						ssd1306_WriteString(buffer_display, &Font_7x10, White);
+						print_sprint(3, value, str_buf, sizeof(str_buf));
+						unsigned int i = strlen(str_buf);
+						str_buf[i++] = unit;
+						str_buf[i++] = '\0';
+						trim_trailing_zeros(str_buf);
+						ssd1306_WriteString(str_buf, &Font_7x10, White);
 					}
 
 					#if 0
@@ -1960,11 +1998,12 @@ void draw_screen(void)
 
 						ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_7x10.height);
 
-						print_sprint(3, value, buffer_display, sizeof(buffer_display));
-						unsigned int i = strlen(buffer_display);
-						buffer_display[i++] = unit;
-						buffer_display[i++] = '\0';
-						ssd1306_WriteString(buffer_display, &Font_7x10, White);
+						print_sprint(3, value, str_buf, sizeof(str_buf));
+						unsigned int i = strlen(str_buf);
+						str_buf[i++] = unit;
+						str_buf[i++] = '\0';
+						trim_trailing_zeros(str_buf);
+						ssd1306_WriteString(str_buf, &Font_7x10, White);
 					}
 					#else
 					{	// Quality factor
@@ -1976,11 +2015,12 @@ void draw_screen(void)
 						ssd1306_WriteString("Q ", &Font_7x10, White);
 
 						//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_7x10.height);
-						print_sprint(3, value, buffer_display, sizeof(buffer_display));
-						unsigned int i = strlen(buffer_display);
-						buffer_display[i++] = unit;
-						buffer_display[i++] = '\0';
-						ssd1306_WriteString(buffer_display, &Font_7x10, White);
+						print_sprint(3, value, str_buf, sizeof(str_buf));
+						unsigned int i = strlen(str_buf);
+						str_buf[i++] = unit;
+						str_buf[i++] = '\0';
+						trim_trailing_zeros(str_buf);
+						ssd1306_WriteString(str_buf, &Font_7x10, White);
 					}
 					#endif
 
@@ -1995,13 +2035,14 @@ void draw_screen(void)
 
 						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_7x10.height);
 
-						print_sprint(4, value, buffer_display, sizeof(buffer_display));
-						unsigned int i = strlen(buffer_display);
+						print_sprint(4, value, str_buf, sizeof(str_buf));
+						unsigned int i = strlen(str_buf);
 						if (unit != ' ')
-							buffer_display[i++] = unit;
-						buffer_display[i++] = 'H';
-						buffer_display[i++] = '\0';
-						ssd1306_WriteString(buffer_display, &Font_7x10, White);
+							str_buf[i++] = unit;
+						str_buf[i++] = 'H';
+						str_buf[i++] = '\0';
+						trim_trailing_zeros(str_buf);
+						ssd1306_WriteString(str_buf, &Font_7x10, White);
 					}
 
 					{	// Quality factor
@@ -2012,11 +2053,12 @@ void draw_screen(void)
 						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("Q ", &Font_7x10, White);
 
-						print_sprint(3, value, buffer_display, sizeof(buffer_display));
-						unsigned int i = strlen(buffer_display);
-						buffer_display[i++] = unit;
-						buffer_display[i++] = '\0';
-						ssd1306_WriteString(buffer_display, &Font_7x10, White);
+						print_sprint(3, value, str_buf, sizeof(str_buf));
+						unsigned int i = strlen(str_buf);
+						str_buf[i++] = unit;
+						str_buf[i++] = '\0';
+						trim_trailing_zeros(str_buf);
+						ssd1306_WriteString(str_buf, &Font_7x10, White);
 					}
 
 					break;
@@ -2030,30 +2072,32 @@ void draw_screen(void)
 			break;
 
 		case OP_MODE_OPEN_PROBE_CALIBRATION:
-			snprintf(buffer_display, sizeof(buffer_display), "OPEN cal %d", CALIBRATE_COUNT - calibrate.count - 1);
+			snprintf(str_buf, sizeof(str_buf), "OPEN cal %d", CALIBRATE_COUNT - calibrate.count - 1);
 			ssd1306_SetCursor(0, 5);
-			ssd1306_WriteString(buffer_display, &Font_11x18, White);
+			ssd1306_WriteString(str_buf, &Font_11x18, White);
 
 			if (measurement_Hz < 1000)
-				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", measurement_Hz);
+				snprintf(str_buf, sizeof(str_buf), " %u Hz", measurement_Hz);
 			else
-				snprintf(buffer_display, sizeof(buffer_display), " %0.1f kHz", measurement_Hz * 1e-3f);
+				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", measurement_Hz * 1e-3f);
+			trim_trailing_zeros(str_buf);
 			ssd1306_SetCursor(0, LINE3_Y - 5);
-			ssd1306_WriteString(buffer_display, &Font_11x18, White);
+			ssd1306_WriteString(str_buf, &Font_11x18, White);
 
 			break;
 
 		case OP_MODE_SHORTED_PROBE_CALIBRATION:
-			snprintf(buffer_display, sizeof(buffer_display), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
+			snprintf(str_buf, sizeof(str_buf), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
 			ssd1306_SetCursor(0, 5);
-			ssd1306_WriteString(buffer_display, &Font_11x18, White);
+			ssd1306_WriteString(str_buf, &Font_11x18, White);
 
 			if (measurement_Hz < 1000)
-				snprintf(buffer_display, sizeof(buffer_display), " %u Hz", measurement_Hz);
+				snprintf(str_buf, sizeof(str_buf), " %u Hz", measurement_Hz);
 			else
-				snprintf(buffer_display, sizeof(buffer_display), " %u kHz", measurement_Hz / 1000);
+				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", measurement_Hz * 1e-3f);
+			trim_trailing_zeros(str_buf);
 			ssd1306_SetCursor(0, LINE3_Y - 5);
-			ssd1306_WriteString(buffer_display, &Font_11x18, White);
+			ssd1306_WriteString(str_buf, &Font_11x18, White);
 
 			break;
 	}
@@ -3269,12 +3313,12 @@ void process_serial_command(char cmd[], unsigned int len)
 				}
 			}
 
-			printf(NEWLINE "measurement frequency");
-			fflush(NULL);
 			if (settings.measurement_Hz < 1000)
-				printf(" %u Hz" NEWLINE, settings.measurement_Hz);
+				snprintf(str_buf, sizeof(str_buf), " %u Hz" NEWLINE, settings.measurement_Hz);
 			else
-				printf(" %0.1f kHz" NEWLINE, settings.measurement_Hz * 1e-3f);
+				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", settings.measurement_Hz * 1e-3f);
+			trim_trailing_zeros(str_buf);
+			printf(NEWLINE "measurement frequency %s" NEWLINE, str_buf);
 
 			return;
 
@@ -3530,8 +3574,8 @@ void process_op_mode(void)
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 			{
 				const float phase_rad = phase_deg[i] * DEG_TO_RAD;
-				calibrate.phase_sum[i].re += cosf(phase_rad);
-				calibrate.phase_sum[i].im += sinf(phase_rad);
+				calibrate.phase_sum[i].real += cosf(phase_rad);
+				calibrate.phase_sum[i].imag += sinf(phase_rad);
 			}
 
 			// delay saving the settings
@@ -3548,7 +3592,7 @@ void process_op_mode(void)
 
 				// phases
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
-					settings.open_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
+					settings.open_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].real != 0) ? atan2f(calibrate.phase_sum[i].imag, calibrate.phase_sum[i].real) * RAD_TO_DEG : NAN;
 
 				// set flag to say "open calibration done"
 				settings.open_probe_calibration[index].done = 1;
@@ -3586,8 +3630,8 @@ void process_op_mode(void)
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 			{
 				const float phase_rad = phase_deg[i] * DEG_TO_RAD;
-				calibrate.phase_sum[i].re += cosf(phase_rad);
-				calibrate.phase_sum[i].im += sinf(phase_rad);
+				calibrate.phase_sum[i].real += cosf(phase_rad);
+				calibrate.phase_sum[i].imag += sinf(phase_rad);
 			}
 
 			// delay saving the settings
@@ -3604,7 +3648,7 @@ void process_op_mode(void)
 
 				// phases
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
-					settings.shorted_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].re != 0.0f) ? atan2f(calibrate.phase_sum[i].im, calibrate.phase_sum[i].re) * RAD_TO_DEG : NAN;
+					settings.shorted_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].real != 0) ? atan2f(calibrate.phase_sum[i].imag, calibrate.phase_sum[i].real) * RAD_TO_DEG : NAN;
 
 				// set flag to say "shorted calibration done"
 				settings.shorted_probe_calibration[index].done = 1;
