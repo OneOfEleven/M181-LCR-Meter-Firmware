@@ -188,7 +188,7 @@ char ssd1306_WriteChar(const char ch, const t_font *font, const SSD1306_COLOR co
 }
 
 //  Write full string to screenbuffer
-char ssd1306_WriteString(const char *str, const t_font *font, const SSD1306_COLOR color)
+char ssd1306_WriteString(const char str[], const t_font *font, const SSD1306_COLOR color)
 {
 	while (*str)
 	{

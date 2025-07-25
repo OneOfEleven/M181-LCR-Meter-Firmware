@@ -52,7 +52,7 @@ void ssd1306_UpdateScreen(void);
 void ssd1306_Fill(SSD1306_COLOR color);
 void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR color);
 char ssd1306_WriteChar(const char ch, const t_font *font, const SSD1306_COLOR color);
-char ssd1306_WriteString(const char *str, const t_font *font, const SSD1306_COLOR color);
+char ssd1306_WriteString(const char str[], const t_font *font, const SSD1306_COLOR color);
 void ssd1306_SetCursor(const uint16_t x, const uint16_t y);
 void ssd1306_GetCursor(uint16_t *x, uint16_t *y);
 void ssd1306_MoveCursor(const int x, const int y);

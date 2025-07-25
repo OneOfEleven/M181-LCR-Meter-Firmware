@@ -284,7 +284,10 @@ void trim_trailing_zeros(char buf[])
 
 	// find the end of the int side of the fp number
 	unsigned int index2 = index++;
-	while (index2 > 0 && (buf[index2] == '0' || buf[index2] == '.'))
+	while (index2 > 0 && buf[index2] == '0')
+		index2--;
+
+	if (buf[index2] == '.')
 		index2--;
 
 	if (++index2 >= index)
@@ -332,7 +335,7 @@ int start_tx_dma(const void *data, const unsigned int size)
 
 // intercept printf, dprintf etc
 //
-int _write(int file, char *ptr, int len)
+int _write(int file, char ptr[], int len)
 {
 	start_tx_dma(ptr, len);
 	wait_tx_dma();
@@ -1573,7 +1576,7 @@ void process_ADC_exec(void)
 	#define LINE3_Y      (10 + LINE2_Y + 1 + LINE_SPACING)
 #endif
 
-void print_sprint(const unsigned int digit, const float value, char *output_char, const unsigned int out_max_size)
+void print_sprint(const unsigned int digit, const float value, char output_char[], const unsigned int out_max_size)
 {
 //	float val = value;
 //	const char unit = unit_conversion(&val);
@@ -3144,7 +3147,7 @@ void process_serial_command(char cmd[], unsigned int len)
 		return;
 
 	// ****************
-	// clean up
+	// clean up the text
 
 	// replace any tabs with spaces
 	// and lower case all
@@ -3186,7 +3189,7 @@ void process_serial_command(char cmd[], unsigned int len)
 
 	// determine what the command is
 	t_cmd_id cmd_id = CMD_NONE_ID;
-	for (unsigned int i = 0; cmds[i].token != NULL; i++)
+	for (unsigned int i = 0; cmds[i].token != NULL && cmds[i].id != CMD_NONE_ID; i++)
 	{
 		if (strncmp(cmd, cmds[i].token, param_pos) != 0)
 			continue;
@@ -3213,7 +3216,7 @@ void process_serial_command(char cmd[], unsigned int len)
 		case CMD_HELP_ID2:
 		{
 			unsigned int cmd_max_len = 0;
-			for (unsigned int i = 0; cmds[i].token != NULL; i++)
+			for (unsigned int i = 0; cmds[i].token != NULL && cmds[i].id != CMD_NONE_ID; i++)
 			{
 				const unsigned int cmd_len = strlen(cmds[i].token);
 				cmd_max_len = (cmd_max_len < cmd_len) ? cmd_len : cmd_max_len;

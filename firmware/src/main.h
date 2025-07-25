@@ -54,6 +54,9 @@
 
 #define SQR(x)                      ((x) * (x))
 
+#define UART_BAUDRATE_MIN            115200
+#define UART_BAUDRATE_MAX            921600
+
 //#define UART_BAUDRATE              115200
 //#define UART_BAUDRATE              230400
 //#define UART_BAUDRATE              460800
@@ -330,8 +333,17 @@ enum {
 	LCR_MODE_INDUCTANCE = 0,
 	LCR_MODE_CAPACITANCE,
 	LCR_MODE_RESISTANCE,
-	LCR_MODE_AUTO                     // TODO: add code to auto detect if DUT is a cap, ind or res
+	LCR_MODE_AUTO                     // TODO:
 };
+
+/*
+// Series/Parallel mode
+enum {
+	SP_MODE_SERIES = 0,
+	SP_MODE_PARALLEL,
+	SP_MODE_AUTO                      // TODO:
+};
+*/
 
 // VI mode
 enum {
