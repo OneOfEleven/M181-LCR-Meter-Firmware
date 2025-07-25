@@ -274,23 +274,24 @@ void trim_trailing_zeros(char buf[])
 	if (len == 0)
 		return;
 
+	// find the end of the fp number
 	unsigned int index = len - 1;
-
 	while (index > 0 && (buf[index] < '0' || buf[index] > '9'))
 		index--;
 
 	if (index == 0)
 		return;
 
+	// find the end of the int side of the fp number
 	unsigned int index2 = index++;
-
 	while (index2 > 0 && (buf[index2] == '0' || buf[index2] == '.'))
 		index2--;
 
 	if (++index2 >= index)
 		return;
 
-	memmove(buf + index2, buf + index, len + (index - index2));
+	// remove trailing zeros (inc the DP if need be)
+	memmove(buf + index2, buf + index, len + 1 - (index - index2));
 }
 
 // wait untill the serial TX DMA has completed it's send
