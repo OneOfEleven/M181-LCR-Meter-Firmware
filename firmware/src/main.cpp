@@ -68,6 +68,12 @@ typedef struct t_complex {
 		imag = 0;
 	}
 
+	t_complex(const float _real)
+	{
+		real = _real;
+		imag = 0;
+	}
+
 	t_complex(const float _real, const float _imag)
 	{
 		real = _real;
@@ -282,11 +288,12 @@ void trim_trailing_zeros(char buf[])
 	if (index == 0)
 		return;
 
-	// find the end of the int side of the fp number
+	// find the 1st fractional '0'
 	unsigned int index2 = index++;
 	while (index2 > 0 && buf[index2] == '0')
 		index2--;
 
+	// drop the DP if it's left on it's own
 	if (buf[index2] == '.')
 		index2--;
 
@@ -822,8 +829,8 @@ void set_measurement_frequency(uint32_t Hz)
 		// conj multiply
 		const t_complex d = t_complex((c1.real * c2.real) + (c1.imag * c2.imag), (c1.real * c2.imag) - (c1.imag * c2.real));
 
-		// phase
-		return (d.real != 0.0f) ? atan2f(d.imag, d.real) * RAD_TO_DEG : NAN;
+		// return phase difference in degrees
+		return (d.real != 0) ? atan2f(d.imag, d.real) * RAD_TO_DEG : NAN;
 	}
 
 	float phase_diff(const float phase_deg_1, const float phase_deg_2)
@@ -850,6 +857,11 @@ void set_measurement_frequency(uint32_t Hz)
 	}
 #endif
 
+#ifdef AVERAGE_PHASE
+	t_complex phi_table[ADC_DATA_LENGTH];
+	uint8_t   phi_table_ready = 0;          // flag to say the table has been created (or not)
+#endif
+
 // pass the new ADC samples through the goertzel dft
 //
 // goertzel output samples are 100% free of any DC offset, also very much cleaned of any out-of-band noise (crucial for following measurements)
@@ -869,6 +881,19 @@ int process_Goertzel(void)
 	//
 	// STM32F103CBT6 drop-in replacements .. STM32F303CBT6, STM32L412CBT6, STM32L431CCT6 and STM32L433CBT6
 
+	#ifdef AVERAGE_PHASE
+		if (!phi_table_ready)
+		{	// create one time sample phase offset look-up table
+			const float phi_step = (2 * M_PI) / (ADC_DATA_LENGTH * 2);     // 2 complete sine cycles per buffer
+			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+			{
+				const float phi = phi_step * i;
+				phi_table[i] = t_complex(cosf(phi), sinf(phi));
+			}
+			phi_table_ready = 1;
+		}
+	#endif
+
 	// tell DMA not to use the temp buffer
 	tmp_buffer_in_use = 1;
 
@@ -877,15 +902,15 @@ int process_Goertzel(void)
 		const unsigned int vi_mode = buf_index >> 1;
 
 		#if !defined(GOERTZEL_FILTER_LENGTH) || (GOERTZEL_FILTER_LENGTH <= 0)
-			uint8_t filter = 0;	// don't Goertzel filter
+			uint8_t filter = 0;	     // don't Goertzel filter
 		#else
-			uint8_t filter = 1; // do Goertzel filter
+			uint8_t filter = 1;      // do Goertzel filter (a CPU with an FPU would speed this stage up no end)
 		#endif
 
 		uint8_t clipped = 0;
 
 		if (op_mode == OP_MODE_MEASURING)
-		{	// don't filter if we're not going to use the data
+		{	// don't Goertzel filter if we're not going to use the data
 			switch (vi_mode)
 			{
 				case VI_MODE_VOLT_LO_GAIN:
@@ -909,13 +934,13 @@ int process_Goertzel(void)
 
 		if (!filter || clipped)
 		{	// don't Goertzel DFT filter the waveform, but do do these ..
-			//    remove waveform DC offset
 			//   compute waveform RMS magnitude
 			//   compute waveform phase
 
-			register float *buf = adc_data[buf_index];   // point to the ADC samples
+			// point to the ADC samples
+			register float *buf = adc_data[buf_index];
 
-			{	// compute waveform RMS magnitude
+			{	// compute waveform RMS magnitude of the unfiltered waveform
 				register float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 					sum += SQR(buf[k]);
@@ -923,37 +948,60 @@ int process_Goertzel(void)
 				mag_rms[buf_index] = sqrtf(sum);
 			}
 
-			{	// compute waveform phase
+			{	// compute waveform phase using a single Goertzel DFT on the unfiltered waveform
 				const t_complex g = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
 				phase_deg[buf_index] = (g.real != 0) ? fmodf((atan2f(g.imag, g.real) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 		}
 		else
-		{	// use Goertzel DFT to filter the waveform
+		{	// use many Goertzel DFT's to filter/clean the entire waveform
+			// compute waveform RMS magnitude
+			// compute waveform phase
 
-			register t_complex *buf = (t_complex *)tmp_buffer;           // point to Goertzel dft output buffer
+			// point to an output buffer for the Goertzel filter to save into
+			register t_complex *tmp_buf = (t_complex *)tmp_buffer;
 
-			// do it
-			if (goertzel_wrap(adc_data[buf_index], buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
-				return -1;
+			register float *buf = adc_data[buf_index];
+
+			// filter the entire waveform using many Goertzel DFTs
+			if (goertzel_wrap(buf, tmp_buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
+				return -1;        // their was a key press whilst doing it, drop everthing (on this run) to immediately process the users input
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
-				register float *buf_out = adc_data[buf_index];
 				register float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
-					register const t_complex samp = buf[k];
-					sum += SQR(samp.real) + SQR(samp.imag);
-					buf_out[k] = samp.real;             // replace the unfiltered sample with the Goertzel filtered sample
+					register const t_complex samp = tmp_buf[k];  // fetch filtered waveform sample
+					sum += SQR(samp.real) + SQR(samp.imag);      // sum it (for computing the average)
+					buf[k] = samp.real;                          // save the Goertzel filtered sample
 				}
 				sum *= 1.0f / ADC_DATA_LENGTH;
-				mag_rms[buf_index] = sqrtf(sum);
+				mag_rms[buf_index] = sqrtf(sum);                 // save the computed RMS magnitude
 			}
 
-			{	// compute waveform phase
-				const t_complex g = goertzel_block(adc_data[buf_index], ADC_DATA_LENGTH, &goertzel);
-				phase_deg[buf_index] = (g.real != 0.0f) ? fmodf((atan2f(g.imag, g.real) * RAD_TO_DEG) + 270, 360) : NAN;
+			#ifndef AVERAGE_PHASE
+			{	// compute waveform phase using a single Goertzel DFT on the filtered waveform
+				const t_complex s = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
+				phase_deg[buf_index] = (s.real != 0) ? fmodf((atan2f(s.imag, s.real) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
+			#else
+			{	// compute waveform phase using all the Goertzel DFTs that filtered the entire waveform
+				// ie, compute the average phase
+				register t_complex sum;
+				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
+				{
+					// remove the phase offset from this sample position in the buffer
+					register const t_complex p = phi_table[k];   // fetch sample phase in the buffer
+					register       t_complex s = tmp_buf[k];     // fetch filtered waveform sample
+					// conj multiply
+					s = t_complex((s.real * p.real) + (s.imag * p.imag), (s.real * p.imag) - (s.imag * p.real));  // phase difference
+
+					sum.real += s.real;
+					sum.imag += s.imag;
+				}
+				phase_deg[buf_index] = (sum.real != 0) ? fmodf((atan2f(sum.imag, sum.real) * RAD_TO_DEG) + 270, 360) : NAN;
+			}
+			#endif
 		}
 	}
 

@@ -76,6 +76,8 @@
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
 #define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
 
+#define AVERAGE_PHASE                               // average all the Goertzel filter outputs to create a phase average - TEST ONLY
+
 #define MEDIAN_SIZE                  3u             // ODD length only (median uses the center value of a sorted list)
 
 #define SLOW_ADC_AVERAGE_COUNT       128            // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
