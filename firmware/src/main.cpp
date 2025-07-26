@@ -794,7 +794,7 @@ char unit_conversion(float *value)
 void set_measurement_frequency(uint32_t Hz)
 {
 	// limit the range
-	measurement_Hz = (Hz < 100) ? 100 : (Hz > 1500) ? 1500 : Hz;
+	measurement_Hz = (Hz < MEASURE_HZ_MIN) ? MEASURE_HZ_MIN : (Hz > MEASURE_HZ_MAX) ? MEASURE_HZ_MAX : Hz;
 
 	// lower freq = lower amplitude (due to another HW filter design flaw)
 	//
@@ -1471,11 +1471,13 @@ void process_ADC_exec(void)
 	// we drop the hi-gain blocks if they are clipped (makes the data useless)
 	// we drop the lo-gain blocks if the hi-gain blocks are usable (no high-gain clipping detected)
 	//
-	unsigned int average_count = SLOW_ADC_AVERAGE_COUNT;
+	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz the more buffers we average
+//	unsigned int average_count = SLOW_ADC_AVERAGE_COUNT;
 	if (op_mode == OP_MODE_MEASURING)
 	{
 		if (display_hold)
-			average_count = 8;                           // display is paused, we're doing nothing but sending the samples to the PC (average any number of blocks you want here)
+			average_count = (8ul * measurement_Hz) >> 10;  // the higher the measurement Hz the more buffers we average
+//			average_count = 8;                           // display is paused, we're doing nothing but sending the samples to the PC (average any number of blocks you want here)
 		else
 		if (adc_data_clipping[vi_mode])
 			average_count = 1;                           // this block of samples are clipping, drop them, move on to the next mode
@@ -1484,12 +1486,10 @@ void process_ADC_exec(void)
 			average_count = 1;                           // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples
 		else
 		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-			average_count = FAST_ADC_AVERAGE_COUNT;      // user has selected faster display updates, which just means we average less blocks together
+			average_count = (16ul * measurement_Hz) >> 10;  // the higher the measurement Hz the more buffers we average
+//			average_count = FAST_ADC_AVERAGE_COUNT;      // user has selected faster display updates, which just means we average less blocks together
 	}
-
-	// speed up the lower frequency modes by reducing the average count (number of blocks we average)
-	if (measurement_Hz <= 300)
-		average_count = (average_count >= 3) ? average_count / 3 : average_count;
+	average_count = (average_count < 1) ? 1 : average_count;
 
 	LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);                          // TEST only, LED off
 
@@ -1763,17 +1763,18 @@ void draw_screen(void)
 			if (measurement_Hz < 1000)
 				snprintf(str_buf, sizeof(str_buf), "%u", measurement_Hz);
 			else
-				snprintf(str_buf, sizeof(str_buf), "%0.1fk", measurement_Hz * 1e-3f);
+				snprintf(str_buf, sizeof(str_buf), "%0.3fk", measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);
-			ssd1306_MoveCursor(3, 0);
+			//ssd1306_MoveCursor(3, 0);
 			ssd1306_WriteString(str_buf, &Font_7x10, White);
 
 			{	// open/short calibration
 				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;
-				str_buf[0] = settings.open_probe_calibration[index].done    ? 'O' : '-';
-				str_buf[1] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
-				str_buf[2] = '\0';
-				ssd1306_SetCursor(10 * Font_7x10.width, 0);
+				unsigned int i = 0;
+				memset(str_buf, 0, sizeof(str_buf));
+				str_buf[i++] = settings.open_probe_calibration[index].done    ? 'O' : '-';
+				str_buf[i++] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
+				ssd1306_SetCursor(11 * Font_7x10.width, 0);
 				ssd1306_WriteString(str_buf, &Font_7x10, White);
 			}
 
@@ -1785,11 +1786,12 @@ void draw_screen(void)
 			if (settings.flags & SETTING_FLAG_FAST_UPDATES)
 				ssd1306_WriteString("fast", &Font_7x10, White);
 			#if 1
-			else
-			{	// VI phase
-				print_sprint(3, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
-				ssd1306_WriteString(str_buf, &Font_7x10, White);
-			}
+				else
+				{	// VI phase
+					print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
+					ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * Font_7x10.width), 0);
+					ssd1306_WriteString(str_buf, &Font_7x10, White);
+				}
 			#endif
 
 			// ***************************
@@ -1923,7 +1925,6 @@ void draw_screen(void)
 						str_buf[i++] = 'H';
 						str_buf[i++] = '\0';
 						ssd1306_WriteString(str_buf, &Font_11x18, White);
-						//ssd1306_WriteString(str_buf, &Font_8x16, White);
 						break;
 					}
 
@@ -1935,7 +1936,6 @@ void draw_screen(void)
 						str_buf[i++] = 'F';
 						str_buf[i++] = '\0';
 						ssd1306_WriteString(str_buf, &Font_11x18, White);
-						//ssd1306_WriteString(str_buf, &Font_8x16, White);
 						break;
 					}
 
@@ -1946,10 +1946,7 @@ void draw_screen(void)
 							str_buf[0] = unit;
 							str_buf[1] = '\0';
 							ssd1306_WriteString(str_buf, &Font_11x18, White);
-							//ssd1306_WriteString(str_buf, &Font_8x16, White);
 						}
-						else
-							ssd1306_MoveCursor(4, 0);    // move right
 
 						ssd1306_MoveCursor(3, 0);
 
@@ -3347,13 +3344,13 @@ void process_serial_command(char cmd[], unsigned int len)
 			{
 				char     *endptr = NULL;
 				const int val    = strtol(param, &endptr, 10);
-				if (errno > 0 || param == endptr || val < 100 || val > 1500)
+				if (errno > 0 || param == endptr || val < MEASURE_HZ_MIN || val > MEASURE_HZ_MAX)
 				{
 					printf(NEWLINE "error: frequency param '%s'" NEWLINE, param);
 					return;
 				}
 
-				const uint16_t Hz = (val < 100) ? 100 : (val > 1500) ? 1500 : val;
+				const uint16_t Hz = (val < MEASURE_HZ_MIN) ? MEASURE_HZ_MIN : (val > MEASURE_HZ_MAX) ? MEASURE_HZ_MAX : val;
 				if (settings.measurement_Hz != Hz)
 				{
 					settings.measurement_Hz = Hz;

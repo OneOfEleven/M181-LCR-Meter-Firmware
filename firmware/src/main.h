@@ -67,6 +67,9 @@
 
 #define SETTINGS_MARKER              0x19961962     // 32-bit marker to indicate 'start of settings' - so we can find them in flash
 
+#define MEASURE_HZ_MAX               10000          // maximum measurement frequency
+#define MEASURE_HZ_MIN               100            // minimum measurement frequency
+
 #define ADC_DATA_LENGTH              128            // 2^n
 
 #define DUAL_ADC_MODE                               // comment out to use single ADC dual channel mode
@@ -76,12 +79,12 @@
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
 #define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
 
-#define AVERAGE_PHASE                               // average all the Goertzel filter outputs to create a phase average - TEST ONLY
+//#define AVERAGE_PHASE                               // average all the Goertzel filter outputs to create a phase average - TEST ONLY
 
 #define MEDIAN_SIZE                  3u             // ODD length only (median uses the center value of a sorted list)
 
-#define SLOW_ADC_AVERAGE_COUNT       128            // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
-#define FAST_ADC_AVERAGE_COUNT       16             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
+//#define SLOW_ADC_AVERAGE_COUNT       128            // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
+//#define FAST_ADC_AVERAGE_COUNT       16             // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
 
 //#define GOERTZEL_FILTER_LENGTH     0                       // don't Goertzel filter
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 4)   // 1/2 sine cycle filter length
