@@ -94,7 +94,7 @@ typedef struct t_complex {
 #pragma pack(pop)
 
 /*
-static const uint16_t omega_7x10[] = {
+static const uint16_t omega_8x12[] = {
 	0b0001110000,       // 1
 	0b0010001000,       // 2
 	0b0100000100,       // 3
@@ -139,20 +139,20 @@ struct {
 } reset_cause = {0};
 
 #ifdef USE_IWDG
-	uint32_t          iwdg_timeout_sec = 8;        // 8 second IWDG timeout
+	uint32_t          iwdg_timeout_sec = 8;                   // 8 second IWDG timeout
 	volatile uint32_t iwdg_tick        = 0;
 #endif
 
-volatile uint32_t     sys_tick = 0;                // our own system tick value
+volatile uint32_t     sys_tick = 0;                           // our own system tick value
 
-LL_RCC_ClocksTypeDef  rcc_clocks = {0};            // various CPU clock frequencies
+LL_RCC_ClocksTypeDef  rcc_clocks = {0};                       // various CPU clock frequencies
 
 uint32_t              draw_screen_count = 0;
 char                  str_buf[32]       = {0};
 
-t_button              button[BUTTON_NUM] = {0};    // each buttons press data
+t_button              button[BUTTON_NUM] = {0};               // each buttons press data
 
-uint16_t              sine_table[ADC_DATA_LENGTH / 2] = {0};  // length is matched with the ADC sampling (length = one sine cycle)
+uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE] = {0};    // one sine cycle
 
 uint16_t              measurement_Hz        = 1000;           // 100 or 1000
 float                 measurement_amplitude = 1.0;            // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
@@ -826,7 +826,7 @@ void set_measurement_frequency(uint32_t Hz)
 
 	if (measurement_Hz > 0)
 	{	// set the timer rate
-		const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * measurement_Hz;
+		const uint32_t timer_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
 //		const uint32_t period        = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), timer_rate_Hz);
 		const uint32_t period        = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
 		LL_TIM_SetAutoReload(TIM3, period);
@@ -894,7 +894,7 @@ int process_Goertzel(void)
 	#ifdef AVERAGE_PHASE
 		if (!phi_table_ready)
 		{	// create one time sample phase offset look-up table
-			const float phi_step = (2 * M_PI) / (ADC_DATA_LENGTH * 2);     // 2 complete sine cycles per buffer
+			const float phi_step = M_PI / (SAMPLES_PER_SINE_CYCLE * 2);            // todo: ensure this is correct
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
 				const float phi = phi_step * i;
@@ -1613,32 +1613,29 @@ void process_ADC_exec(void)
 	// save the new VI mode for the next measurement run
 	vi_measure_index = vi_index;
 
-	if (vi_index >= VI_MODE_DONE)
+	if (vi_index < VI_MODE_DONE)
+		return;    // not yet gone through all the modes
+
+	// all done !
+	// we have now sampled in all 4 modes (lo-gain V and hi-gain I modes)
+
+	gain_changed = (memcmp(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped)) != 0) ? 1 : 0;    // '1' if gain selection changed
+
+	memcpy(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped));   // save the new clip detection flags
+	memset(adc_data_clipping, 0, sizeof(adc_data_clipping));                 // reset ready for next run
+
+//	if (!display_hold && gain_changed)
+	if (!display_hold)
 	{
-		gain_changed = (memcmp(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped)) != 0) ? 1 : 0;    // '1' if gain selection changed
-
-		memcpy(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped));   // save the new clip detection flags
-		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));                 // reset ready for next run
-
-//		if (!display_hold && gain_changed)
-		if (!display_hold)
-		{
-			// gain path decision
-			// use the high gain samples only if they aren't clipping/saturating
-			//
-			volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;      // '0' = LOW gain mode   '1' = HIGH gain mode
-			amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;      // '0' = LOW gain mode   '1' = HIGH gain mode
-		}
+		// gain path decision
+		// use the high gain samples only if they aren't clipped/saturated
+		//
+		volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;      // '0' = LOW gain V mode   '1' = HIGH gain V mode
+		amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;      // '0' = LOW gain I mode   '1' = HIGH gain I mode
 	}
 }
 
 // ***********************************************************
-
-// available font sizes ..
-//
-//  Font_7x10  .. small
-//  Font_11x18 .. bigger than small
-//  Font_16x26 .. bigger than the bigger than small
 
 //#define DRAW_LINES          // if you want horizontal lines drawn
 //#define DISPLAY_LCR_MODE    // if you want the 'R' 'L' or 'C' before the DUT value
@@ -1710,15 +1707,15 @@ void bootup_screen(void)
 	ssd1306_Fill(Black);
 
 	ssd1306_SetCursor(0, 0);
-	ssd1306_WriteString("M181", &Font_7x10, White);
+	ssd1306_WriteString("M181", &Font_8x12, White);
 
 	sprintf(str_buf, "%lu", settings.baudrate);
-	ssd1306_SetCursor(5 * Font_7x10.width, 0);
-	ssd1306_WriteString(str_buf, &Font_7x10, White);
+	ssd1306_SetCursor(5 * Font_8x12.width, 0);
+	ssd1306_WriteString(str_buf, &Font_8x12, White);
 
 	sprintf(str_buf, "v%.2f", FW_VERSION);
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(str_buf) * Font_7x10.width), 0);
-	ssd1306_WriteString(str_buf, &Font_7x10, White);
+	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(str_buf) * Font_8x12.width), 0);
+	ssd1306_WriteString(str_buf, &Font_8x12, White);
 
 	ssd1306_SetCursor(16, 14);
 	ssd1306_WriteString("LCR Meter", &Font_11x18, White);
@@ -1727,18 +1724,18 @@ void bootup_screen(void)
 	ssd1306_dotted_hline(0, SSD1306_WIDTH - 1, 3, 32 - 1, White);
 
 	ssd1306_SetCursor(5, 38);
-	ssd1306_WriteString("HW by JYETech", &Font_7x10, White);
+	ssd1306_WriteString("HW by JYETech", &Font_8x12, White);
 	ssd1306_SetCursor(5, 52);
-	ssd1306_WriteString("FW by Jai & 1o11", &Font_7x10, White);
+	ssd1306_WriteString("FW by Jai & 1o11", &Font_8x12, White);
 
 	ssd1306_UpdateScreen();
 }
 
 void draw_measurement_mode(void)
 {
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_7x10.width), 0);
+	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_8x12.width), 0);
 	snprintf(str_buf, sizeof(str_buf), "%u", system_data.vi_measure_mode);
-	ssd1306_WriteString(str_buf, &Font_7x10, White);
+	ssd1306_WriteString(str_buf, &Font_8x12, White);
 
 	ssd1306_UpdateScreen();
 }
@@ -1764,16 +1761,16 @@ void draw_screen(void)
 
 			// serial/parallel mode
 			ssd1306_SetCursor(0, 0);
-			ssd1306_WriteString(par ? "par " : "ser ", &Font_7x10, White);
+			ssd1306_WriteString(par ? "PAR " : "SER ", &Font_8x12, White);
 
 			// measurement frequency
 			if (measurement_Hz < 1000)
 				snprintf(str_buf, sizeof(str_buf), "%u", measurement_Hz);
 			else
-				snprintf(str_buf, sizeof(str_buf), "%0.3fk", measurement_Hz * 1e-3f);
+				snprintf(str_buf, sizeof(str_buf), "%0.1fk", measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);
 			//ssd1306_MoveCursor(3, 0);
-			ssd1306_WriteString(str_buf, &Font_7x10, White);
+			ssd1306_WriteString(str_buf, &Font_8x12, White);
 
 			{	// open/short calibration
 				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;
@@ -1781,23 +1778,24 @@ void draw_screen(void)
 				memset(str_buf, 0, sizeof(str_buf));
 				str_buf[i++] = settings.open_probe_calibration[index].done    ? 'O' : '-';
 				str_buf[i++] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
-				ssd1306_SetCursor(11 * Font_7x10.width, 0);
-				ssd1306_WriteString(str_buf, &Font_7x10, White);
+				//ssd1306_SetCursor(SSD1306_WIDTH - 1 - (7 * Font_7x10.width), 0);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (7 * Font_8x12.width), 0);
+				ssd1306_WriteString(str_buf, &Font_8x12, White);
 			}
 
 			// hold or fast
-			ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * Font_7x10.width), 0);
+			ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * Font_8x12.width), 0);
 			if (display_hold)
-				ssd1306_WriteString("HOLD", &Font_7x10, White);
+				ssd1306_WriteString("HOLD", &Font_8x12, White);
 			else
 			if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-				ssd1306_WriteString("fast", &Font_7x10, White);
+				ssd1306_WriteString("fast", &Font_8x12, White);
 			#if 1
 				else
 				{	// VI phase
 					print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
-					//ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * Font_7x10.width), 0);
-					ssd1306_WriteString(str_buf, &Font_7x10, White);
+					//ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * Font_8x12.width), 0);
+					ssd1306_WriteString(str_buf, &Font_8x12, White);
 				}
 			#endif
 
@@ -1970,8 +1968,8 @@ void draw_screen(void)
 				str_buf[0] = volt_gain_sel ? 'H' : 'L';
 				str_buf[1] = amp_gain_sel  ? 'H' : 'L';
 				str_buf[2] ='\0';
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * Font_7x10.width), LINE3_Y);
-				ssd1306_WriteString(str_buf, &Font_7x10, White);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * Font_8x12.width), LINE3_Y);
+				ssd1306_WriteString(str_buf, &Font_8x12, White);
 			}
 			#endif
 
@@ -1992,7 +1990,7 @@ void draw_screen(void)
 					str_buf[i++] = 'V';
 					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
-					ssd1306_WriteString(str_buf, &Font_7x10, White);
+					ssd1306_WriteString(str_buf, &Font_8x12, White);
 				}
 
 				{	// current
@@ -2008,7 +2006,7 @@ void draw_screen(void)
 					str_buf[i++] = 'A';
 					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
-					ssd1306_WriteString(str_buf, &Font_7x10, White);
+					ssd1306_WriteString(str_buf, &Font_8x12, White);
 				}
 			#endif
 
@@ -2025,17 +2023,17 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.esr : system_data.series.esr;
 						const char unit = unit_conversion(&value, "mkMG");
 
-						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_7x10.height);
-						ssd1306_WriteString("ER", &Font_7x10, White);
+						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_8x12.height);
+						ssd1306_WriteString("ER", &Font_8x12, White);
 
-						ssd1306_SetCursor(x1, SSD1306_HEIGHT - 1 - Font_7x10.height);
+						ssd1306_SetCursor(x1, SSD1306_HEIGHT - 1 - Font_8x12.height);
 
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_WriteString(str_buf, &Font_7x10, White);
+						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 
 					#if 0
@@ -2044,17 +2042,17 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.tan_delta : system_data.series.tan_delta;
 						const char unit = unit_conversion(&value, "kMG");
 
-						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
-						ssd1306_WriteString("D", &Font_7x10, White);
+						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_8x12.height);
+						ssd1306_WriteString("D", &Font_8x12, White);
 
-						ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_7x10.height);
+						ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_8x12.height);
 
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_WriteString(str_buf, &Font_7x10, White);
+						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 					#else
 					{	// Quality factor
@@ -2062,16 +2060,16 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value, "kMG");
 
-						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
-						ssd1306_WriteString("Q ", &Font_7x10, White);
+						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_8x12.height);
+						ssd1306_WriteString("Q ", &Font_8x12, White);
 
-						//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_7x10.height);
+						//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_8x12.height);
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_WriteString(str_buf, &Font_7x10, White);
+						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 					#endif
 
@@ -2084,7 +2082,7 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.inductance : system_data.series.inductance;
 						const char unit = unit_conversion(&value, "umkMG");
 
-						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_7x10.height);
+						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_8x12.height);
 
 						print_sprint(4, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
@@ -2093,7 +2091,7 @@ void draw_screen(void)
 						str_buf[i++] = 'H';
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_WriteString(str_buf, &Font_7x10, White);
+						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 
 					{	// Quality factor
@@ -2101,15 +2099,15 @@ void draw_screen(void)
 						float value = par ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value, "kMG");
 
-						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
-						ssd1306_WriteString("Q ", &Font_7x10, White);
+						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_8x12.height);
+						ssd1306_WriteString("Q ", &Font_8x12, White);
 
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_WriteString(str_buf, &Font_7x10, White);
+						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 
 					break;
@@ -2162,8 +2160,8 @@ void draw_screen(void)
 
 	if (settings.flags & SETTING_FLAG_UART_DSO)
 	{
-		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_7x10.width), SSD1306_HEIGHT - 1 - Font_7x10.height);
-		ssd1306_WriteString((settings.flags & SETTING_FLAG_SEND_BINARY) ? "B" : "A", &Font_7x10, White);
+		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_8x12.width), SSD1306_HEIGHT - 1 - Font_8x12.height);
+		ssd1306_WriteString((settings.flags & SETTING_FLAG_SEND_BINARY) ? "B" : "A", &Font_8x12, White);
 	}
 
 	// ***************************
@@ -2260,7 +2258,7 @@ void MX_ADC_Init(void)
 			LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_WORD);
 
 			LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA_MULTI), (uint32_t)&adc_dma_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);
+			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);     // two buffers .. double buffering
 
 			// clear all flags
 			LL_DMA_ClearFlag_GI1(DMA1);
@@ -2364,7 +2362,7 @@ void MX_ADC_Init(void)
 			LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_HALFWORD);
 
 			LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA), (uint32_t)&adc_dma_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);
+			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);     // double buffering
 
 			// enable selected DMA interrupts
 			LL_DMA_ClearFlag_GI1(DMA1);
@@ -2476,7 +2474,7 @@ void MX_TIM3_Init(void)
 
 		LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM3);
 
-		const uint32_t timer_rate_Hz = (ADC_DATA_LENGTH / 2) * measurement_Hz;
+		const uint32_t timer_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
 
 		TIM_InitStruct.Prescaler     = 0;
 		TIM_InitStruct.CounterMode   = LL_TIM_COUNTERMODE_UP;
@@ -3815,7 +3813,7 @@ int main(void)
 	MX_USART1_UART_Init();
 
 	{	// setup the goertzel filter
-		const float normalized_freq = 2.0f / ADC_DATA_LENGTH;  // 2 cycles spanning the sample buffer
+		const float normalized_freq = (float)SINES_PER_BLOCK / ADC_DATA_LENGTH;
 		goertzel_init(&goertzel, normalized_freq);
 	}
 
