@@ -17,18 +17,18 @@
 
 #include "stm32f1xx_hal.h"
 #include "stm32f1xx_ll_adc.h"
-#include "stm32f1xx_ll_dma.h"
-#include "stm32f1xx_ll_iwdg.h"
-#include "stm32f1xx_ll_rcc.h"
 #include "stm32f1xx_ll_bus.h"
-#include "stm32f1xx_ll_system.h"
-#include "stm32f1xx_ll_exti.h"
 #include "stm32f1xx_ll_cortex.h"
-#include "stm32f1xx_ll_utils.h"
+#include "stm32f1xx_ll_dma.h"
+#include "stm32f1xx_ll_exti.h"
+#include "stm32f1xx_ll_gpio.h"
+#include "stm32f1xx_ll_iwdg.h"
 #include "stm32f1xx_ll_pwr.h"
+#include "stm32f1xx_ll_rcc.h"
+#include "stm32f1xx_ll_system.h"
 #include "stm32f1xx_ll_tim.h"
 #include "stm32f1xx_ll_usart.h"
-#include "stm32f1xx_ll_gpio.h"
+#include "stm32f1xx_ll_utils.h"
 
 #if defined(USE_FULL_ASSERT)
 	#include "stm32_assert.h"
@@ -78,6 +78,8 @@
 
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
 #define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
+
+//#define HISTOGRAM_CLIP_DET                         // uncomment to use faster/simpler ADC clip detector
 
 #define AVERAGE_PHASE                               // average all the Goertzel filter outputs to create a phase average - TEST ONLY
 
@@ -338,7 +340,7 @@ enum {
 	LCR_MODE_INDUCTANCE = 0,
 	LCR_MODE_CAPACITANCE,
 	LCR_MODE_RESISTANCE,
-	LCR_MODE_AUTO                     // TODO:
+	LCR_MODE_AUTO                     // TODO: add AUTO mode code
 };
 
 /*
@@ -346,7 +348,7 @@ enum {
 enum {
 	SP_MODE_SERIES = 0,
 	SP_MODE_PARALLEL,
-	SP_MODE_AUTO                      // TODO:
+	SP_MODE_AUTO                      // TODO: add AUTO mode code
 };
 */
 

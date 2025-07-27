@@ -657,12 +657,12 @@ t_goertzel goertzel = {0};
 //std::complex <float> goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 t_complex goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
 {
-	register float m1 = 0;
-	register float m2 = 0;
+	float m1 = 0;
+	float m2 = 0;
 
 	for (unsigned int i = len; i > 0; i--)
 	{
-		register const float m = *samples++ + (g->coeff * m1) - m2;
+		const float m = *samples++ + (g->coeff * m1) - m2;
 		m2 = m1;
 		m1 = m;
 	}
@@ -687,12 +687,12 @@ int goertzel_wrap(const float *in_samples, t_complex *out_samples, const unsigne
 
 	for (unsigned int k = 0; k < len; k++)
 	{
-		register float m1 = 0;
-		register float m2 = 0;
+		float m1 = 0;
+		float m2 = 0;
 
-		for (register unsigned int i = 0, n = k; i < g_len; i++)
+		for (unsigned int i = 0, n = k; i < g_len; i++)
 		{
-			register const float m = in_samples[n] + (g->coeff * m1) - m2;
+			const float m = in_samples[n] + (g->coeff * m1) - m2;
 			m2 = m1;
 			m1 = m;
 			if (++n >= len)
@@ -819,7 +819,7 @@ void set_measurement_frequency(uint32_t Hz)
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		// so create a 16-bit table with the upper 8-bits all high
-		// see 9.2.4 (page 173) of the stm32f103xx reference manual about the ODR register being WORD ONLY
+		// see 9.2.4 (page 173) of the stm32f103xx reference manual about the ODR being WORD ONLY
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
@@ -948,10 +948,10 @@ int process_Goertzel(void)
 			//   compute waveform phase
 
 			// point to the ADC samples
-			register float *buf = adc_data[buf_index];
+			float *buf = adc_data[buf_index];
 
 			{	// compute waveform RMS magnitude of the unfiltered waveform
-				register float sum = 0;
+				float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 					sum += SQR(buf[k]);
 				sum *= 1.0f / ADC_DATA_LENGTH;
@@ -969,19 +969,19 @@ int process_Goertzel(void)
 			// compute waveform phase
 
 			// point to an output buffer for the Goertzel filter to save into
-			register t_complex *tmp_buf = (t_complex *)tmp_buffer;
+			t_complex *tmp_buf = (t_complex *)tmp_buffer;
 
-			register float *buf = adc_data[buf_index];
+			float *buf = adc_data[buf_index];
 
 			// filter the entire waveform using many Goertzel DFTs
 			if (goertzel_wrap(buf, tmp_buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
 				return -1;        // their was a key press whilst doing it, drop everthing (on this run) to immediately process the users input
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
-				register float sum = 0;
+				float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
-					register const t_complex samp = tmp_buf[k];  // fetch filtered waveform sample
+					const t_complex samp = tmp_buf[k];  // fetch filtered waveform sample
 					sum += SQR(samp.real) + SQR(samp.imag);      // sum it (for computing the average)
 					buf[k] = samp.real;                          // save the Goertzel filtered sample
 				}
@@ -997,12 +997,12 @@ int process_Goertzel(void)
 			#else
 			{	// compute waveform phase using all the Goertzel DFTs that filtered the entire waveform
 				// ie, compute the average phase
-				register t_complex sum;
+				t_complex sum;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
 					// remove the phase offset from this sample position in the buffer
-					register const t_complex p = phi_table[k];   // fetch sample phase in the buffer
-					register       t_complex s = tmp_buf[k];     // fetch filtered waveform sample
+					const t_complex p = phi_table[k];   // fetch sample phase in the buffer
+					      t_complex s = tmp_buf[k];     // fetch filtered waveform sample
 					// conj multiply
 					s = t_complex((p.real * s.real) + (p.imag * s.imag), (p.real * s.imag) - (p.imag * s.real));  // phase difference
 
@@ -1407,60 +1407,76 @@ void process_ADC_exec(void)
 	{	// add the new sample block to the averaging buffer (to reduce noise)
 
 		// invert the current (I) ADC waveform to counter-act the inverting OP-AMP stage
-		register const int16_t adc_sign = (vi_mode == VI_MODE_AMP_LO_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) ? -1 : 1;
-		register const int16_t afc_sign = 1;
+		const int16_t adc_sign = (vi_mode == VI_MODE_AMP_LO_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) ? -1 : 1;
+		const int16_t afc_sign = 1;
 
 		if (vi_mode >= VI_MODE_VOLT_HI_GAIN)
 		{	// only bother doing a histogram for the HIGH gain modes, the LOW gain modes never clip/saturate
 
-			// for detecting waveform clipping
-			#define HISTOGRAM_SIZE        (2048 / (1 << 5))
-			uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};               // '+ 1' so we don't try writing beyond the buffer size
+			#ifdef HISTOGRAM_CLIP_DET
+				// for detecting waveform clipping
+				#define HISTOGRAM_SCALE       5
+				#define HISTOGRAM_SIZE        (2048 / (1 << HISTOGRAM_SCALE))
+				uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};               // '+ 1' so we don't try writing beyond the buffer size
 
-			const uint8_t threshold = ADC_DATA_LENGTH / 14;            // histogram spike threshold level
+				const uint8_t threshold = ADC_DATA_LENGTH / 14;            // histogram spike threshold level
+			#else
+				uint16_t peak_adc_value = 0;
+			#endif
 
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
 				// fetch the raw ADC samples
-				register const int16_t adc = (adc_buffer[i].adc - 2048) * adc_sign;
-				register const int16_t afc = (adc_buffer[i].afc - 2048) * afc_sign;
+				const int16_t adc = (adc_buffer[i].adc - 2048) * adc_sign;
+				const int16_t afc = (adc_buffer[i].afc - 2048) * afc_sign;
 
 				// add the new samples to the averaging buffer
 				adc_buffer_sum[i].adc += adc;
 				adc_buffer_sum[i].afc += afc;
 
-				// update the histogram with the sample
-				//register uint32_t val = (adc < 0) ? -adc : adc;      // 0..2048   two's compliment
-				register uint32_t val = (adc < 0) ? ~adc : adc;        // 0..2047   one's compliment
-				val >>= 5;                                             // 0 to HISTOGRAM_SIZE
-				histogram[val]++;                                      // increment the histogram bin
-			}
+				//uint32_t val = (adc < 0) ? -adc : adc;      // 0..2048   two's compliment
+				uint32_t val = (adc < 0) ? ~adc : adc;        // 0..2047   one's compliment
 
-			// check to see any clipping/saturation is occuring
-			// we do this by looking for any spikes in the upper section of the histogram
-			register uint8_t clipped = 0;
-			register uint8_t p0      = 0;
-			register uint8_t p1      = 0;
-			for (unsigned int i = HISTOGRAM_SIZE * 0.7; i < ARRAY_SIZE(histogram) && !clipped; i++)
-			{
-				#if 0
-					// look at the absolute histogram level (rather than spikes)
-					if (histogram[i] >= threshold)
-						clipped = 1;
+				#ifdef HISTOGRAM_CLIP_DET
+					// update the histogram with the sample
+					val >>= HISTOGRAM_SCALE;                      // 0 to HISTOGRAM_SIZE
+					histogram[val]++;                             // increment the histogram bin
 				#else
-					// look for histogram spike
-					register const uint8_t p2         = histogram[i];
-					register const uint8_t lead_edge  = (p1 >= p0) ? p1 - p0 : 0;
-					register const uint8_t trail_edge = (p1 >= p2) ? p1 - p2 : 0;
-					p0 = p1;
-					p1 = p2;
-					//clipped = (lead_edge >= threshold && trail_edge >= threshold) ? 1 : clipped; // spikes leading and trailing edge
-					clipped = (lead_edge >= threshold || trail_edge >= threshold) ? 1 : clipped;   // spikes leading or trailing edge
-					//clipped = (lead_edge >= threshold) ? 1 : clipped;                            // spikes leading edge only
-					//clipped = (trail_edge >= threshold) ? 1 : clipped;                           // spikes trailing edge only
+					peak_adc_value = (peak_adc_value < val) ? val : peak_adc_value;
 				#endif
 			}
-			adc_data_clipping[vi_mode] |= clipped;                // '1' = detected clipped/saturated samples
+
+			{	// check to see any clipping/saturation is occuring
+				#ifdef HISTOGRAM_CLIP_DET
+					// look for any spikes in the upper section of the histogram
+					uint8_t clipped = 0;
+					uint8_t p0      = 0;
+					uint8_t p1      = 0;
+					for (unsigned int i = HISTOGRAM_SIZE * 0.7; i < ARRAY_SIZE(histogram) && !clipped; i++)
+					{
+						#if 0
+							// look at the absolute histogram level (rather than spikes)
+							if (histogram[i] >= threshold)
+								clipped = 1;
+						#else
+							// look for histogram spike
+							const uint8_t p2         = histogram[i];
+							const uint8_t lead_edge  = (p1 >= p0) ? p1 - p0 : 0;
+							const uint8_t trail_edge = (p1 >= p2) ? p1 - p2 : 0;
+							p0 = p1;
+							p1 = p2;
+							//clipped = (lead_edge >= threshold && trail_edge >= threshold) ? 1 : clipped; // spikes leading and trailing edge
+							clipped = (lead_edge >= threshold || trail_edge >= threshold) ? 1 : clipped;   // spikes leading or trailing edge
+							//clipped = (lead_edge >= threshold) ? 1 : clipped;                            // spikes leading edge only
+							//clipped = (trail_edge >= threshold) ? 1 : clipped;                           // spikes trailing edge only
+						#endif
+					}
+				#else
+					const uint8_t clipped = (peak_adc_value >= 2000) ? 1 : 0;	                           // simple sample threshold level
+				#endif
+
+				adc_data_clipping[vi_mode] |= clipped;                // '1' = detected clipped/saturated samples
+			}
 		}
 		else
 		{	// forget doing a histogram in the LOW gain modes as the ADC samples never clip/saturate, so no need to check for that
@@ -1523,11 +1539,11 @@ void process_ADC_exec(void)
 
 		const unsigned int buf_index = vi_mode * 2;
 
-		register float *buf_adc = adc_data[buf_index + 0];
-		register float *buf_afc = adc_data[buf_index + 1];
+		float *buf_adc = adc_data[buf_index + 0];
+		float *buf_afc = adc_data[buf_index + 1];
 
 		{	// fetch and re-scale (also converts to 'float' type at the same time)
-			register const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
+			const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
 				buf_adc[i] = adc_buffer_sum[i].adc * scale;
@@ -1544,7 +1560,7 @@ void process_ADC_exec(void)
 			{	// ADC input
 
 				// compute the DC offset
-				register float sum = 0;
+				float sum = 0;
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					sum += buf_adc[i];
 				sum *= 1.0f / ADC_DATA_LENGTH;
@@ -1565,7 +1581,7 @@ void process_ADC_exec(void)
 			{	// AFC input (samples never ever clip)
 
 				// compute the DC offset
-				register float sum = 0;
+				float sum = 0;
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					sum += buf_afc[i];
 				sum *= 1.0f / ADC_DATA_LENGTH;
@@ -1826,7 +1842,11 @@ void draw_screen(void)
 						break;
 
 					case LCR_MODE_AUTO:
-						// TODO:
+
+
+						// TODO: add AUTO mode code
+
+
 						break;
 				}
 
@@ -1870,7 +1890,7 @@ void draw_screen(void)
 						unit = unit_conversion(&value, "fpnumkMG");
 
 
-						// todo:
+						// TODO: add AUTO mode code
 
 
 						break;
@@ -2093,6 +2113,8 @@ void draw_screen(void)
 			ssd1306_SetCursor(0, 5);
 			ssd1306_WriteString(str_buf, &Font_11x18, White);
 
+			//float value = measurement_Hz;
+			//const char unit = unit_conversion(&value, "kMG");
 			if (measurement_Hz < 1000)
 				snprintf(str_buf, sizeof(str_buf), " %u Hz", measurement_Hz);
 			else
@@ -2108,6 +2130,8 @@ void draw_screen(void)
 			ssd1306_SetCursor(0, 5);
 			ssd1306_WriteString(str_buf, &Font_11x18, White);
 
+			//float value = measurement_Hz;
+			//const char unit = unit_conversion(&value, "kMG");
 			if (measurement_Hz < 1000)
 				snprintf(str_buf, sizeof(str_buf), " %u Hz", measurement_Hz);
 			else
@@ -2425,8 +2449,8 @@ void MX_TIM3_Init(void)
 		LL_DMA_SetMode(                 DMA1, LL_DMA_CHANNEL_3, LL_DMA_MODE_CIRCULAR);
 		LL_DMA_SetPeriphIncMode(        DMA1, LL_DMA_CHANNEL_3, LL_DMA_PERIPH_NOINCREMENT);
 		LL_DMA_SetMemoryIncMode(        DMA1, LL_DMA_CHANNEL_3, LL_DMA_MEMORY_INCREMENT);
-		LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_PDATAALIGN_HALFWORD);
-		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_MDATAALIGN_HALFWORD);
+		LL_DMA_SetPeriphSize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_PDATAALIGN_HALFWORD);  // all DMA <> GPIO transfers must be 16-bit because the GPIO port is 16-bit ONLY :(
+		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_MDATAALIGN_HALFWORD);  //    "              "
 
 		LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3, (uint32_t)&sine_table, (uint32_t)&GPIOB->ODR, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
 		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, ARRAY_SIZE(sine_table));
@@ -2521,11 +2545,11 @@ void MX_USART1_UART_Init(void)
 	//LL_USART_EnableDMAReq_RX(USART1);
 
 	// clear RX error flags .. clearing any one of these also clears all the others
-	LL_USART_ClearFlag_ORE(USART1);    // OverRun Error Flag
-	//LL_USART_ClearFlag_PE(USART1);   // Parity Error Flag
-	//LL_USART_ClearFlag_NE(USART1);   // Noise detected Flag
-	//LL_USART_ClearFlag_FE(USART1);   // Framing Error Flag
-	//LL_USART_ClearFlag_IDLE(USART1); // IDLE line detected Flag
+	LL_USART_ClearFlag_ORE(USART1);        // OverRun Error Flag
+	//LL_USART_ClearFlag_PE(USART1);       // Parity Error Flag
+	//LL_USART_ClearFlag_NE(USART1);       // Noise detected Flag
+	//LL_USART_ClearFlag_FE(USART1);       // Framing Error Flag
+	//LL_USART_ClearFlag_IDLE(USART1);     // IDLE line detected Flag
 
 	// RX isn't done by DMA
 	LL_USART_ClearFlag_RXNE(USART1);
@@ -2856,7 +2880,7 @@ void USART1_IRQHandler(void)
 		//if (LL_USART_IsActiveFlag_IDLE(USART1))
 		//	LL_USART_ClearFlag_IDLE(USART1);
 
-		register uint32_t wr = serial.rx.buffer_wr;
+		uint32_t wr = serial.rx.buffer_wr;
 
 		while (LL_USART_IsActiveFlag_RXNE(USART1))
 		{
@@ -3054,7 +3078,7 @@ void process_buttons(void)
 			if (!(settings.flags & SETTING_FLAG_FAST_UPDATES))
 			{
 				unsigned int mode = settings.lcr_mode;
-				//if (++mode > LCR_MODE_AUTO)               // TODO:
+				//if (++mode > LCR_MODE_AUTO)               // TODO: add AUTO mode code
 				if (++mode > LCR_MODE_RESISTANCE)
 					mode = LCR_MODE_INDUCTANCE;
 				settings.lcr_mode = mode;
