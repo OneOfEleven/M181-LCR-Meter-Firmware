@@ -257,7 +257,7 @@ void stop(uint32_t ms = 0)
 {
 	__disable_irq();
 	__DSB();
-	ms = (ms == 0) ? 300 : ms;
+	ms = (ms == 0) ? 300 : (ms < 25) ? 25 : ms;
 	while (1)
 	{
 		LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);    // LED on
@@ -734,36 +734,36 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 
 // ***********************************************************
 
-char unit_conversion(float *value)
+char unit_conversion(float *value, const char units[])   // const char units[] = "fpnumkMG")
 {
 	const int   sign = (*value < 0.0f) ? -1 : 1;
 	const float val  = fabsf(*value);
 
-//	if (val < 1e-12f)
-//	{	// femto
-//		*value = (val * 1e15f) * sign;
-//		return 'f';
-//	}
+	if (val < 1e-12f && strchr(units, 'f'))
+	{	// femto
+		*value = (val * 1e15f) * sign;
+		return 'f';
+	}
 
-	if (val < 1e-9f)
+	if (val < 1e-9f && strchr(units, 'p'))
 	{	// pico
 		*value = (val * 1e12f) * sign;
 		return 'p';
 	}
 
-	if (val < 1e-6f)
+	if (val < 1e-6f && strchr(units, 'n'))
 	{	// nano
 		*value = (val * 1e9f) * sign;
 		return 'n';
 	}
 
-	if (val < 1e-3f)
+	if (val < 1e-3f && strchr(units, 'u'))
 	{	// micro
 		*value = (val * 1e6f) * sign;
 		return 'u';
 	}
 
-	if (val < 1e0f)
+	if (val < 1e0f && strchr(units, 'm'))
 	{	// milli
 		*value = (val * 1e3f) * sign;
 		return 'm';
@@ -774,21 +774,31 @@ char unit_conversion(float *value)
 		return ' ';
 	}
 
-	if (val < 1e6f)
+	if (val < 1e6f && strchr(units, 'k'))
 	{	// kilo
 		*value = (val * 1e-3f) * sign;
 		return 'k';
 	}
 
-	if (val < 1e9f)
+	if (val < 1e9f && strchr(units, 'M'))
 	{	// Mega
 		*value = (val * 1e-6f) * sign;
 		return 'M';
 	}
 
-	// Giga
-	*value = (val * 1e-9f) * sign;
-	return 'G';
+	if (val < 1e12f && strchr(units, 'G'))
+	{	// Giga
+		*value = (val * 1e-9f) * sign;
+		return 'M';
+	}
+
+	if (val < 1e15f && strchr(units, 'T'))
+	{	// Terra
+		*value = (val * 1e-12f) * sign;
+		return 'T';
+	}
+
+	return ' ';
 }
 
 void set_measurement_frequency(uint32_t Hz)
@@ -994,7 +1004,7 @@ int process_Goertzel(void)
 					register const t_complex p = phi_table[k];   // fetch sample phase in the buffer
 					register       t_complex s = tmp_buf[k];     // fetch filtered waveform sample
 					// conj multiply
-					s = t_complex((s.real * p.real) + (s.imag * p.imag), (s.real * p.imag) - (s.imag * p.real));  // phase difference
+					s = t_complex((p.real * s.real) + (p.imag * s.imag), (p.real * s.imag) - (p.imag * s.real));  // phase difference
 
 					sum.real += s.real;
 					sum.imag += s.imag;
@@ -1626,9 +1636,6 @@ void process_ADC_exec(void)
 
 void print_sprint(const unsigned int digit, const float value, char output_char[], const unsigned int out_max_size)
 {
-//	float val = value;
-//	const char unit = unit_conversion(&val);
-
 	const float v = fabsf(value);
 
 	switch (digit)
@@ -1663,25 +1670,6 @@ void print_sprint(const unsigned int digit, const float value, char output_char[
 	        else
 				snprintf(output_char, out_max_size, "%0.0f", value); // 1234 (no dp)
 			break;
-    }
-}
-
-void print_custom_symbol(const unsigned int startX, const unsigned int startY, const uint16_t symbol[], const unsigned int symbolWidth, const unsigned int symbolHeight)
-{
-    // For each row of the symbol...
-    for (unsigned int row = 0; row < symbolHeight; row++)
-    {
-        // Shift the row data left to align active pixels in the MSB position.
-        // (For a symbolWidth of 7, shift left by 16 - 7 = 9 bits.)
-        uint16_t rowData = symbol[row] << (16u - symbolWidth);
-
-        // For each column in this row...
-        for (unsigned int col = 0; col < symbolWidth; col++)
-        {
-            // if MSB set, draw a white pixel
-			ssd1306_DrawPixel(startX + col, startY + row, (rowData & 0x8000) ? White : Black);
-            rowData <<= 1;
-        }
     }
 }
 
@@ -1789,7 +1777,7 @@ void draw_screen(void)
 				else
 				{	// VI phase
 					print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
-					ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * Font_7x10.width), 0);
+					//ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * Font_7x10.width), 0);
 					ssd1306_WriteString(str_buf, &Font_7x10, White);
 				}
 			#endif
@@ -1848,23 +1836,13 @@ void draw_screen(void)
 					ssd1306_WriteString(str_buf, &Font_11x18, White);
 				#endif
 
-				char unit = unit_conversion(&value);
+				//char unit = unit_conversion(&value, "fpnumkMG");
+				char unit = ' ';
 
 				switch (settings.lcr_mode)
 				{
 					case LCR_MODE_INDUCTANCE:
-						if (unit == 'p')
-						{
-							unit = 'u';
-							value *= 1e-6f;
-						}
-						else
-						if (unit == 'n')
-						{
-							unit = 'u';
-							value *= 1e-3f;
-						}
-
+						unit = unit_conversion(&value, "umkMG");
 						if (unit == 'u')
 							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
 						else
@@ -1872,6 +1850,7 @@ void draw_screen(void)
 						break;
 
 					case LCR_MODE_CAPACITANCE:
+						unit = unit_conversion(&value, "pnumkMG");
 						if (unit == 'p')
 							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
 						else
@@ -1879,24 +1858,7 @@ void draw_screen(void)
 						break;
 
 					case LCR_MODE_RESISTANCE:
-						if (unit == 'p')
-						{
-							unit = 'm';
-							value *= 1e-9f;
-						}
-						else
-						if (unit == 'n')
-						{
-							unit = 'm';
-							value *= 1e-6f;
-						}
-						else
-						if (unit == 'u')
-						{
-							unit = 'm';
-							value *= 1e-3f;
-						}
-
+						unit = unit_conversion(&value, "mkMG");
 						if (unit == 'm')
 							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
 							//snprintf(str_buf, sizeof(str_buf), "%d", (int)value);
@@ -1905,6 +1867,12 @@ void draw_screen(void)
 						break;
 
 					case LCR_MODE_AUTO:
+						unit = unit_conversion(&value, "fpnumkMG");
+
+
+						// todo:
+
+
 						break;
 				}
 
@@ -1953,7 +1921,7 @@ void draw_screen(void)
 						uint16_t x;
 						uint16_t y;
 						ssd1306_GetCursor(&x, &y);
-						print_custom_symbol(x, y, omega_13x18, 13, 18);
+						ssd1306_symbol(x, y, omega_13x18, 13, 18);
 
 						break;
 					}
@@ -1980,7 +1948,7 @@ void draw_screen(void)
 				{	// voltage
 					float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
 					value = adc_to_volts(value);
-					const char unit = unit_conversion(&value);
+					const char unit = unit_conversion(&value, "mkMG");
 
 					ssd1306_SetCursor(0, LINE3_Y);
 					print_sprint(4, value, str_buf, sizeof(str_buf));
@@ -1996,7 +1964,7 @@ void draw_screen(void)
 				{	// current
 					float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
 					value = adc_to_volts(value);
-					const char unit = unit_conversion(&value);
+					const char unit = unit_conversion(&value, "umkMG");
 
 					ssd1306_SetCursor(62, LINE3_Y);
 					print_sprint(4, value, str_buf, sizeof(str_buf));
@@ -2021,7 +1989,7 @@ void draw_screen(void)
 					{	// ESR
 
 						float value = par ? system_data.parallel.esr : system_data.series.esr;
-						const char unit = unit_conversion(&value);
+						const char unit = unit_conversion(&value, "mkMG");
 
 						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("ER", &Font_7x10, White);
@@ -2040,7 +2008,7 @@ void draw_screen(void)
 					{	// Tan Delta
 
 						float value = par ? system_data.parallel.tan_delta : system_data.series.tan_delta;
-						const char unit = unit_conversion(&value);
+						const char unit = unit_conversion(&value, "kMG");
 
 						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("D", &Font_7x10, White);
@@ -2058,7 +2026,7 @@ void draw_screen(void)
 					{	// Quality factor
 
 						float value = par ? system_data.parallel.qf : system_data.series.qf;
-						const char unit = unit_conversion(&value);
+						const char unit = unit_conversion(&value, "kMG");
 
 						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("Q ", &Font_7x10, White);
@@ -2080,7 +2048,7 @@ void draw_screen(void)
 					{	// inductance
 
 						float value = par ? system_data.parallel.inductance : system_data.series.inductance;
-						const char unit = unit_conversion(&value);
+						const char unit = unit_conversion(&value, "umkMG");
 
 						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_7x10.height);
 
@@ -2097,7 +2065,7 @@ void draw_screen(void)
 					{	// Quality factor
 
 						float value = par ? system_data.parallel.qf : system_data.series.qf;
-						const char unit = unit_conversion(&value);
+						const char unit = unit_conversion(&value, "kMG");
 
 						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_7x10.height);
 						ssd1306_WriteString("Q ", &Font_7x10, White);

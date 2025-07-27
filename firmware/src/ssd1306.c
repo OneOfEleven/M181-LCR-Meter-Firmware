@@ -163,7 +163,7 @@ void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR
 char ssd1306_WriteChar(const char ch, const t_font *font, const SSD1306_COLOR color)
 {
 	if (!SSD1306.Initialized)
-		return;
+		return 0;
 	if (SSD1306_WIDTH  <= (SSD1306.CurrentX + font->width))
 		return 0;
 	if (SSD1306_HEIGHT <= (SSD1306.CurrentY + font->height))
@@ -225,7 +225,6 @@ void ssd1306_MoveCursor(const int x, const int y)
 	SSD1306.CurrentY = (((int)SSD1306.CurrentY + y) <= 0) ? 0 : (((int)SSD1306.CurrentY + y) > SSD1306_HEIGHT) ? SSD1306_HEIGHT : SSD1306.CurrentY + y;
 }
 
-// Draw a filled rectangle
 void ssd1306_FillRectangle(const uint8_t x1, const uint8_t y1, const uint8_t x2, const uint8_t y2, const SSD1306_COLOR color)
 {
 	if (SSD1306.Initialized)
@@ -241,10 +240,19 @@ void ssd1306_FillRectangle(const uint8_t x1, const uint8_t y1, const uint8_t x2,
 	}
 }
 
-// dotted line
 void ssd1306_dotted_hline(const unsigned int x1, const unsigned int x2, const unsigned int x_step, const unsigned int y, const SSD1306_COLOR colour)
 {
 	if (SSD1306.Initialized)
 		for (unsigned int x = x1; x <= x2; x += x_step)
 			ssd1306_DrawPixel(x, y, colour);
+}
+
+void ssd1306_symbol(const unsigned int x, const unsigned int y, const uint16_t symbol[], const unsigned int symbol_width, const unsigned int symbol_height)
+{
+    for (unsigned int row = 0; row < symbol_height; row++)
+    {
+        uint16_t row_data = symbol[row] << (16u - symbol_width);
+        for (unsigned int col = 0; col < symbol_width; col++, row_data <<= 1)
+			ssd1306_DrawPixel(x + col, y + row, (row_data & 0x8000) ? White : Black);
+    }
 }

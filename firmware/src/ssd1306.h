@@ -59,6 +59,7 @@ void ssd1306_MoveCursor(const int x, const int y);
 void ssd1306_InvertColors(void);
 void ssd1306_FillRectangle(const uint8_t x1, const uint8_t y1, const uint8_t x2, const uint8_t y2, const SSD1306_COLOR color);
 void ssd1306_dotted_hline(const unsigned int x1, const unsigned int x2, const unsigned int x_step, const unsigned int y, const SSD1306_COLOR colour);
+void ssd1306_symbol(const unsigned int x, const unsigned int y, const uint16_t symbol[], const unsigned int symbol_width, const unsigned int symbol_height);
 
 #ifdef __cplusplus
 	}
