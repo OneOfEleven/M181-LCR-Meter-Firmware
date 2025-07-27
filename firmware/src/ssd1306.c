@@ -191,11 +191,7 @@ char ssd1306_WriteChar(const char ch, const t_font *font, const SSD1306_COLOR co
 char ssd1306_WriteString(const char str[], const t_font *font, const SSD1306_COLOR color)
 {
 	while (*str)
-	{
-		if (ssd1306_WriteChar(*str, font, color) != *str)
-			return *str;   // Char could not be written
-		str++;
-	}
+		ssd1306_WriteChar(*str++, font, color);
 
 	return *str;
 }

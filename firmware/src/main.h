@@ -93,7 +93,7 @@
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
 #define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH         // two sine cycle filter length (slightly longer)
 
-#define CALIBRATE_COUNT              3              // number of results to average when doing the open/short calibration
+#define CALIBRATE_COUNT              4              // number of results to average when doing the open/short calibration
 
 #define SAVE_SETTINGS_MS             5000           // ms we wait till we save new settings (helps reduce number of flash writes)
 
