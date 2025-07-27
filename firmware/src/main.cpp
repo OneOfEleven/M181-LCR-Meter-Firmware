@@ -1406,20 +1406,31 @@ void process_ADC_exec(void)
 	if (adc_buffer_sum_count >= skip_block_count)
 	{	// add the new sample block to the averaging buffer (to reduce noise)
 
-		// invert the current (I) ADC waveform to counter-act the inverting OP-AMP stage
+		// invert the current (I) ADC waveform to counter-act the inverting transimpedance OP-AMP stage
+		// AFC samples are never inverted
 		const int16_t adc_sign = (vi_mode == VI_MODE_AMP_LO_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) ? -1 : 1;
 		const int16_t afc_sign = 1;
 
-		if (vi_mode >= VI_MODE_VOLT_HI_GAIN)
-		{	// only bother doing a histogram for the HIGH gain modes, the LOW gain modes never clip/saturate
+		if (vi_mode < VI_MODE_VOLT_HI_GAIN)
+		{	// we don't check for any signs of sample clipping/saturation in the LOW gain modes
+			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+			{
+				adc_buffer_sum[i].adc += (adc_buffer[i].adc - 2048) * adc_sign;
+				adc_buffer_sum[i].afc += (adc_buffer[i].afc - 2048) * afc_sign;
+			}
+			adc_data_clipping[vi_mode] = 0;                       // '0' = no clipping/saturation detected
+		}
+		else
+		{
+			// check for clipped/saturated samples only in the HIGH gain ADC samples
+			// the ADC LOW gain samples never clip/saturate
+			// the AFC samples also never clip/saturate
 
 			#ifdef HISTOGRAM_CLIP_DET
 				// for detecting waveform clipping
 				#define HISTOGRAM_SCALE       5
-				#define HISTOGRAM_SIZE        (2048 / (1 << HISTOGRAM_SCALE))
+				#define HISTOGRAM_SIZE        (2048 >> HISTOGRAM_SCALE)
 				uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};               // '+ 1' so we don't try writing beyond the buffer size
-
-				const uint8_t threshold = ADC_DATA_LENGTH / 14;            // histogram spike threshold level
 			#else
 				uint16_t peak_adc_value = 0;
 			#endif
@@ -1434,24 +1445,25 @@ void process_ADC_exec(void)
 				adc_buffer_sum[i].adc += adc;
 				adc_buffer_sum[i].afc += afc;
 
-				//uint32_t val = (adc < 0) ? -adc : adc;      // 0..2048   two's compliment
-				uint32_t val = (adc < 0) ? ~adc : adc;        // 0..2047   one's compliment
+				//uint32_t val = (adc < 0) ? -adc : adc;          // 0..2048   two's compliment
+				uint32_t val = (adc < 0) ? ~adc : adc;            // 0..2047   one's compliment
 
 				#ifdef HISTOGRAM_CLIP_DET
 					// update the histogram with the sample
-					val >>= HISTOGRAM_SCALE;                      // 0 to HISTOGRAM_SIZE
+					val >>= HISTOGRAM_SCALE;                      // val = 0 to HISTOGRAM_SIZE
 					histogram[val]++;                             // increment the histogram bin
 				#else
-					peak_adc_value = (peak_adc_value < val) ? val : peak_adc_value;
+					peak_adc_value = (peak_adc_value < val) ? val : peak_adc_value;   // peak sample value
 				#endif
 			}
 
 			{	// check to see any clipping/saturation is occuring
 				#ifdef HISTOGRAM_CLIP_DET
 					// look for any spikes in the upper section of the histogram
-					uint8_t clipped = 0;
-					uint8_t p0      = 0;
-					uint8_t p1      = 0;
+					const uint8_t threshold = ADC_DATA_LENGTH / 14;            // histogram spike threshold level
+					uint8_t       clipped   = 0;
+					uint8_t       p0        = 0;
+					uint8_t       p1        = 0;
 					for (unsigned int i = HISTOGRAM_SIZE * 0.7; i < ARRAY_SIZE(histogram) && !clipped; i++)
 					{
 						#if 0
@@ -1477,15 +1489,6 @@ void process_ADC_exec(void)
 
 				adc_data_clipping[vi_mode] |= clipped;                // '1' = detected clipped/saturated samples
 			}
-		}
-		else
-		{	// forget doing a histogram in the LOW gain modes as the ADC samples never clip/saturate, so no need to check for that
-			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-			{
-				adc_buffer_sum[i].adc += (adc_buffer[i].adc - 2048) * adc_sign;
-				adc_buffer_sum[i].afc += (adc_buffer[i].afc - 2048) * afc_sign;
-			}
-			adc_data_clipping[vi_mode] = 0;                       // '0' = no clipping/saturation detected
 		}
 	}
 
