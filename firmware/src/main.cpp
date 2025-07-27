@@ -1901,10 +1901,16 @@ void draw_screen(void)
 
 				trim_trailing_zeros(str_buf);
 
-				ssd1306_MoveCursor(4, -3);
-				ssd1306_WriteString(str_buf, &Font_16x26, White);
-
-				ssd1306_MoveCursor(6, -1);
+				#if 0
+					ssd1306_MoveCursor(4, -3);
+					ssd1306_WriteString(str_buf, &Font_16x26, White);
+					//ssd1306_WriteString(str_buf, &Font_16x24, White);
+					ssd1306_MoveCursor(6, -1);
+				#else
+					ssd1306_MoveCursor(4, -7);
+					ssd1306_WriteString(str_buf, &Font_16x32, White);
+					ssd1306_MoveCursor(6, 1);
+				#endif
 
 				switch (settings.lcr_mode)
 				{
@@ -1950,6 +1956,11 @@ void draw_screen(void)
 					}
 
 					case LCR_MODE_AUTO:
+
+
+						// todo:
+
+
 						break;
 				}
 			}

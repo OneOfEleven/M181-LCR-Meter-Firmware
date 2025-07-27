@@ -20,7 +20,9 @@ typedef struct {
 
 extern const t_font Font_7x10;
 extern const t_font Font_11x18;
-extern const t_font Font_16x26;
+//extern const t_font Font_16x26;
+//extern const t_font Font_16x24;
+extern const t_font Font_16x32;
 
 #ifdef __cplusplus
 	}
