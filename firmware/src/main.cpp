@@ -1794,14 +1794,15 @@ void bootup_screen(void)
 	ssd1306_WriteString(str_buf, &font_8x12, White);
 
 	sprintf(str_buf, "v%s", FW_VERSION);
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(str_buf) * font_8x12.width), 0);
+	ssd1306_SetCursor(SSD1306_WIDTH - (strlen(str_buf) * font_8x12.width), 0);
 	ssd1306_WriteString(str_buf, &font_8x12, White);
 
-	ssd1306_SetCursor(14, 14);
+	ssd1306_SetCursor(13, 15);
 	ssd1306_WriteString("LCR Meter", &font_11x18, White);
 
-	ssd1306_SetCursor(0, 34);
+	ssd1306_SetCursor(0, 35);
 	ssd1306_WriteString("HW JYETech", &font_8x12, White);
+
 	ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
 	ssd1306_WriteString("FW Jai & 1o11", &font_8x12, White);
 
@@ -1811,7 +1812,7 @@ void bootup_screen(void)
 void draw_measurement_mode(void)
 {
 	snprintf(str_buf, sizeof(str_buf), "%u", system_data.vi_measure_mode);
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * font_8x12.width), 0);
+	ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width), 0);
 	ssd1306_WriteString(str_buf, &font_8x12, White);
 
 	ssd1306_UpdateScreen();
@@ -1859,12 +1860,12 @@ void draw_screen(void)
 			memset(str_buf, 0, sizeof(str_buf));
 			str_buf[i++] = settings.open_probe_calibration[index].done    ? 'O' : '-';
 			str_buf[i++] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
-			ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 4) * font_8x12.width), 0);
+			ssd1306_SetCursor(SSD1306_WIDTH - ((2 + 1 + 4) * font_8x12.width), 0);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 
 		// hold or fast
-		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * font_8x12.width), 0);
+		ssd1306_SetCursor(SSD1306_WIDTH - (4 * font_8x12.width), 0);
 		if (display_hold)
 			ssd1306_WriteString("HOLD", &font_8x12, White);
 		else
@@ -2014,7 +2015,7 @@ void draw_screen(void)
 			str_buf[0] = volt_gain_sel ? 'H' : 'L';
 			str_buf[1] = amp_gain_sel  ? 'H' : 'L';
 			str_buf[2] ='\0';
-			ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 2) * font_8x12.width), LINE3_Y);
+			ssd1306_SetCursor(SSD1306_WIDTH - ((2 + 1 + 2) * font_8x12.width), LINE3_Y);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 		#endif
@@ -2030,7 +2031,7 @@ void draw_screen(void)
 				default:               s = sp[3]; break;
 			}
 			strcpy(str_buf, (s != NULL) ? s : "");
-			ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * font_8x12.width), LINE3_Y);
+			ssd1306_SetCursor(SSD1306_WIDTH - (2 * font_8x12.width), LINE3_Y);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 
@@ -2263,7 +2264,7 @@ void draw_screen(void)
 			case DATA_MODE_BINARY: str_buf[0] = 'B'; break;
 			default:               str_buf[0] = 'E'; break;
 		}
-		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * font_8x12.width), SSD1306_HEIGHT - 1 - font_8x12.height);
+		ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width), SSD1306_HEIGHT - 1 - font_8x12.height);
 		ssd1306_WriteString(str_buf, &font_8x12, White);
 	}
 	#endif
@@ -3992,7 +3993,7 @@ int main(void)
 
 	// *************************************
 
-	{	// wait until the user has released all buttons (for at least 1000ms)
+	{	// wait until the user has released all buttons (for at least 200ms)
 
 		uint32_t butt_tick = sys_tick;
 
@@ -4006,7 +4007,7 @@ int main(void)
 				if (button[i].debounce > 0)
 					butt_tick = tick;
 
-			if ((tick - butt_tick) >= 1000)
+			if ((tick - butt_tick) >= 200)
 				break;
 
 			#ifdef USE_IWDG
@@ -4031,8 +4032,13 @@ int main(void)
 	MX_ADC_Init();
 	MX_TIM3_Init();
 
+	#ifdef USE_IWDG
+		// feed the dog
+		service_IWDG(1);
+	#endif
+
 	// give the user more time to read the bootup screen
-	LL_mDelay(1000);
+	LL_mDelay(4000);
 
 	if (button[BUTTON_HOLD].held_ms || button[BUTTON_HOLD].released)
 	{	// HOLD button was pressed

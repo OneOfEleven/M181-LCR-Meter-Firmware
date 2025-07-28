@@ -162,11 +162,7 @@ void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR
 //  color   => Black or White
 char ssd1306_WriteChar(const char ch, const t_font *font, const SSD1306_COLOR color)
 {
-	if (!SSD1306.Initialized)
-		return 0;
-	if (SSD1306_WIDTH  <= (SSD1306.CurrentX + font->width))
-		return 0;
-	if (SSD1306_HEIGHT <= (SSD1306.CurrentY + font->height))
+	if (!SSD1306.Initialized || SSD1306_WIDTH <= SSD1306.CurrentX || SSD1306_HEIGHT <= SSD1306.CurrentY)
 		return 0;
 	if (ch < font->char_first || ch > font->char_last)
 		return 0;
@@ -175,11 +171,19 @@ char ssd1306_WriteChar(const char ch, const t_font *font, const SSD1306_COLOR co
 	const unsigned int w = font->width;
 	const unsigned int m = ((unsigned int)ch - font->char_first) * h;
 
-	for (unsigned int i = 0; i < h; i++)
+	for (unsigned int y = 0; y < h; y++)
 	{
-		const unsigned int b = font->data[m + i];
-		for (unsigned int j = 0; j < w; j++)
-			ssd1306_DrawPixel(SSD1306.CurrentX + j, (SSD1306.CurrentY + i), ((b << j) & 0x8000) ? color : !color);
+		const unsigned int b  = font->data[m + y];
+		const unsigned int yy = SSD1306.CurrentY + y;
+		if (yy >= SSD1306_HEIGHT)
+			break;
+		for (unsigned int x = 0; x < w; x++)
+		{
+			const unsigned int xx = SSD1306.CurrentX + x;
+			if (xx >= SSD1306_WIDTH)
+				break;
+			ssd1306_DrawPixel(xx, yy, ((b << x) & 0x8000) ? color : !color);
+		}
 	}
 
 	SSD1306.CurrentX += font->width;
