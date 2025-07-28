@@ -128,8 +128,9 @@ static const uint16_t omega_13x18[] = {
 	0b0000000000000    // 18
 };
 
-static const uint16_t measurement_table_Hz[] = {100, 1000};
-//static const uint16_t measurement_table_Hz[] = {100, 1000, 10000};
+// measure frequencies
+static const uint16_t measurement_table_Hz[] = {100, 1000};            // standard
+//static const uint16_t measurement_table_Hz[] = {100, 1000, 10000};   // this one after we have updated the HW PCB compnents to pass 10kHz
 
 struct {
 	uint8_t por;
@@ -146,38 +147,39 @@ struct {
 	volatile uint32_t iwdg_tick        = 0;
 #endif
 
-volatile uint32_t     sys_tick = 0;                                // our own system tick value
+volatile uint32_t     sys_tick = 0;                                   // our own system tick value
 
-LL_RCC_ClocksTypeDef  rcc_clocks = {0};                            // various CPU clock frequencies
+LL_RCC_ClocksTypeDef  rcc_clocks = {0};                               // various CPU clock frequencies
 
-uint32_t              draw_screen_count = 0;
+char                  str_buf[32] = {0};                              // used for various things
 
-char                  str_buf[32] = {0};                           // used for various things
+t_button              button[BUTTON_NUM] = {0};                       // holds each buttons state
 
-t_button              button[BUTTON_NUM] = {0};                    // holds each buttons state
+uint16_t              measurement_Hz = 1000;                          // current measurement frequency
 
-uint16_t              measurement_Hz        = 1000;                // 100, 1000 etc
+uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE] = {0};       // holds look-up data for one complete sine wave cycle (for the DAC)
 
-uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE] = {0};    // holds look-up data for one complete sine wave cycle (for the DAC)
+uint8_t               lcr_mode = LCR_MODE_CAPACITANCE;                // LCR mode we're currently in
+uint8_t               sp_mode  = SP_MODE_SERIES;                      // Series/Parallel mode we're currently in
+uint8_t               op_mode  = OP_MODE_MEASURING;                   // operating mode we're currently in
 
-uint8_t               lcr_mode     = LCR_MODE_CAPACITANCE;         // LCR mode we're currently in
-uint8_t               sp_mode      = SP_MODE_SERIES;               // Series/Parallel mode we're currently in
-uint8_t               op_mode      = OP_MODE_MEASURING;            // the current operaring mode the user is in
-uint8_t               initialising = 1;                            // set to '1' pauses the ADC buffer processing (ADC keeps going though, it's never stopped)
-uint32_t              frames       = 0;                            // just a frame counter
-unsigned int          display_hold = 0;                            // '1' to hold/pause the display
+uint8_t               initialising      = 1;                          // set to '1' pauses the ADC buffer processing (ADC keeps going though, it's never stopped)
+unsigned int          display_hold      = 0;                          // set to '1' to hold/pause the display
+uint32_t              frames            = 0;                          // just a frame counter
+uint32_t              draw_screen_count = 0;                          //   "      "
 
 // for when the user is running the calibrations (open, short, load)
 struct {
-	unsigned int      index_Hz;
-	int               count;
-	float             mag_sum[8];
-	t_complex         phase_sum[8];
+	unsigned int      index_Hz;                                       // current measurement frequency
+	int               count;                                          // number of complete VI meaurements
+	float             mag_sum[8];                                     // for averaging the measurements
+	t_complex         phase_sum[8];                                   //  "       "
 } calibrate = {0};
 
-uint8_t               volt_gain_sel   = 0;                         // voltage V gain path we're using
-uint8_t               amp_gain_sel    = 0;                         // current I gain path we're using
-uint8_t               gain_changed    = 0;                         // just a flag tha's set if we change either gain path
+uint8_t               volt_gain_sel   = 0;                            // voltage V gain path we're using
+uint8_t               amp_gain_sel    = 0;                            // current I gain path we're using
+
+uint8_t               gain_changed = 0;                               // just a flag that's set if we change either gain path
 
 float                 high_gain       = 101;                          // HW gain when using the HIGH gain path
 float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse value of the series resistor in series with the DUT (the LOAD cal calibrates this value)
@@ -187,8 +189,8 @@ t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];             // *2 for 
 
 // ADC sample block averaging buffer
 // we take several sample blocks and average them together to reduce noise (bad PCB layout/design)
-t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};          // summing buffer
-unsigned int          adc_buffer_sum_count            = 0;            // summing counter
+t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};          // average summing buffer
+unsigned int          adc_buffer_sum_count            = 0;            // average summing counter
 
 // VI mode sequence order to minimize mode switching time
 // because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins, large DC spike occurs)
@@ -200,18 +202,18 @@ float                 adc_data[8][ADC_DATA_LENGTH] = {0};             // holds t
 #pragma pack(pop)
 
 // set to '1' if waveform clipping/saturation is detected
-// if the waveform is being clipped, then we can't use it, so we use the LOW gain samples instead
+// if the HIGH gain waveform is being clipped, then we can't use it, we use the LOW gain samples instead
 uint8_t               adc_data_clipping[4] = {0};                     // temp as we go
 uint8_t               adc_data_clipped[4]  = {0};                     // saved here at the end of the full VI sample cycle
 
-// user/system settings are stored in flash area, so we use a timer to help reduce flash wear (limited write cycles)
-volatile int          save_settings_timer = -1;                       //
-t_settings            settings            = {0};                      // the users settings
+// user/system settings are stored in flash area
+volatile int          save_settings_timer = -1;                       // we use a timer to help reduce flash wear (limited write cycles)
+t_settings            settings            = {0};                      // the system/users settings
 
 t_system_data         system_data = {0};                              // various results saved in here
 
 uint8_t               tmp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];   // buffer must be big enough for whatever uses it
-volatile unsigned int tmp_buffer_in_use = 0;                             // non-zero when the buffer is in use
+volatile unsigned int tmp_buffer_in_use = 0;                             // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
 
 // for TX'ing binary packets via the serial port
 t_packet              tx_packet;
@@ -227,7 +229,7 @@ struct {
 
 		struct {
 			uint8_t  buffer[256];  // RX text line buffer
-			uint32_t buffer_wr;
+			uint32_t buffer_wr;    // WRITE index
 		} line;
 	} rx;
 /*
@@ -254,7 +256,7 @@ void reboot(void)
 	while (1) {}
 }
 
-// stop the exec and flash the LED
+// stop the system and flash the LED
 //
 void stop(uint32_t ms = 0)
 {
@@ -271,6 +273,7 @@ void stop(uint32_t ms = 0)
 }
 
 // remove any trailing zeros from a float string
+//
 void trim_trailing_zeros(char buf[])
 {
 	if (buf == NULL)
@@ -307,7 +310,7 @@ void trim_trailing_zeros(char buf[])
 	memmove(buf + index2, buf + index, len + 1 - (index - index2));
 }
 
-// wait untill the serial TX DMA has completed it's send
+// wait until the serial TX DMA has completed it's send
 //
 void wait_tx_dma(uint32_t ms = 0)
 {
@@ -354,11 +357,11 @@ int _write(int file, char ptr[], int len)
 
 // ***********************************************************
 
+// convert ADC raw value to voltage
+//
 float adc_to_volts(const float raw_adc)
 {
-	const float adc_ref = 3.3;
-	const float volts   = (adc_ref * raw_adc) * (float)(1.0 / 4096);
-	return volts;
+	return  (3.3f / 4095) * raw_adc;    // 12-bit ADC
 }
 
 void set_measure_mode_pins(const unsigned int mode)
@@ -393,11 +396,13 @@ void set_measure_mode_pins(const unsigned int mode)
 //
 // includes wear leveling by saving each successive settings block to a different flash address, the previous saves are left alone.
 // once the allocated eeprom flash pages become full, they are all erased in one go ready for more saves to occur.
+// doing this reduces the number of flash erase cycles (reduces flash wear).
 
-int clear_settings(void)
-{	// erase all saved settings in eeprom
-
-	// contain the faulty flash address if a problem occurs whilst the page(s) are being erased
+// erases the entire emulated eeprom flash area
+//
+int eeprom_erase(void)
+{
+	// contains the faulty flash address if a problem occurs whilst the page(s) are being erased
 	uint32_t page_error = 0;
 
 	FLASH_EraseInitTypeDef erase_init = {0};
@@ -429,12 +434,10 @@ int clear_settings(void)
 
 static t_settings temp_settings;
 
-uint32_t find_last_good_settings(void)
-{	// find the last valid flash saved settings we did
-	//
-	// do this by sequencially scanning through the allocated eeprom flash pages looking
-	// for the last error-free slot/block of settings we saved
-
+// scan through the entire eeprom area to find the last saved valid block of settings we did
+//
+uint32_t eeprom_find_last_good_settings(void)
+{
 	// best to keep block size to a multiple of 32-bits
 	const uint32_t block_size = ((sizeof(t_settings) + sizeof(uint32_t) - 1) / sizeof(uint32_t)) * sizeof(uint32_t);
 
@@ -478,11 +481,13 @@ uint32_t find_last_good_settings(void)
 	return flash_addr_good;
 }
 
-int read_settings(void)
+// fetch the last saved valid block of settings we did
+//
+int eeprom_read_settings(void)
 {	// read settings from flash
 
 	// fetch the flash address of last known saved settings
-	const uint32_t flash_addr = find_last_good_settings();
+	const uint32_t flash_addr = eeprom_find_last_good_settings();
 	if (flash_addr == 0)
 		return -1;           // no valid settings found
 
@@ -493,7 +498,9 @@ int read_settings(void)
 	return 0;
 }
 
-int write_settings(void)
+// save the current settings to emulated eeprom
+//
+int eeprom_write_settings(void)
 {	// write settings to flash
 
 	// best to keep block size to a multiple of 32-bits
@@ -518,7 +525,7 @@ int write_settings(void)
 	}
 
 	// find where we last saved the previous settings
-	uint32_t flash_addr = find_last_good_settings();
+	uint32_t flash_addr = eeprom_find_last_good_settings();
 	if (flash_addr > 0)
 	{	// found them
 
@@ -658,7 +665,7 @@ t_goertzel goertzel = {0};
 // this is for the phase detector, this outputs a single I/Q pair
 //
 //std::complex <float> goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
-t_complex goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
+t_complex goertzel_block(const float *samples, const unsigned int len, const t_goertzel *g)
 {
 	float m1 = 0;
 	float m2 = 0;
@@ -681,10 +688,10 @@ t_complex goertzel_block(const float *samples, const unsigned int len, t_goertze
 // this one assumes the sample buffer contains an integer number of full sine cycles
 // if it doesn't, then do not use this function
 //
-// this one os for BPF filtering the waveform, the filtered wave is saved in 'out_samples'
+// this one is for BPF filtering the waveform, the filtered wave is saved in 'out_samples', it removes all out-of-band 'noise'
 //
-//int goertzel_wrap(const float *in_samples, std::complex *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
-int goertzel_wrap(const float *in_samples, t_complex *out_samples, const unsigned int len, const unsigned int g_len, t_goertzel *g)
+//int goertzel_wrap(const float *in_samples, std::complex *out_samples, const unsigned int len, const unsigned int g_len, const t_goertzel *g)
+int goertzel_wrap(const float *in_samples, t_complex *out_samples, const unsigned int len, const unsigned int g_len, const t_goertzel *g)
 {
 	const float scale = 2.0f / g_len;  // for correcting the output amplitude
 
@@ -709,7 +716,7 @@ int goertzel_wrap(const float *in_samples, t_complex *out_samples, const unsigne
 		out_samples[k].real = real * scale;
 		out_samples[k].imag = imag * scale;
 
-		// exit if a button is pressed
+		// exit if the user presses a button
 		//
 		// servicing user input is paramount
 		//
@@ -722,6 +729,8 @@ int goertzel_wrap(const float *in_samples, t_complex *out_samples, const unsigne
 }
 
 // create the Goertzel filter coeffs
+//
+// 'normalized_freq' .. fraction of sample rate, ie, 0.1, 0.4 etc  must be < 0.5 (nyquist frequency of the samples)
 //
 void goertzel_init(t_goertzel *g, const float normalized_freq)
 {
@@ -737,6 +746,18 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 
 // ***********************************************************
 
+// 'units' .. a list of units we want tested and scaled for (case sensitive) ..
+//
+//            'f' = femto
+//            'p' = pico
+//            'n' = nano
+//            'u' = micro
+//            'm' = milli
+//            'k' = kilo
+//            'M' = Mega
+//            'G' = Giga
+//            'T' = Tera
+//
 char unit_conversion(float *value, const char units[])   // const char units[] = "fpnumkMG")
 {
 	const int   sign = (*value < 0.0f) ? -1 : 1;
@@ -796,7 +817,7 @@ char unit_conversion(float *value, const char units[])   // const char units[] =
 	}
 
 	if (val < 1e15f && strchr(units, 'T'))
-	{	// Terra
+	{	// Tera
 		*value = (val * 1e-12f) * sign;
 		return 'T';
 	}
@@ -804,31 +825,38 @@ char unit_conversion(float *value, const char units[])   // const char units[] =
 	return ' ';
 }
 
+// set the system measurement Hz
+// ie 100Hz, 1000Hz or whatever
+//
 void set_measurement_frequency(uint32_t Hz)
 {
 	// limit the range
 	measurement_Hz = (Hz < MEASURE_HZ_MIN) ? MEASURE_HZ_MIN : (Hz > MEASURE_HZ_MAX) ? MEASURE_HZ_MAX : Hz;
 
-	// lower freq = lower amplitude (due to another HW filter design flaw)
+	// lower freq = lower amplitude (due to PCB HW filter design)
 	//
-	float amplitude = (float)measurement_Hz / 1000;                            // 0.0 ~ 1.0
-	amplitude = sqrtf(sqrtf(sqrtf(amplitude)));
-	amplitude = (amplitude < 0.8f) ? 0.8f : (amplitude > 1.0f) ? 1.0f : amplitude;
+	float amplitude = (float)measurement_Hz / 1000;                                // 0.0 ~ 1.0
+	amplitude = sqrtf(sqrtf(sqrtf(amplitude)));                                    //
+	amplitude = (amplitude < 0.8f) ? 0.8f : (amplitude > 1.0f) ? 1.0f : amplitude; // 0.8 to 1.0
 
 	{	// fill the sine wave look-up table with one complete sine cycle
 
-		const float scale      = amplitude * (255 * 0.5f);           // 0-255
-		const float phase_step = (2.0 * M_PI) / ARRAY_SIZE(sine_table);
+		const float scale      = amplitude * (255 * 0.5f);                         // 0-255
+		const float phase_step = (2 * M_PI) / ARRAY_SIZE(sine_table);
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
+		//
 		// so create a 16-bit table with the upper 8-bits all high
+		//
 		// see 9.2.4 (page 173) of the stm32f103xx reference manual about the ODR being WORD ONLY
+		//
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
 
+	// set the timer rate, the timer clocks the ADC and DAC DMA at the desired rate
 	if (measurement_Hz > 0)
-	{	// set the timer rate
+	{
 		const uint32_t timer_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
 //		const uint32_t period        = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), timer_rate_Hz);
 		const uint32_t period        = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
@@ -836,6 +864,8 @@ void set_measurement_frequency(uint32_t Hz)
 	}
 }
 
+// initiate an OPEN probe calibration run
+//
 void start_probe_open_cal(void)
 {
 	memset((void *)&calibrate, 0, sizeof(calibrate));
@@ -843,6 +873,8 @@ void start_probe_open_cal(void)
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
 }
 
+// initiate an SHORTED probe calibration run
+//
 void start_probe_short_cal(void)
 {
 	memset((void *)&calibrate, 0, sizeof(calibrate));
@@ -850,6 +882,8 @@ void start_probe_short_cal(void)
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
 }
 
+// compute the phase difference between two phases (in degrees)
+//
 #if 1
 	float phase_diff(const t_complex c1, const t_complex c2)
 	{
@@ -889,24 +923,30 @@ void start_probe_short_cal(void)
 	uint8_t   phi_table_ready = 0;          // flag to say the table has been created (or not)
 #endif
 
-// pass the new ADC samples through the goertzel dft
+// pass the new ADC samples through the goertzel DFT (basically a single FFT bin)
 //
-// goertzel output samples are 100% free of any DC offset, also very much cleaned of any out-of-band noise (crucial for following measurements)
+// goertzel output samples are 100% free of any DC offset, also very much cleaned of any out-of-band noise
 //
-// input is real
+// input is real (ADC samples)
 // output is complex (I/Q)
 //
 int process_Goertzel(void)
 {
-	// the Goertzel DFT is used for creating I/Q output, phase computation and filtering (if desired)
+	// the Goertzel DFT is used for creating I/Q output, phase computation and BP filtering (if desired)
 
 	// the STM32F103 MCU doesn't have a HW FPU, so full length filtering takes quite a time :(
 	//
-	// a better (drop in replacement) MCU to use would be the STM32F303CBT6 (or others), it has a HW FPU which greatly improves FP ops
-	// it also has a dual 12-DAC, but the two pins it outputs on can't be used for DAC output without modding the m181 PCB
-	// even so, the FPU alone would be a huge gain in speeding up the FP computation frame rate
+	// the cheap ass seller even uses a fake STM32F103, that's the chinese for you :(
 	//
-	// STM32F103CBT6 drop-in replacements .. STM32F303CBT6, STM32L412CBT6, STM32L431CCT6 and STM32L433CBT6
+	// a better (drop in replacement) MCU to use would be the STM32F303CBT6 (or others), it has a HW FPU which greatly speeds up FP op's
+	// it also has a dual 12-DAC, but the two pins it outputs on can't be used for DAC output without modding the m181 PCB
+	// even so, the FPU alone would be a huge gain in FP computation speed
+	//
+	// STM32F103CBT6 drop-in replacements with FPU's ..
+	//      STM32F303CBT6
+	//      STM32L412CBT6
+	//      STM32L431CCT6  .. this one also has FIR/IIR (multiply-add) HW
+	//      STM32L433CBT6
 
 	#ifdef AVERAGE_PHASE
 		if (!phi_table_ready)
@@ -921,7 +961,7 @@ int process_Goertzel(void)
 		}
 	#endif
 
-	// tell DMA not to use the temp buffer
+	// tell DMA not to use the temp buffer, we need it for a short while
 	tmp_buffer_in_use = 1;
 
 	for (unsigned int buf_index = 0; buf_index < ARRAY_SIZE(adc_data); buf_index++)
@@ -1038,11 +1078,10 @@ int process_Goertzel(void)
 	return 0;
 }
 
-// combine AFC mag/phase results (the AFC sample blocks are all the same so may as well average them together)
+// combine AFC mag/phase results (the AFC sample blocks are all the same so may as well combine/average them together)
 //
 void combine_afc(float *avg_rms, float *avg_deg)
 {
-
 	unsigned int sum_count = 0;
 	float        sum_rms   = 0;
 	t_complex       sum_phase = {0, 0};
@@ -1174,19 +1213,19 @@ void combine_afc(float *avg_rms, float *avg_deg)
 void process_ADC_DMA(const void *buffer, const unsigned int size)
 {
 	if (buffer == NULL || size == 0 || initialising || tmp_buffer_in_use != 0)
-		return;               // the temp buffer is not available for use, drop this sample block
+		return;                                       // the temp buffer is not available for use, drop this sample block
 
 	if (vi_measure_index >= VI_MODE_DONE)
-		return;               // wait till the exec has done it's thing
+		return;                                       // wait till the exec is ready for more sample blocks
 
-	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);                          // TEST only, LED on
+	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);     // TEST only, LED on
 
 	// copy the new ADC sample block as quickly as possible so as not to hold up the DMA
 	memcpy(tmp_buffer, buffer, size);
-	tmp_buffer_in_use = 1;    // let the exec know that their is a new sample block ready
+	tmp_buffer_in_use = 1;                            // let the exec know their is a new sample block ready and waiting
 }
 
-// add the new sample block to the averaging buffer (to reduce noise)
+// add the new sample block to the averaging buffer (reduces noise)
 //
 void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_block_count)
 {
@@ -1204,7 +1243,7 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 	if (vi_mode < VI_MODE_VOLT_HI_GAIN)
 	{	// we don't check for any signs of sample clipping/saturation in the LOW gain modes
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-		{
+		{	// add the new samples to the averaging buffer
 			adc_buffer_sum[i].adc += (adc_buffer[i].adc - 2048) * adc_sign;
 			adc_buffer_sum[i].afc += (adc_buffer[i].afc - 2048) * afc_sign;
 		}
@@ -1212,12 +1251,13 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 	}
 	else
 	{
-		// check for clipped/saturated samples only in the HIGH gain ADC samples
+		// check for clipped/saturated samples in the HIGH gain ADC samples
+		//
 		// the ADC LOW gain samples never clip/saturate
 		// the AFC samples also never clip/saturate
 
+		// for detecting waveform clipping
 		#ifdef HISTOGRAM_CLIP_DET
-			// for detecting waveform clipping
 			#define HISTOGRAM_SCALE       5
 			#define HISTOGRAM_SIZE        (2048 >> HISTOGRAM_SCALE)
 			uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};               // '+ 1' so we don't try writing beyond the buffer size
@@ -1243,7 +1283,8 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 				val >>= HISTOGRAM_SCALE;                      // val = 0 to HISTOGRAM_SIZE
 				histogram[val]++;                             // increment the histogram bin
 			#else
-				peak_adc_value = (peak_adc_value < val) ? val : peak_adc_value;   // peak sample value
+				// update the peak sample value
+				peak_adc_value = (peak_adc_value < val) ? val : peak_adc_value;
 			#endif
 		}
 
@@ -1261,7 +1302,7 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 						if (histogram[i] >= threshold)
 							clipped = 1;
 					#else
-						// look for histogram spike
+						// look for histogram spike (histo-bin that is higher in value than it's neighbouring bin)
 						const uint8_t p2         = histogram[i];
 						const uint8_t lead_edge  = (p1 >= p0) ? p1 - p0 : 0;
 						const uint8_t trail_edge = (p1 >= p2) ? p1 - p2 : 0;
@@ -1274,24 +1315,26 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 					#endif
 				}
 			#else
-				const uint8_t clipped = (peak_adc_value >= 2000) ? 1 : 0;	                           // simple sample threshold level
+				// simple ADC peak sample threshold detector
+				const uint8_t clipped = (peak_adc_value >= 2000) ? 1 : 0;  // abs max signed value of 12-bit ADC is 2047/2048
 			#endif
 
-			adc_data_clipping[vi_mode] |= clipped;                // '1' = detected clipped/saturated samples
+			adc_data_clipping[vi_mode] |= clipped;                         // set to '1' if clipping/saturation detected in this sample block (raw ADC samples)
 		}
 	}
 }
 
-// fetch & re-scale the summed ADC sample blocks to create an averaged single block (reduces noise)
+// fetch & re-scale the summed ADC sample blocks to create an averaged single block of samples
 //
 void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_block_count)
 {
 	const unsigned int buf_index = vi_mode * 2;
 
+	// point to buffers where we'll save the averaged samples into
 	float *buf_adc = adc_data[buf_index + 0];
 	float *buf_afc = adc_data[buf_index + 1];
 
-	{	// fetch and re-scale (also converts to 'float' type at the same time)
+	{	// fetch and re-scale (also converts from 'int' to 'float')
 		const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
@@ -1301,24 +1344,24 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 	}
 
 	{
-		// remove any DC offset (there's always some) from this new averaged block of samples
+		// remove DC offset from this new block of averaged samples
 
-		const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF covergence to start with, then switch to slower coeff
+		const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF convergence to start with, then switch to slower coeff
 
-		if (!adc_data_clipping[vi_mode] || op_mode != OP_MODE_MEASURING)   // don't bother if the samples are clipped (makes the block useless)
+		if (!adc_data_clipping[vi_mode] || op_mode != OP_MODE_MEASURING)  // don't bother if the samples are clipped (sample block is useless to us)
 		{	// ADC input
 
-			// compute the DC offset
+			// compute the DC offset of the block
 			float sum = 0;
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 				sum += buf_adc[i];
 			sum *= 1.0f / ADC_DATA_LENGTH;
 
-			// LPF
+			// smooth the DC offset value (LPF)
 			if (!adc_data_clipping[vi_mode])
 				settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
 
-			if (!display_hold)                            // don't bother remove offset if display HOLD is active
+			if (!display_hold)                                            // don't bother removing DC offset if display HOLD is active
 			{	// subtract/remove the DC offset
 				if (!adc_data_clipping[vi_mode])
 					sum = settings.input_offset.adc[vi_mode];
@@ -1335,17 +1378,16 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 				sum += buf_afc[i];
 			sum *= 1.0f / ADC_DATA_LENGTH;
 
-			// LPF
+			// smooth the DC offset value (LPF)
 			settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
 
-			if (!display_hold)                            // don't remove offset if display HOLD is active
+			if (!display_hold)                                            // don't bother removing DC offset if display HOLD is active
 			{	// subtract/remove the DC offset
 				sum = settings.input_offset.afc[vi_mode];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_afc[i] -= sum;
 			}
 		}
-
 	}
 
 	// reset averaging buffer ready for the next measurement run
@@ -1358,23 +1400,23 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 void process_ADC(void)
 {
 	if (tmp_buffer_in_use == 0)
-		return;               // DMA hasn't yet given us a new sample block
+		return;                      // ADC DMA hasn't yet given us anything
 
 	// current VI mode index
 	unsigned int vi_index = vi_measure_index;
 
-	// ignore this sample block if we've completed the full VI measurement
+	// ignore this sample block if we've completed the full VI measurement run
 	if (vi_index >= VI_MODE_DONE)
 	{
 		tmp_buffer_in_use = 0;
 		return;
 	}
 
-	// use a table to set HD mode pins in a custom order to cope with a HW design floor
+	// use a table to set HD mode pins in a custom order to help cope with HW design floor (DC spike when changing mode)
 	const unsigned int vi_mode = vi_measure_mode_table[vi_index];
 
 	if (vi_index == 0 && adc_buffer_sum_count == 0)
-	{	// the first sample block after setting the HW mode pins
+	{	// the very first sample block of a new VI measurement run
 
 		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
 
@@ -1382,10 +1424,11 @@ void process_ADC(void)
 		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
 	}
 
-	// each time the HW VI mode is changed, the ADC input sees a large unwanted spike/DC-offset that takes time to settle :(
-	// so we simply discard a number of sample blocks after each HW VI mode change
+	// each time the HW VI mode is changed, the ADC input sees a large unwanted DC offset spike, it takes time to settle :(
 	//
-	unsigned int skip_block_count = (10ul * measurement_Hz) >> 10;  // the higher the measurement Hz the more blocks we need to skip
+	// so we simply discard a number of blocks after each HW VI mode change
+	//
+	unsigned int skip_block_count = (10ul * measurement_Hz) >> 10;          // the higher the measurement Hz, the more blocks we need to skip
 	skip_block_count = (skip_block_count < 1) ? 1 : skip_block_count;
 
 	add_ADC_to_average(vi_mode, skip_block_count);
@@ -1425,7 +1468,7 @@ void process_ADC(void)
 
 
 
-	// we've now summed the desired number of sample blocks, so are ready to be re-scaled, saved and DC offset removed ..
+	// we've now summed the desired number of sample blocks, so are ready to re-scale etc the block
 
 	// get ready for next measurement VI mode
 	vi_index++;
@@ -1441,10 +1484,13 @@ void process_ADC(void)
 	if (vi_index < VI_MODE_DONE)
 		return;    // not yet gone through all the modes
 
-	// all done !
-	// we have now sampled in all 4 modes (lo-gain V and hi-gain I modes)
 
-	gain_changed = (memcmp(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped)) != 0) ? 1 : 0;    // '1' if gain selection changed
+
+
+	// all done !
+	// we have sampled in all 4 modes (LOW and HIGH gain)
+
+	gain_changed = (memcmp(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped)) != 0) ? 1 : 0;    // set to '1' if we have changed the gain selection
 
 	memcpy(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped));   // save the new clip detection flags
 	memset(adc_data_clipping, 0, sizeof(adc_data_clipping));                 // reset ready for next run
@@ -1461,7 +1507,7 @@ void process_ADC(void)
 	}
 }
 
-// process the new averaged sample blocks to finally create the wanted final DUT parameters
+// process the new averaged sample blocks to finally get the DUT parameters
 //
 void process_data(void)
 {
@@ -1519,15 +1565,17 @@ void process_data(void)
 	const float v_scale    = volt_gain_sel ? high_scale : 1.0f;
 	const float i_scale    = amp_gain_sel  ? high_scale : 1.0f;
 
-	// scale according to which gain path is being used
+	// scale according to gain path used
 	system_data.rms_voltage_adc *= v_scale;
 	system_data.rms_voltage_afc *= v_scale;
 	system_data.rms_current_adc *= i_scale;
 	system_data.rms_current_afc *= i_scale;
 
+	// compute the impedance
 	system_data.impedance = system_data.rms_voltage_adc / system_data.rms_current_adc;
 
 	#if 1
+		// use the calibration results to compensate stuff
 		if (op_mode == OP_MODE_MEASURING)
 		{
 			const unsigned int freq_index = (measurement_Hz <= 300) ? 0 : 1;   // 100Hz/1kHz
@@ -1549,13 +1597,15 @@ void process_data(void)
 				zs = v_cal_rms / i_cal_rms;
 			}
 
-			//const float zstd = ;  // used with open/short/load calibration
-			//const float zsm  = ;  // used with open/short/load calibration
+			//const float zstd = ;  // used with open/short/load calibration  .. yet to do 'load' calibration
+			//const float zsm  = ;  // used with open/short/load calibration  ..   "    "
+
 			const float zxm = system_data.impedance;
+
 			if (settings.open_probe_calibration->done && settings.shorted_probe_calibration->done)
 				//system_data.impedance = zstd * (((zs - zxm) * (zsm - zo)) / ((zxm - zo) * (zs - zsm)));   // page 136 Keysight-Technologies-impedance-measurement-handbook.pdf
 //				system_data.impedance = (zo * (zxm - zs)) / (zo - (zxm - zs));
-				system_data.impedance = zo * ((zs - zxm) / (zxm - zo));   // page 135 Keysight-Technologies-impedance-measurement-handbook.pdf
+				system_data.impedance = zo * ((zs - zxm) / (zxm - zo));                                     // page 135 Keysight-Technologies-impedance-measurement-handbook.pdf
 			else
 			if (settings.open_probe_calibration->done)
 				system_data.impedance = (zo * zxm) / (zo - zxm);
@@ -1636,20 +1686,23 @@ void process_data(void)
 	// **************************
 	// auto mode decision
 
-	if (settings.lcr_mode == LCR_MODE_AUTO)
+	if (op_mode == OP_MODE_MEASURING)
 	{
+		if (settings.lcr_mode == LCR_MODE_AUTO)
+		{
 
-		// todo:
+			// todo:
 
-	}
+		}
 
-	if (settings.sp_mode == SP_MODE_AUTO)
-	{
-		if (system_data.impedance <= SP_AUTO_LOW_OHMS_THRESHOLD)
-			sp_mode = SP_MODE_SERIES;
-		else
-		if (system_data.impedance >= SP_AUTO_HIGH_OHMS_THRESHOLD)
-			sp_mode = SP_MODE_PARALLEL;
+		if (settings.sp_mode == SP_MODE_AUTO)
+		{
+			if (system_data.impedance <= SP_AUTO_LOW_OHMS_THRESHOLD)
+				sp_mode = SP_MODE_SERIES;
+			else
+			if (system_data.impedance >= SP_AUTO_HIGH_OHMS_THRESHOLD)
+				sp_mode = SP_MODE_PARALLEL;
+		}
 	}
 
 	// **************************
@@ -1658,9 +1711,9 @@ void process_data(void)
 	#if 1
 		if (op_mode == OP_MODE_MEASURING)
 		{
-			system_data.series.inductance    = (system_data.series.inductance  >    1e3f) ? 1e3f  : system_data.series.inductance;
-			system_data.series.capacitance   = (system_data.series.capacitance <      0) ? 0      : system_data.series.capacitance;
-			system_data.series.resistance    = (system_data.series.resistance  > 100e6f) ? 100e6f : system_data.series.resistance;
+			system_data.series.inductance    = (system_data.series.inductance    >   1e3f) ? 1e3f  : system_data.series.inductance;
+			system_data.series.capacitance   = (system_data.series.capacitance   <      0) ? 0      : system_data.series.capacitance;
+			system_data.series.resistance    = (system_data.series.resistance    > 100e6f) ? 100e6f : system_data.series.resistance;
 
 			system_data.parallel.inductance  = (system_data.parallel.inductance  >   1e3f) ? 1e3f   : system_data.parallel.inductance;
 			system_data.parallel.capacitance = (system_data.parallel.capacitance <      0) ? 0      : system_data.parallel.capacitance;
@@ -1726,7 +1779,7 @@ void screen_init(void)
 	ssd1306_Fill(White);
 	ssd1306_UpdateScreen();
 
-	LL_mDelay(500);
+	LL_mDelay(800);
 }
 
 void bootup_screen(void)
@@ -1737,23 +1790,20 @@ void bootup_screen(void)
 	ssd1306_WriteString("M181", &font_8x12, White);
 
 	sprintf(str_buf, "%lu", settings.baudrate);
-	ssd1306_SetCursor(5 * font_8x12.width, 0);
+	ssd1306_MoveCursor(4, 0);
 	ssd1306_WriteString(str_buf, &font_8x12, White);
 
 	sprintf(str_buf, "v%s", FW_VERSION);
 	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(str_buf) * font_8x12.width), 0);
 	ssd1306_WriteString(str_buf, &font_8x12, White);
 
-	ssd1306_SetCursor(16, 14);
+	ssd1306_SetCursor(14, 14);
 	ssd1306_WriteString("LCR Meter", &font_11x18, White);
 
-	// dotted line
-	ssd1306_dotted_hline(0, SSD1306_WIDTH - 1, 3, 32 - 1, White);
-
-	ssd1306_SetCursor(5, 38);
-	ssd1306_WriteString("HW by JYETech", &font_8x12, White);
-	ssd1306_SetCursor(5, 52);
-	ssd1306_WriteString("FW by Jai & 1o11", &font_8x12, White);
+	ssd1306_SetCursor(0, 34);
+	ssd1306_WriteString("HW JYETech", &font_8x12, White);
+	ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
+	ssd1306_WriteString("FW Jai & 1o11", &font_8x12, White);
 
 	ssd1306_UpdateScreen();
 }
@@ -3005,7 +3055,7 @@ void process_buttons(void)
 	{
 		if (button[BUTTON_HOLD].held_ms >= 800 && button[BUTTON_SP].held_ms >= 800)
 		{	// clear all saved settings (inc open/short calibrations), then reboot
-			clear_settings();
+			eeprom_erase();
 			reboot();
 		}
 		return;
@@ -3326,7 +3376,7 @@ void process_serial_command(char cmd[], unsigned int len)
 
 		case CMD_DEFAULTS_ID:
 			printf(NEWLINE "restoring defaults .." NEWLINE);
-			clear_settings();
+			eeprom_erase();
 			reboot();
 			break;
 
@@ -3913,7 +3963,7 @@ int main(void)
 	}
 
 	// fetch saved settings from flash
-	read_settings();
+	eeprom_read_settings();
 
 	settings.baudrate = (settings.baudrate < UART_BAUDRATE_MIN) ? UART_BAUDRATE_MIN : (settings.baudrate > UART_BAUDRATE_MAX) ? UART_BAUDRATE_MAX : settings.baudrate;
 
@@ -3984,6 +4034,33 @@ int main(void)
 	// give the user more time to read the bootup screen
 	LL_mDelay(1000);
 
+	if (button[BUTTON_HOLD].held_ms || button[BUTTON_HOLD].released)
+	{	// HOLD button was pressed
+
+		while (!button[BUTTON_HOLD].released)
+			__WFI();
+
+		button[BUTTON_HOLD].processed  = 0;
+		button[BUTTON_HOLD].debounce   = 0;
+		button[BUTTON_HOLD].pressed_ms = 0;
+		button[BUTTON_HOLD].released   = 0;
+		button[BUTTON_HOLD].held_ms    = 0;
+
+		// wait for 2nd button press
+		while (button[BUTTON_HOLD].held_ms == 0 || !button[BUTTON_HOLD].released)
+			__WFI();
+
+		// wait for release
+		while (!button[BUTTON_HOLD].released)
+			__WFI();
+
+		button[BUTTON_HOLD].processed  = 0;
+		button[BUTTON_HOLD].debounce   = 0;
+		button[BUTTON_HOLD].pressed_ms = 0;
+		button[BUTTON_HOLD].released   = 0;
+		button[BUTTON_HOLD].held_ms    = 0;
+	}
+
 	// start making use of the incoming ADC blocks
 	initialising = 0;
 
@@ -4035,7 +4112,7 @@ int main(void)
 		// save any unsaved settings to flash (we don't have an EEPROM etc)
 		if (save_settings_timer == 0)
 		{
-			if (write_settings() >= 0)     // save settings to flash
+			if (eeprom_write_settings() >= 0)     // save settings to flash
 			{	// done
 				save_settings_timer = -1;
 				printf(NEWLINE "settings saved" NEWLINE);
