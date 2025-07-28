@@ -139,78 +139,76 @@ struct {
 } reset_cause = {0};
 
 #ifdef USE_IWDG
-	uint32_t          iwdg_timeout_sec = 8;                   // 8 second IWDG timeout
+	uint32_t          iwdg_timeout_sec = 8;                        // 8 second IWDG timeout
 	volatile uint32_t iwdg_tick        = 0;
 #endif
 
-volatile uint32_t     sys_tick = 0;                           // our own system tick value
+volatile uint32_t     sys_tick = 0;                                // our own system tick value
 
-LL_RCC_ClocksTypeDef  rcc_clocks = {0};                       // various CPU clock frequencies
+LL_RCC_ClocksTypeDef  rcc_clocks = {0};                            // various CPU clock frequencies
 
 uint32_t              draw_screen_count = 0;
-char                  str_buf[32]       = {0};
 
-t_button              button[BUTTON_NUM] = {0};               // each buttons press data
+char                  str_buf[32] = {0};                           // used for various things
 
-uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE] = {0};    // one sine cycle
+t_button              button[BUTTON_NUM] = {0};                    // holds each buttons state
 
-uint16_t              measurement_Hz        = 1000;           // 100 or 1000
-float                 measurement_amplitude = 1.0;            // 0.0 = 0%, 1.0 = 100%, -1.0 = 100% phase inverted
+uint16_t              measurement_Hz        = 1000;                // 100, 1000 etc
 
-uint8_t               op_mode      = OP_MODE_MEASURING;       // the current operaring mode the user is in
-uint8_t               initialising = 1;                       // set to '1' pauses the ADC buffer processing (ADC keeps going though)
-uint32_t              frames       = 0;                       // just a frame counter
+uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE] = {0};    // holds look-up data for one complete sine wave cycle (for the DAC)
 
-unsigned int          display_hold = 0;                       // '1' to hold/pause the display
+uint8_t               lcr_mode     = LCR_MODE_CAPACITANCE;         // LCR mode we're currently in
+uint8_t               sp_mode      = SP_MODE_SERIES;               // Series/Parallel mode we're currently in
+uint8_t               op_mode      = OP_MODE_MEASURING;            // the current operaring mode the user is in
+uint8_t               initialising = 1;                            // set to '1' pauses the ADC buffer processing (ADC keeps going though, it's never stopped)
+uint32_t              frames       = 0;                            // just a frame counter
+unsigned int          display_hold = 0;                            // '1' to hold/pause the display
 
-// for when the user is running the calibrations
+// for when the user is running the calibrations (open, short, load)
 struct {
 	int               count;
 	float             mag_sum[8];
 	t_complex         phase_sum[8];
 } calibrate = {0};
 
-unsigned int          volt_gain_sel   = 0;
-unsigned int          amp_gain_sel    = 0;
-unsigned int          gain_changed    = 0;
+uint8_t               volt_gain_sel   = 0;                         // voltage V gain path we're using
+uint8_t               amp_gain_sel    = 0;                         // current I gain path we're using
+uint8_t               gain_changed    = 0;                         // just a flag tha's set if we change either gain path
 
-float                 high_gain       = 101;
-float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;
+float                 high_gain       = 101;                          // HW gain when using the HIGH gain path
+float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse value of the series resistor in series with the DUT (the LOAD cal calibrates this value)
 
 // ADC DMA raw sample buffer
-t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];      // *2 for DMA double buffering (ADC/DMA is continuously running)
+t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];             // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
 
 // ADC sample block averaging buffer
-// we take several sample blocks and average them together to reduce noise/increase dynamic range
-t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};                        // summing buffer
-unsigned int          adc_buffer_sum_count            = 0;                          // number of sums so far done
+// we take several sample blocks and average them together to reduce noise (bad PCB layout/design)
+t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};          // summing buffer
+unsigned int          adc_buffer_sum_count            = 0;            // summing counter
+
+// VI mode sequence order to minimize mode switching time
+// because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins, large DC spike occurs)
+const uint8_t         vi_measure_mode_table[] = {0, 1, 3, 2};         // the VI mode sequennce we use
+volatile uint8_t      vi_measure_index        = 0;                    // current VI stage we're at
+uint8_t               prev_vi_mode            = -1;                   //
 
 #pragma pack(push, 1)
-float                 adc_data[8][ADC_DATA_LENGTH] = {0};
+float                 adc_data[8][ADC_DATA_LENGTH] = {0};             // holds the final averaged/filtered samples from each VI mode
 #pragma pack(pop)
 
-// non-zero if waveform clipping/saturation is detected (per block)
-uint8_t               adc_data_clipping[4] = {0};
-uint8_t               adc_data_clipped[4]  = {0};
+// set to '1' if waveform clipping/saturation is detected
+// if the waveform is being clipped, then we can't use it, so we use the LOW gain samples instead
+uint8_t               adc_data_clipping[4] = {0};                     // temp as we go
+uint8_t               adc_data_clipped[4]  = {0};                     // saved here at the end of the full VI sample cycle
 
-// the computed waveform magnitudes and phases - these are what's used to compute the DUT parameters
-float                 mag_rms[8]   = {0};
-float                 phase_deg[8] = {0};
+// user/system settings are stored in flash area, so we use a timer to help reduce flash wear (limited write cycles)
+volatile int          save_settings_timer = -1;                       //
+t_settings            settings            = {0};                      // the users settings
 
-// custom HW VI mode sequence order to minimize mode switching time
-// because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins)
-const unsigned int    vi_measure_mode_table[] = {0, 1, 3, 2};
-volatile unsigned int vi_measure_index = 0;
-unsigned int          prev_vi_mode     = -1;
+t_system_data         system_data = {0};                              // various results saved in here
 
-// system settings ar stored in flash, so we keep a timer for saving the users settings to reduce flash wear
-volatile int          save_settings_timer = -1;              //
-t_settings            settings            = {0};             // the users settings
-
-t_system_data         system_data = {0};                     // various results saved in here
-
-uint8_t               tmp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];   // buffer must be big enough for what uses it
-volatile uint8_t      tmp_buffer_in_use = 0;
+uint8_t               tmp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];   // buffer must be big enough for whatever uses it
+volatile uint8_t      tmp_buffer_in_use = 0;                             // set when their is data in the above buffer
 
 // for TX'ing binary packets via the serial port
 t_packet              tx_packet;
@@ -219,9 +217,10 @@ t_packet              tx_packet;
 struct {
 	struct {
 		uint8_t  buffer[1024];     // RX raw buffer
-		uint32_t buffer_rd;
-		uint32_t buffer_wr;
-		uint32_t timer;            // timer for resetting these RX buffers is nothing received for a set time
+		uint32_t buffer_wr;        // WRITE index
+		uint32_t buffer_rd;        // READ index
+
+		uint32_t timer;            // timer for resetting the RX buffer if nothing received for a set time
 
 		struct {
 			uint8_t  buffer[256];  // RX text line buffer
@@ -231,9 +230,10 @@ struct {
 /*
 	struct {
 		uint8_t  buffer[2048];     // TX raw buffer
-		uint32_t buffer_rd;
-		uint32_t buffer_wr;
-		uint32_t timer;
+		uint32_t buffer_wr;        // WRITE index
+		uint32_t buffer_rd;        // READ index
+
+		uint32_t timer;            // timer for caching the TX data before actually sending it (helps reduce number of sends)
 	} tx;
 */
 } volatile serial = {0};
@@ -808,13 +808,13 @@ void set_measurement_frequency(uint32_t Hz)
 
 	// lower freq = lower amplitude (due to another HW filter design flaw)
 	//
-	measurement_amplitude = (float)measurement_Hz / 1000;                            // 0.0 ~ 1.0
-	measurement_amplitude = sqrtf(sqrtf(sqrtf(measurement_amplitude)));
-	measurement_amplitude = (measurement_amplitude < 0.8f) ? 0.8f : (measurement_amplitude > 1.0f) ? 1.0f : measurement_amplitude;
+	float amplitude = (float)measurement_Hz / 1000;                            // 0.0 ~ 1.0
+	amplitude = sqrtf(sqrtf(sqrtf(amplitude)));
+	amplitude = (amplitude < 0.8f) ? 0.8f : (amplitude > 1.0f) ? 1.0f : amplitude;
 
 	{	// fill the sine wave look-up table with one complete sine cycle
 
-		const float scale      = measurement_amplitude * (255 * 0.5f);           // 0-255
+		const float scale      = amplitude * (255 * 0.5f);           // 0-255
 		const float phase_step = (2.0 * M_PI) / ARRAY_SIZE(sine_table);
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
@@ -955,12 +955,12 @@ int process_Goertzel(void)
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 					sum += SQR(buf[k]);
 				sum *= 1.0f / ADC_DATA_LENGTH;
-				mag_rms[buf_index] = sqrtf(sum);
+				system_data.mag_rms[buf_index] = sqrtf(sum);
 			}
 
 			{	// compute waveform phase using a single Goertzel DFT on the unfiltered waveform
 				const t_complex g = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
-				phase_deg[buf_index] = (g.real != 0) ? fmodf((atan2f(g.imag, g.real) * RAD_TO_DEG) + 270, 360) : NAN;
+				system_data.phase_deg[buf_index] = (g.real != 0) ? fmodf((atan2f(g.imag, g.real) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 		}
 		else
@@ -981,18 +981,18 @@ int process_Goertzel(void)
 				float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
-					const t_complex samp = tmp_buf[k];  // fetch filtered waveform sample
+					const t_complex samp = tmp_buf[k];           // fetch filtered waveform sample
 					sum += SQR(samp.real) + SQR(samp.imag);      // sum it (for computing the average)
 					buf[k] = samp.real;                          // save the Goertzel filtered sample
 				}
 				sum *= 1.0f / ADC_DATA_LENGTH;
-				mag_rms[buf_index] = sqrtf(sum);                 // save the computed RMS magnitude
+				system_data.mag_rms[buf_index] = sqrtf(sum);     // save the computed RMS magnitude
 			}
 
 			#ifndef AVERAGE_PHASE
 			{	// compute waveform phase using a single Goertzel DFT on the filtered waveform
 				const t_complex s = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
-				phase_deg[buf_index] = (s.real != 0) ? fmodf((atan2f(s.imag, s.real) * RAD_TO_DEG) + 270, 360) : NAN;
+				system_data.phase_deg[buf_index] = (s.real != 0) ? fmodf((atan2f(s.imag, s.real) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 			#else
 			{	// compute waveform phase using all the Goertzel DFTs that filtered the entire waveform
@@ -1009,7 +1009,7 @@ int process_Goertzel(void)
 					sum.real += s.real;
 					sum.imag += s.imag;
 				}
-				phase_deg[buf_index] = (sum.real != 0) ? fmodf((atan2f(sum.imag, sum.real) * RAD_TO_DEG) + 270, 360) : NAN;
+				system_data.phase_deg[buf_index] = (sum.real != 0) ? fmodf((atan2f(sum.imag, sum.real) * RAD_TO_DEG) + 270, 360) : NAN;
 			}
 			#endif
 		}
@@ -1056,9 +1056,9 @@ void combine_afc(float *avg_rms, float *avg_deg)
 			}
 		}
 
-		sum_rms += mag_rms[mode + 1];
+		sum_rms += system_data.mag_rms[mode + 1];
 
-		const float phase_rad = phase_deg[mode + 1] * DEG_TO_RAD;
+		const float phase_rad = system_data.phase_deg[mode + 1] * DEG_TO_RAD;
 		sum_phase.real += cosf(phase_rad);
 		sum_phase.imag += sinf(phase_rad);
 
@@ -1078,38 +1078,38 @@ void combine_afc(float *avg_rms, float *avg_deg)
 		return (*(float *)a - *(float *)b);
 	}
 
-	// median filter the magnitude and phase results to help reduce noise
+	// median filter the magnitude and phase results to help further reduce noise
 	//
 	void median_filter(void)
 	{
 		static int median_buffer_index = -1;
 
-		static float mag_rms_median_buffer[ARRAY_SIZE(mag_rms)][MEDIAN_SIZE];
-		static float phase_deg_median_buffer[ARRAY_SIZE(phase_deg)][MEDIAN_SIZE];
+		static float mag_rms_median_buffer[ARRAY_SIZE(system_data.mag_rms)][MEDIAN_SIZE];
+		static float phase_deg_median_buffer[ARRAY_SIZE(system_data.phase_deg)][MEDIAN_SIZE];
 
 		if (!gain_changed && median_buffer_index >= 0)
 		{	// median filters
 
-			for (unsigned int m = 0; m < ARRAY_SIZE(mag_rms); m++)
+			for (unsigned int m = 0; m < ARRAY_SIZE(system_data.mag_rms); m++)
 			{
 				float sort_buffer[MEDIAN_SIZE];
 
 				{	// mag_rms median
 
 					// add new value into the input buffer
-					mag_rms_median_buffer[m][median_buffer_index] = mag_rms[m];
+					mag_rms_median_buffer[m][median_buffer_index] = system_data.mag_rms[m];
 
 					// sort
 					memcpy(sort_buffer, mag_rms_median_buffer[m], sizeof(sort_buffer));
 					qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
 
 					// save the median
-					mag_rms[m] = sort_buffer[MEDIAN_SIZE / 2];
+					system_data.mag_rms[m] = sort_buffer[MEDIAN_SIZE / 2];
 				}
 
 				{	// phase_deg median
 
-					const float deg = phase_deg[m];
+					const float deg = system_data.phase_deg[m];
 
 					// add new value into the input buffer
 					phase_deg_median_buffer[m][median_buffer_index] = deg;
@@ -1120,7 +1120,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 					qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
 
 					// save the median
-					phase_deg[m] = deg + sort_buffer[MEDIAN_SIZE / 2];
+					system_data.phase_deg[m] = deg + sort_buffer[MEDIAN_SIZE / 2];
 				}
 
 				// update buffer 'write' index
@@ -1132,16 +1132,16 @@ void combine_afc(float *avg_rms, float *avg_deg)
 		{	// reset input buffers
 			median_buffer_index = 0;
 
-			for (unsigned int m = 0; m < ARRAY_SIZE(mag_rms); m++)
+			for (unsigned int m = 0; m < ARRAY_SIZE(system_data.mag_rms); m++)
 			{
-				const float mag = mag_rms[m];
+				const float mag = system_data.mag_rms[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
 					mag_rms_median_buffer[m][i] = mag;
 			}
 
-			for (unsigned int m = 0; m < ARRAY_SIZE(phase_deg); m++)
+			for (unsigned int m = 0; m < ARRAY_SIZE(system_data.phase_deg); m++)
 			{
-				const float deg = phase_deg[m];
+				const float deg = system_data.phase_deg[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
 					phase_deg_median_buffer[m][i] = deg;
 			}
@@ -1168,15 +1168,15 @@ void process_data(void)
 
 		combine_afc(&afc_rms, &afc_deg);
 
-		mag_rms[1]   = afc_rms;
-		mag_rms[3]   = afc_rms;
-		mag_rms[5]   = afc_rms;
-		mag_rms[7]   = afc_rms;
+		system_data.mag_rms[1]   = afc_rms;
+		system_data.mag_rms[3]   = afc_rms;
+		system_data.mag_rms[5]   = afc_rms;
+		system_data.mag_rms[7]   = afc_rms;
 
-		phase_deg[1] = afc_deg;
-		phase_deg[3] = afc_deg;
-		phase_deg[5] = afc_deg;
-		phase_deg[7] = afc_deg;
+		system_data.phase_deg[1] = afc_deg;
+		system_data.phase_deg[3] = afc_deg;
+		system_data.phase_deg[5] = afc_deg;
+		system_data.phase_deg[7] = afc_deg;
 	}
 	#endif
 
@@ -1193,11 +1193,11 @@ void process_data(void)
 
 	// waveform amplitudes
 	//
-	system_data.rms_voltage_adc = mag_rms[(volt_gain_sel * 4) + 0];
-	system_data.rms_voltage_afc = mag_rms[(volt_gain_sel * 4) + 1];
+	system_data.rms_voltage_adc = system_data.mag_rms[(volt_gain_sel * 4) + 0];
+	system_data.rms_voltage_afc = system_data.mag_rms[(volt_gain_sel * 4) + 1];
 	//
-	system_data.rms_current_adc = mag_rms[(amp_gain_sel  * 4) + 2];
-	system_data.rms_current_afc = mag_rms[(amp_gain_sel  * 4) + 3];
+	system_data.rms_current_adc = system_data.mag_rms[(amp_gain_sel  * 4) + 2];
+	system_data.rms_current_afc = system_data.mag_rms[(amp_gain_sel  * 4) + 3];
 
 	system_data.rms_current_adc *= inv_series_ohms;
 	system_data.rms_current_afc *= inv_series_ohms;
@@ -1261,8 +1261,8 @@ void process_data(void)
 			system_data.impedance = (system_data.impedance > 10e9f) ? 10e9f : system_data.impedance;
 	#endif
 
-	system_data.voltage_phase_deg = phase_diff(phase_deg[(volt_gain_sel * 4) + 0], phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
-	system_data.current_phase_deg = phase_diff(phase_deg[(amp_gain_sel  * 4) + 2], phase_deg[(amp_gain_sel  * 4) + 3]);   // phase difference between ADC and AFC waves
+	system_data.voltage_phase_deg = phase_diff(system_data.phase_deg[(volt_gain_sel * 4) + 0], system_data.phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
+	system_data.current_phase_deg = phase_diff(system_data.phase_deg[(amp_gain_sel  * 4) + 2], system_data.phase_deg[(amp_gain_sel  * 4) + 3]);   // phase difference between ADC and AFC waves
 	//
 	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);             // phase difference between voltage and current waves
 
@@ -1321,6 +1321,25 @@ void process_data(void)
 	system_data.parallel.tan_delta   = par_tan_delta;
 	system_data.parallel.qf          = par_qf;
 	system_data.parallel.reactance   = par_reactance;
+
+	// **************************
+	// auto mode decision
+
+	if (settings.lcr_mode == LCR_MODE_AUTO)
+	{
+
+		// todo:
+
+	}
+
+	if (settings.sp_mode == SP_MODE_AUTO)
+	{
+		if (system_data.impedance < 100)
+			sp_mode = SP_MODE_SERIES;
+		else
+		if (system_data.impedance > 5000)
+			sp_mode = SP_MODE_PARALLEL;
+	}
 
 	// **************************
 	// sanity checks
@@ -1637,18 +1656,11 @@ void process_ADC_exec(void)
 
 // ***********************************************************
 
-//#define DRAW_LINES          // if you want horizontal lines drawn
-//#define DISPLAY_LCR_MODE    // if you want the 'R' 'L' or 'C' before the DUT value
+//#define LINE_SPACING     13        // 7x10 font
+#define LINE_SPACING     15          // 8x12 font
 
-#define LINE_SPACING     13
-
-#ifdef DRAW_LINES
-	#define LINE2_Y      (LINE_SPACING + 5)
-	#define LINE3_Y      (10 + LINE2_Y - 1 + LINE_SPACING)
-#else
-	#define LINE2_Y      (LINE_SPACING + 3)
-	#define LINE3_Y      (10 + LINE2_Y + 1 + LINE_SPACING)
-#endif
+#define LINE2_Y      (LINE_SPACING + 2)
+#define LINE3_Y      (LINE2_Y + LINE_SPACING + 4)
 
 void print_sprint(const unsigned int digit, const float value, char output_char[], const unsigned int out_max_size)
 {
@@ -1746,8 +1758,6 @@ void draw_screen(void)
 	const uint8_t x2 = 62;
 //	const uint8_t x3 = 75;
 
-	const uint8_t par = settings.flags & SETTING_FLAG_PARALLEL;
-
 	// clear the screen
 	ssd1306_Fill(Black);
 
@@ -1760,8 +1770,23 @@ void draw_screen(void)
 			// Line 1
 
 			// serial/parallel mode
+			switch (settings.sp_mode)
+			{
+				case SP_MODE_SERIES:
+					strcpy(str_buf, "SER ");
+					break;
+				case SP_MODE_PARALLEL:
+					strcpy(str_buf, "PAR ");
+					break;
+				case SP_MODE_AUTO:
+					strcpy(str_buf, "AUT ");
+					break;
+				default:
+					strcpy(str_buf, "ERR ");
+					break;
+			}
 			ssd1306_SetCursor(0, 0);
-			ssd1306_WriteString(par ? "PAR " : "SER ", &Font_8x12, White);
+			ssd1306_WriteString(str_buf, &Font_8x12, White);
 
 			// measurement frequency
 			if (measurement_Hz < 1000)
@@ -1800,46 +1825,24 @@ void draw_screen(void)
 			#endif
 
 			// ***************************
-			// horizontal line(s)
-
-			#ifdef DRAW_LINES
-				#if 0
-					// solid line
-					ssd1306_FillRectangle(0, LINE_SPACING - 1, SSD1306_WIDTH, LINE_SPACING, White);
-				#else
-					// dotted line
-					ssd1306_dotted_hline(0, SSD1306_WIDTH, 3, LINE_SPACING - 1, White);
-				#endif
-			#endif
-
-			// ***************************
 			// Line 2
 
 			{	// LCR mode
 
 				float value = 0;
 
-				switch (settings.lcr_mode)
+				switch (lcr_mode)
 				{
 					case LCR_MODE_INDUCTANCE:
-						value = par ? system_data.parallel.inductance : system_data.series.inductance;
-						#if DISPLAY_LCR_MODE
-							snprintf(str_buf, sizeof(str_buf), "L");
-						#endif
+						value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
 						break;
 
 					case LCR_MODE_CAPACITANCE:
-						value = par ? system_data.parallel.capacitance : system_data.series.capacitance;
-						#if DISPLAY_LCR_MODE
-							snprintf(str_buf, sizeof(str_buf), "C");
-						#endif
+						value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.capacitance : system_data.series.capacitance;
 						break;
 
 					case LCR_MODE_RESISTANCE:
-						value = par ? system_data.parallel.resistance : system_data.series.resistance;
-						#if DISPLAY_LCR_MODE
-							snprintf(str_buf, sizeof(str_buf), "R");
-						#endif
+						value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.resistance : system_data.series.resistance;
 						break;
 
 					case LCR_MODE_AUTO:
@@ -1853,14 +1856,10 @@ void draw_screen(void)
 
 				ssd1306_SetCursor(0, LINE2_Y + 6);
 
-				#if DISPLAY_LCR_MODE
-					ssd1306_WriteString(str_buf, &Font_11x18, White);
-				#endif
-
 				//char unit = unit_conversion(&value, "fpnumkMG");
 				char unit = ' ';
 
-				switch (settings.lcr_mode)
+				switch (lcr_mode)
 				{
 					case LCR_MODE_INDUCTANCE:
 						unit = unit_conversion(&value, "umkMG");
@@ -1900,17 +1899,17 @@ void draw_screen(void)
 				trim_trailing_zeros(str_buf);
 
 				#if 0
-					ssd1306_MoveCursor(4, -3);
+					ssd1306_MoveCursor(0, -3);
 					ssd1306_WriteString(str_buf, &Font_16x26, White);
 					//ssd1306_WriteString(str_buf, &Font_16x24, White);
 					ssd1306_MoveCursor(6, -1);
 				#else
-					ssd1306_MoveCursor(4, -7);
+					ssd1306_MoveCursor(0, -7);
 					ssd1306_WriteString(str_buf, &Font_16x32, White);
 					ssd1306_MoveCursor(6, 1);
 				#endif
 
-				switch (settings.lcr_mode)
+				switch (lcr_mode)
 				{
 					case LCR_MODE_INDUCTANCE:
 					{
@@ -1968,10 +1967,22 @@ void draw_screen(void)
 				str_buf[0] = volt_gain_sel ? 'H' : 'L';
 				str_buf[1] = amp_gain_sel  ? 'H' : 'L';
 				str_buf[2] ='\0';
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * Font_8x12.width), LINE3_Y);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 2) * Font_8x12.width), LINE3_Y);
 				ssd1306_WriteString(str_buf, &Font_8x12, White);
 			}
 			#endif
+
+			{	// show current serial/parallel mode
+				switch (sp_mode)
+				{
+					case SP_MODE_SERIES:   strcpy(str_buf, "Rs"); break;
+					case SP_MODE_PARALLEL: strcpy(str_buf, "Rp"); break;
+					case SP_MODE_AUTO:     strcpy(str_buf, "Ra"); break;
+					default:               strcpy(str_buf, "ER"); break;
+				}
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * Font_8x12.width), LINE3_Y);
+				ssd1306_WriteString(str_buf, &Font_8x12, White);
+			}
 
 			// ***************************
 			// Line 3
@@ -2013,14 +2024,14 @@ void draw_screen(void)
 			// ***************************
 			// Bottom line
 
-			switch (settings.lcr_mode)
+			switch (lcr_mode)
 			{
 				case LCR_MODE_INDUCTANCE:
 				case LCR_MODE_CAPACITANCE:
 
 					{	// ESR
 
-						float value = par ? system_data.parallel.esr : system_data.series.esr;
+						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.esr : system_data.series.esr;
 						const char unit = unit_conversion(&value, "mkMG");
 
 						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_8x12.height);
@@ -2039,7 +2050,7 @@ void draw_screen(void)
 					#if 0
 					{	// Tan Delta
 
-						float value = par ? system_data.parallel.tan_delta : system_data.series.tan_delta;
+						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.tan_delta : system_data.series.tan_delta;
 						const char unit = unit_conversion(&value, "kMG");
 
 						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_8x12.height);
@@ -2057,7 +2068,7 @@ void draw_screen(void)
 					#else
 					{	// Quality factor
 
-						float value = par ? system_data.parallel.qf : system_data.series.qf;
+						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value, "kMG");
 
 						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_8x12.height);
@@ -2079,7 +2090,7 @@ void draw_screen(void)
 
 					{	// inductance
 
-						float value = par ? system_data.parallel.inductance : system_data.series.inductance;
+						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
 						const char unit = unit_conversion(&value, "umkMG");
 
 						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_8x12.height);
@@ -2096,7 +2107,7 @@ void draw_screen(void)
 
 					{	// Quality factor
 
-						float value = par ? system_data.parallel.qf : system_data.series.qf;
+						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value, "kMG");
 
 						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_8x12.height);
@@ -3036,7 +3047,15 @@ void process_buttons(void)
 			button[BUTTON_SP].processed = 1;
 
 			display_hold = 0;
-			settings.flags ^= SETTING_FLAG_PARALLEL;    // toggle Serial/Parallel display
+
+			{
+				uint8_t mode = settings.sp_mode;
+				if (++mode > SP_MODE_AUTO)
+					mode = SP_MODE_SERIES;
+				settings.sp_mode = mode;
+				sp_mode          = mode;
+			}
+
 			save_settings_timer = SAVE_SETTINGS_MS;     // save settings
 
 			draw_screen();
@@ -3069,7 +3088,6 @@ void process_buttons(void)
 
 			set_measurement_frequency(settings.measurement_Hz);
 
-			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
 
 			draw_screen();
@@ -3089,14 +3107,14 @@ void process_buttons(void)
 			settings.flags ^= SETTING_FLAG_FAST_UPDATES;
 			if (!(settings.flags & SETTING_FLAG_FAST_UPDATES))
 			{
-				unsigned int mode = settings.lcr_mode;
+				uint8_t mode = settings.lcr_mode;
 				//if (++mode > LCR_MODE_AUTO)               // TODO: add AUTO mode code
 				if (++mode > LCR_MODE_RESISTANCE)
 					mode = LCR_MODE_INDUCTANCE;
 				settings.lcr_mode = mode;
+				lcr_mode          = mode;
 			}
 
-			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
 
 			draw_screen();
@@ -3172,20 +3190,20 @@ typedef struct {
 
 // serial command table
 const t_cmd cmds[] = {
-	{"?",         "              .. this help",                       CMD_HELP_ID1    },
-	{"help",      "              .. this help",                       CMD_HELP_ID2    },
-	{"baudrate",  "[baudrate]    .. read/set serial baudrate",        CMD_BAUDRATE_ID },
-	{"data",      "[off/asc/bin] .. read/set sending real-time data", CMD_DATA_ID     },
-	{"frequency", "[Hz]          .. read/set measurement frequency",  CMD_FREQUENCY_ID},
-	{"hold",      "              .. toggle display hold on/off",      CMD_HOLD_ID     },
-	{"lcrmode",   "[r/l/i/c]     .. read/set LCR mode",               CMD_LCR_MODE_ID },
-	{"spmode",    "[s/p]         .. read/set Series/Parallel mode",   CMD_SP_MODE_ID  },
-	{"opencal",   "              .. run open probe calibration",      CMD_OPEN_CAL_ID },
-	{"shortcal",  "              .. run shorted probe calibration",   CMD_SHORT_CAL_ID},
-	{"reboot",    "              .. reboot this unit",                CMD_REBOOT_ID   },
-	{"defaults",  "              .. restore defaults",                CMD_DEFAULTS_ID },
-	{"version",   "              .. this units version",              CMD_VERSION_ID  },
-	{NULL,        "",                                                 CMD_NONE_ID     }    // last one, DO NOT delete this
+	{"?",         "              .. this help",                          CMD_HELP_ID1    },
+	{"help",      "              .. this help",                          CMD_HELP_ID2    },
+	{"baudrate",  "[baudrate]    .. read/set serial baudrate",           CMD_BAUDRATE_ID },
+	{"data",      "[off/asc/bin] .. read/set sending real-time data",    CMD_DATA_ID     },
+	{"frequency", "[Hz]          .. read/set measurement frequency",     CMD_FREQUENCY_ID},
+	{"hold",      "              .. toggle display hold on/off",         CMD_HOLD_ID     },
+	{"lcrmode",   "[r/l/i/c/a]   .. read/set LCR mode",                  CMD_LCR_MODE_ID },
+	{"spmode",    "[s/p/a]       .. read/set Series/Parallel/Auto mode", CMD_SP_MODE_ID  },
+	{"opencal",   "              .. run open probe calibration",         CMD_OPEN_CAL_ID },
+	{"shortcal",  "              .. run shorted probe calibration",      CMD_SHORT_CAL_ID},
+	{"reboot",    "              .. reboot this unit",                   CMD_REBOOT_ID   },
+	{"defaults",  "              .. restore defaults",                   CMD_DEFAULTS_ID },
+	{"version",   "              .. this units version",                 CMD_VERSION_ID  },
+	{NULL,        "",                                                    CMD_NONE_ID     }    // last one, DO NOT delete this
 };
 
 // process any received serial commands
@@ -3395,8 +3413,11 @@ void process_serial_command(char cmd[], unsigned int len)
 					return;
 				}
 
+				lcr_mode = settings.lcr_mode;
+
 				save_settings_timer = SAVE_SETTINGS_MS;
-				draw_screen();
+
+				display_hold = 0;
 			}
 
 			printf(NEWLINE "lcr mode");
@@ -3406,6 +3427,9 @@ void process_serial_command(char cmd[], unsigned int len)
 				case LCR_MODE_INDUCTANCE:
 					printf(" inductance" NEWLINE);
 					break;
+				default:
+					settings.lcr_mode = LCR_MODE_CAPACITANCE;
+					lcr_mode          = settings.lcr_mode;
 				case LCR_MODE_CAPACITANCE:
 					printf(" capacitance" NEWLINE);
 					break;
@@ -3415,39 +3439,56 @@ void process_serial_command(char cmd[], unsigned int len)
 				case LCR_MODE_AUTO:
 					printf(" auto" NEWLINE);
 					break;
-				default:
 					printf(" ERROR" NEWLINE);
 					break;
 			}
 
+			draw_screen();
 			return;
 
 		case CMD_SP_MODE_ID:
 			if (param_len > 0)
 			{
 				if (strncmp(param, "series", param_len) == 0)
-					settings.flags &= ~SETTING_FLAG_PARALLEL;
+					settings.sp_mode = SP_MODE_SERIES;
 				else
 				if (strncmp(param, "parallel", param_len) == 0)
-					settings.flags |= SETTING_FLAG_PARALLEL;
+					settings.sp_mode = SP_MODE_PARALLEL;
+				else
+				if (strncmp(param, "auto", param_len) == 0)
+					settings.sp_mode = SP_MODE_AUTO;
 				else
 				{
 					printf(NEWLINE "error: spmode param '%s'" NEWLINE, param);
 					return;
 				}
 
-				display_hold = 0;
+				sp_mode = settings.sp_mode;
+
 				save_settings_timer = SAVE_SETTINGS_MS;
-				draw_screen();
+
+				display_hold = 0;
 			}
 
 			printf(NEWLINE "sp mode");
 			fflush(NULL);
-			if (settings.flags & SETTING_FLAG_PARALLEL)
-				printf(" parallel" NEWLINE);
-			else
-				printf(" series" NEWLINE);
+			switch (settings.sp_mode)
+			{
+				default:
+					settings.sp_mode = SP_MODE_SERIES;
+					sp_mode          = settings.sp_mode;
+				case SP_MODE_SERIES:
+					printf(" series" NEWLINE);
+					break;
+				case SP_MODE_PARALLEL:
+					printf(" parallel" NEWLINE);
+					break;
+				case SP_MODE_AUTO:
+					printf(" auto" NEWLINE);
+					break;
+			}
 
+			draw_screen();
 			return;
 
 		case CMD_DATA_ID:
@@ -3456,10 +3497,10 @@ void process_serial_command(char cmd[], unsigned int len)
 				if (strncmp(param, "off", param_len) == 0)
 					settings.flags &= ~SETTING_FLAG_UART_DSO;
 				else
-				if (strncmp(param, "bin", param_len) == 0)
+				if (strncmp(param, "binary", param_len) == 0)
 					settings.flags |= SETTING_FLAG_SEND_BINARY | SETTING_FLAG_UART_DSO;
 				else
-				if (strncmp(param, "asc", param_len) == 0)
+				if (strncmp(param, "ascii", param_len) == 0)
 					settings.flags = (settings.flags & ~SETTING_FLAG_SEND_BINARY) | SETTING_FLAG_UART_DSO;
 				else
 				{
@@ -3621,12 +3662,12 @@ void process_op_mode(void)
 		{
 			// sum a number of sample block magnitudes
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
-				calibrate.mag_sum[i] += mag_rms[i];
+				calibrate.mag_sum[i] += system_data.mag_rms[i];
 
 			// sum a number of sample block phases
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 			{
-				const float phase_rad = phase_deg[i] * DEG_TO_RAD;
+				const float phase_rad = system_data.phase_deg[i] * DEG_TO_RAD;
 				calibrate.phase_sum[i].real += cosf(phase_rad);
 				calibrate.phase_sum[i].imag += sinf(phase_rad);
 			}
@@ -3677,12 +3718,12 @@ void process_op_mode(void)
 		{
 			// sum a number of magnitudes
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
-				calibrate.mag_sum[i] += mag_rms[i];
+				calibrate.mag_sum[i] += system_data.mag_rms[i];
 
 			// sum a number of phases
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 			{
-				const float phase_rad = phase_deg[i] * DEG_TO_RAD;
+				const float phase_rad = system_data.phase_deg[i] * DEG_TO_RAD;
 				calibrate.phase_sum[i].real += cosf(phase_rad);
 				calibrate.phase_sum[i].imag += sinf(phase_rad);
 			}
@@ -3738,6 +3779,7 @@ int main(void)
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_AFIO);
 	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
 
+	// enable SWD JTAG config
 	LL_GPIO_AF_Remap_SWJ_NOJTAG();
 
 	{	// stop stuff when debugging line-by-line
@@ -3758,14 +3800,14 @@ int main(void)
 		#pragma GCC diagnostic push
 		#pragma GCC diagnostic ignored "-Wunused-variable"
 		// -Wunused -Wunused-function -Wunused-label -Wunused-parameter -Wunused-value -Wunused-variable -Wunused-but-set-parameter -Wunused-but-set-variable
-		reset_cause.por    = LL_RCC_IsActiveFlag_PORRST();
-		reset_cause.pin    = LL_RCC_IsActiveFlag_PINRST();
-		reset_cause.sft    = LL_RCC_IsActiveFlag_SFTRST();
-		reset_cause.iwdg   = LL_RCC_IsActiveFlag_IWDGRST();
-		reset_cause.wwdg   = LL_RCC_IsActiveFlag_WWDGRST();
-		reset_cause.lpwr   = LL_RCC_IsActiveFlag_LPWRRST();
-		reset_cause.lsirdy = LL_RCC_IsActiveFlag_LSIRDY();
-		LL_RCC_ClearResetFlags();                           // cleart the flags ready for next reboot
+			reset_cause.por    = LL_RCC_IsActiveFlag_PORRST();
+			reset_cause.pin    = LL_RCC_IsActiveFlag_PINRST();
+			reset_cause.sft    = LL_RCC_IsActiveFlag_SFTRST();
+			reset_cause.iwdg   = LL_RCC_IsActiveFlag_IWDGRST();
+			reset_cause.wwdg   = LL_RCC_IsActiveFlag_WWDGRST();
+			reset_cause.lpwr   = LL_RCC_IsActiveFlag_LPWRRST();
+			reset_cause.lsirdy = LL_RCC_IsActiveFlag_LSIRDY();
+			LL_RCC_ClearResetFlags();                           // clear the reset flags ready for the next reboot
 		#pragma GCC diagnostic pop
 	}
 
@@ -3794,12 +3836,10 @@ int main(void)
 		settings.series_ohms    = SERIES_RESISTOR_OHMS;      // this can be calibrated using a DUT with a known resistance value
 		settings.baudrate       = UART_BAUDRATE;
 		settings.measurement_Hz = 1000;
-//		settings.lcr_mode       = LCR_MODE_INDUCTANCE;
 		settings.lcr_mode       = LCR_MODE_CAPACITANCE;
-//		settings.lcr_mode       = LCR_MODE_RESISTANCE;
-//		settings.flags          = 0;
+		settings.sp_mode        = SP_MODE_AUTO;
 		settings.flags         |= SETTING_FLAG_UART_DSO;     // send ADC data via the serial port
-		settings.flags         |= SETTING_FLAG_SEND_BINARY;  // binary data
+//		settings.flags         |= SETTING_FLAG_SEND_BINARY;  // binary data
 	}
 
 	DWT_Delay_Init();
@@ -3820,9 +3860,12 @@ int main(void)
 	// fetch saved settings from flash
 	read_settings();
 
-	settings.baudrate = (settings.baudrate < 115200) ? 115200 : (settings.baudrate > 921600) ? 921600 : settings.baudrate;
+	settings.baudrate = (settings.baudrate < UART_BAUDRATE_MIN) ? UART_BAUDRATE_MIN : (settings.baudrate > UART_BAUDRATE_MAX) ? UART_BAUDRATE_MAX : settings.baudrate;
 
 	inv_series_ohms = 1.0f / settings.series_ohms;
+
+	lcr_mode = settings.lcr_mode;
+	sp_mode  = settings.sp_mode;
 
 	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 	set_measure_mode_pins(system_data.vi_measure_mode);

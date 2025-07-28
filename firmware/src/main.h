@@ -42,7 +42,7 @@
     #define M_PI                     3.14159265358979323846264338327950288
 #endif
 
-#define FW_VERSION                   0.42
+#define FW_VERSION                   0.43
 
 //#define NEWLINE                    "\r\n"
 #define NEWLINE                      "\n"
@@ -70,7 +70,7 @@
 #define MEASURE_HZ_MAX               10000          // maximum measurement frequency
 #define MEASURE_HZ_MIN               100            // minimum measurement frequency
 
-#define SINES_PER_BLOCK              2              // number of sine wave cycles per sample block
+#define SINES_PER_BLOCK              2              // number of sine wave cycles per sample block     no more SRAM left for more than 2 :(
 #define SAMPLES_PER_SINE_CYCLE       64             // 2^n
 
 #define ADC_DATA_LENGTH              (SAMPLES_PER_SINE_CYCLE * SINES_PER_BLOCK)
@@ -331,7 +331,7 @@
 
 // *******************************
 
-// operating mode
+// Operating mode
 enum {
 	OP_MODE_MEASURING = 0,
 	OP_MODE_OPEN_PROBE_CALIBRATION,
@@ -346,14 +346,12 @@ enum {
 	LCR_MODE_AUTO                     // TODO: add AUTO mode code
 };
 
-/*
 // Series/Parallel mode
 enum {
 	SP_MODE_SERIES = 0,
 	SP_MODE_PARALLEL,
 	SP_MODE_AUTO                      // TODO: add AUTO mode code
 };
-*/
 
 // VI mode
 enum {
@@ -365,7 +363,7 @@ enum {
 };
 
 #define SETTING_FLAG_UART_DSO       (1u << 0)   // set if the user wants to send all sampled blocks out the serial port
-#define SETTING_FLAG_PARALLEL       (1u << 1)   // set if the user wants parallel results displayed
+#define SETTING_FLAG_SPARE          (1u << 1)   //
 #define SETTING_FLAG_FAST_UPDATES   (1u << 2)   // set if the user wants faster screen updates
 #define SETTING_FLAG_SEND_BINARY    (1u << 3)   // set if the user wants binary data rather than ascii data
 
@@ -380,8 +378,10 @@ typedef struct t_settings {
 	uint32_t     baudrate;            // uart baud rate
 
 	uint16_t     measurement_Hz;      // the sine wave measurement frequency the user is using
-	uint8_t      lcr_mode;            // the LCR mode the user is using
-	uint8_t      flags;
+	uint8_t      lcr_mode;            // the LCR mode the user has selected
+	uint8_t      sp_mode;             // the series/parallel mode the user has selected
+	uint8_t      flags;               // various settings
+	uint8_t      padding1[3];         // maintain 32-bit alignment
 
 	struct {
 		float    adc[4];              // ADC input offset
@@ -402,7 +402,7 @@ typedef struct t_settings {
 		uint8_t  padding[3];          // just padding to maintain 32-bit alignment
 	} shorted_probe_calibration[2];   // 100Hz and 1kHz results
 
-	uint8_t      padding[2];          // just padding to maintain 32-bit alignment
+	uint8_t      padding2[2];         // maintain 32-bit alignment
 
 	uint16_t     crc;                 // CRC value for the entire structure. CRC computed with this set to '0'
 } t_settings;
@@ -411,8 +411,15 @@ typedef struct t_settings {
 typedef struct t_system_data {
 	unsigned int vi_measure_mode;
 
+	// the final computed waveform magnitudes and phases - these are what's used to compute the following DUT parameters
+	float     mag_rms[8];
+	float     phase_deg[8];
+
+	// the computed DUT parameters
+
 	float     rms_voltage_adc;
 	float     rms_voltage_afc;
+
 	float     rms_current_adc;
 	float     rms_current_afc;
 
