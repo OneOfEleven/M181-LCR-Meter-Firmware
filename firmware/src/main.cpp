@@ -190,7 +190,6 @@ unsigned int          adc_buffer_sum_count            = 0;            // summing
 // because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins, large DC spike occurs)
 const uint8_t         vi_measure_mode_table[] = {0, 1, 3, 2};         // the VI mode sequennce we use
 volatile uint8_t      vi_measure_index        = 0;                    // current VI stage we're at
-uint8_t               prev_vi_mode            = -1;                   //
 
 #pragma pack(push, 1)
 float                 adc_data[8][ADC_DATA_LENGTH] = {0};             // holds the final averaged/filtered samples from each VI mode
@@ -1373,35 +1372,32 @@ void process_ADC(void)
 
 	add_ADC_to_average(vi_mode, skip_block_count);
 
-	// free up the temporary buffer
+	// free up the temporary buffer, the DMA needs it back
 	tmp_buffer_in_use = 0;
 
 	// decide which modes are useful (or not)
 	//
-	// we drop the hi-gain blocks if they are clipped (makes the data useless)
-	// we drop the lo-gain blocks if the hi-gain blocks are usable (no high-gain clipping detected)
+	// we drop the hi-gain blocks if they are clipped (clipping makes the data useless)
+	// we drop the lo-gain blocks if the hi-gain blocks are usable (if no high-gain clipping detected)
 	//
-	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz the more buffers we average
-//	unsigned int average_count = SLOW_ADC_AVERAGE_COUNT;
+	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
 	if (op_mode == OP_MODE_MEASURING)
 	{
 		if (display_hold)
-			average_count = (8ul * measurement_Hz) >> 10;  // the higher the measurement Hz the more buffers we average
-//			average_count = 8;                           // display is paused, we're doing nothing but sending the samples to the PC (average any number of blocks you want here)
+			average_count <<= 4;                                  // display is paused, we're just sending the data straight to the PC
 		else
 		if (adc_data_clipping[vi_mode])
-			average_count = 1;                           // this block of samples are clipping, drop them, move on to the next mode
+			average_count = 1;                                    // this block of samples are clipping, drop them, move on to the next mode
 		else
 		if (vi_mode < VI_MODE_VOLT_HI_GAIN && !adc_data_clipped[VI_MODE_VOLT_HI_GAIN + vi_mode])
-			average_count = 1;                           // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples
+			average_count = 1;                                    // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples (assuming hi-gain samples will be OK too)
 		else
 		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-			average_count = (16ul * measurement_Hz) >> 10;  // the higher the measurement Hz the more buffers we average
-//			average_count = FAST_ADC_AVERAGE_COUNT;      // user has selected faster display updates, which just means we average less blocks together
+			average_count <<= 3;                                  // average fewer buffers in 'fast' mode (this is speeds up the display update rate)
 	}
 	average_count = (average_count < 1) ? 1 : average_count;
 
-	LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);                          // TEST only, LED off
+	LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);               // TEST only, LED off
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
 	{	// not yet summed the desired number of sample blocks
@@ -1420,9 +1416,6 @@ void process_ADC(void)
 	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
 
 	finish_ADC_averaging(vi_mode, skip_block_count);
-
-	// remember current VI mode
-	prev_vi_mode = vi_mode;
 
 	// save the new VI mode for the next measurement run
 	vi_measure_index = vi_index;
@@ -1758,10 +1751,8 @@ void draw_measurement_mode(void)
 
 void draw_screen(void)
 {
-	const uint8_t x1 = 20;
-	const uint8_t x2 = 62;
-//	const uint8_t x3 = 75;
-
+	const unsigned int xx = Font_8x12.width * 8;
+	
 	// clear the screen
 	ssd1306_Fill(Black);
 
@@ -1997,7 +1988,6 @@ void draw_screen(void)
 					value = adc_to_volts(value);
 					const char unit = unit_conversion(&value, "mkMG");
 
-					ssd1306_SetCursor(0, LINE3_Y);
 					print_sprint(4, value, str_buf, sizeof(str_buf));
 					unsigned int i = strlen(str_buf);
 					if (unit != ' ')
@@ -2005,6 +1995,7 @@ void draw_screen(void)
 					str_buf[i++] = 'V';
 					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
+					ssd1306_SetCursor(0, LINE3_Y);
 					ssd1306_WriteString(str_buf, &Font_8x12, White);
 				}
 
@@ -2013,7 +2004,6 @@ void draw_screen(void)
 					value = adc_to_volts(value);
 					const char unit = unit_conversion(&value, "umkMG");
 
-					ssd1306_SetCursor(62, LINE3_Y);
 					print_sprint(4, value, str_buf, sizeof(str_buf));
 					unsigned int i = strlen(str_buf);
 					if (unit != ' ')
@@ -2021,6 +2011,7 @@ void draw_screen(void)
 					str_buf[i++] = 'A';
 					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
+					ssd1306_SetCursor(xx, LINE3_Y);
 					ssd1306_WriteString(str_buf, &Font_8x12, White);
 				}
 			#endif
@@ -2041,13 +2032,12 @@ void draw_screen(void)
 						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_8x12.height);
 						ssd1306_WriteString("ER", &Font_8x12, White);
 
-						ssd1306_SetCursor(x1, SSD1306_HEIGHT - 1 - Font_8x12.height);
-
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
+						ssd1306_MoveCursor(Font_8x12.width / 2, 0);
 						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 
@@ -2057,16 +2047,15 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.tan_delta : system_data.series.tan_delta;
 						const char unit = unit_conversion(&value, "kMG");
 
-						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_8x12.height);
+						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - Font_8x12.height);
 						ssd1306_WriteString("D", &Font_8x12, White);
-
-						ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_8x12.height);
 
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
+						ssd1306_MoveCursor(Font_8x12.width / 2, 0);
 						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 					#else
@@ -2075,8 +2064,8 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value, "kMG");
 
-						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_8x12.height);
-						ssd1306_WriteString("Q ", &Font_8x12, White);
+						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - Font_8x12.height);
+						ssd1306_WriteString("Q", &Font_8x12, White);
 
 						//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_8x12.height);
 						print_sprint(3, value, str_buf, sizeof(str_buf));
@@ -2084,6 +2073,7 @@ void draw_screen(void)
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
+						ssd1306_MoveCursor(Font_8x12.width / 2, 0);
 						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 					#endif
@@ -2097,8 +2087,6 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
 						const char unit = unit_conversion(&value, "umkMG");
 
-						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_8x12.height);
-
 						print_sprint(4, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						if (unit != ' ')
@@ -2106,6 +2094,7 @@ void draw_screen(void)
 						str_buf[i++] = 'H';
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
+						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_8x12.height);
 						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 
@@ -2114,20 +2103,26 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value, "kMG");
 
-						ssd1306_SetCursor(x2, SSD1306_HEIGHT - 1 - Font_8x12.height);
-						ssd1306_WriteString("Q ", &Font_8x12, White);
+						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - Font_8x12.height);
+						ssd1306_WriteString("Q", &Font_8x12, White);
 
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
+						ssd1306_MoveCursor(Font_8x12.width / 2, 0);
 						ssd1306_WriteString(str_buf, &Font_8x12, White);
 					}
 
 					break;
 
 				case LCR_MODE_AUTO:
+
+
+					// todo:
+
+
 					break;
 			}
 

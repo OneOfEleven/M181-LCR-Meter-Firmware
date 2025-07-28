@@ -88,9 +88,6 @@
 
 #define MEDIAN_SIZE                  3                       // ODD length only (median uses the center value of a sorted list)
 
-//#define SLOW_ADC_AVERAGE_COUNT       128                   // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
-//#define FAST_ADC_AVERAGE_COUNT       16                    // must be >= 1      number of ADC blocks to average     1 = just one block = no averaging
-
 //#define GOERTZEL_FILTER_LENGTH     0                       // don't Goertzel filter
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 4)   // 1/2 sine cycle filter length
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
