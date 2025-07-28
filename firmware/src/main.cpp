@@ -1716,26 +1716,26 @@ void bootup_screen(void)
 	ssd1306_Fill(Black);
 
 	ssd1306_SetCursor(0, 0);
-	ssd1306_WriteString("M181", &Font_8x12, White);
+	ssd1306_WriteString("M181", &font_8x12, White);
 
 	sprintf(str_buf, "%lu", settings.baudrate);
-	ssd1306_SetCursor(5 * Font_8x12.width, 0);
-	ssd1306_WriteString(str_buf, &Font_8x12, White);
+	ssd1306_SetCursor(5 * font_8x12.width, 0);
+	ssd1306_WriteString(str_buf, &font_8x12, White);
 
-	sprintf(str_buf, "v%.2f", FW_VERSION);
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(str_buf) * Font_8x12.width), 0);
-	ssd1306_WriteString(str_buf, &Font_8x12, White);
+	sprintf(str_buf, "v%s", FW_VERSION);
+	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (strlen(str_buf) * font_8x12.width), 0);
+	ssd1306_WriteString(str_buf, &font_8x12, White);
 
 	ssd1306_SetCursor(16, 14);
-	ssd1306_WriteString("LCR Meter", &Font_11x18, White);
+	ssd1306_WriteString("LCR Meter", &font_11x18, White);
 
 	// dotted line
 	ssd1306_dotted_hline(0, SSD1306_WIDTH - 1, 3, 32 - 1, White);
 
 	ssd1306_SetCursor(5, 38);
-	ssd1306_WriteString("HW by JYETech", &Font_8x12, White);
+	ssd1306_WriteString("HW by JYETech", &font_8x12, White);
 	ssd1306_SetCursor(5, 52);
-	ssd1306_WriteString("FW by Jai & 1o11", &Font_8x12, White);
+	ssd1306_WriteString("FW by Jai & 1o11", &font_8x12, White);
 
 	ssd1306_UpdateScreen();
 }
@@ -1743,15 +1743,15 @@ void bootup_screen(void)
 void draw_measurement_mode(void)
 {
 	snprintf(str_buf, sizeof(str_buf), "%u", system_data.vi_measure_mode);
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_8x12.width), 0);
-	ssd1306_WriteString(str_buf, &Font_8x12, White);
+	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * font_8x12.width), 0);
+	ssd1306_WriteString(str_buf, &font_8x12, White);
 
 	ssd1306_UpdateScreen();
 }
 
 void draw_screen(void)
 {
-	const unsigned int xx = Font_8x12.width * 8;
+	const unsigned int xx = font_8x12.width * 8;
 
 	// clear the screen
 	ssd1306_Fill(Black);
@@ -1776,7 +1776,7 @@ void draw_screen(void)
 				}
 				strcpy(str_buf, (s != NULL) ? s : "");
 				ssd1306_SetCursor(0, 0);
-				ssd1306_WriteString(str_buf, &Font_8x12, White);
+				ssd1306_WriteString(str_buf, &font_8x12, White);
 			}
 
 			// measurement frequency
@@ -1785,8 +1785,8 @@ void draw_screen(void)
 			else
 				snprintf(str_buf, sizeof(str_buf), "%0.1fk", measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);
-			ssd1306_MoveCursor(Font_8x12.width / 2, 0);
-			ssd1306_WriteString(str_buf, &Font_8x12, White);
+			ssd1306_MoveCursor(font_8x12.width / 2, 0);
+			ssd1306_WriteString(str_buf, &font_8x12, White);
 
 			{	// open/short calibration
 				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;
@@ -1794,22 +1794,22 @@ void draw_screen(void)
 				memset(str_buf, 0, sizeof(str_buf));
 				str_buf[i++] = settings.open_probe_calibration[index].done    ? 'O' : '-';
 				str_buf[i++] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 4) * Font_8x12.width), 0);
-				ssd1306_WriteString(str_buf, &Font_8x12, White);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 4) * font_8x12.width), 0);
+				ssd1306_WriteString(str_buf, &font_8x12, White);
 			}
 
 			// hold or fast
-			ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * Font_8x12.width), 0);
+			ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * font_8x12.width), 0);
 			if (display_hold)
-				ssd1306_WriteString("HOLD", &Font_8x12, White);
+				ssd1306_WriteString("HOLD", &font_8x12, White);
 			else
 			if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-				ssd1306_WriteString("fast", &Font_8x12, White);
+				ssd1306_WriteString("fast", &font_8x12, White);
 			#if 1
 				else
 				{	// VI phase
 					print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
-					ssd1306_WriteString(str_buf, &Font_8x12, White);
+					ssd1306_WriteString(str_buf, &font_8x12, White);
 				}
 			#endif
 
@@ -1876,16 +1876,18 @@ void draw_screen(void)
 						break;
 				}
 
+				// print the DUT value
+
 				trim_trailing_zeros(str_buf);
 
 				#if 0
 					ssd1306_SetCursor(0, LINE2_Y + 3);
-					ssd1306_WriteString(str_buf, &Font_16x26, White);
-					//ssd1306_WriteString(str_buf, &Font_16x24, White);
+					ssd1306_WriteString(str_buf, &font_16x26, White);
+					//ssd1306_WriteString(str_buf, &font_16x24, White);
 					ssd1306_MoveCursor(6, -1);
 				#else
 					ssd1306_SetCursor(0, LINE2_Y - 1);
-					ssd1306_WriteString(str_buf, &Font_16x32, White);
+					ssd1306_WriteString(str_buf, &font_16x32, White);
 					ssd1306_MoveCursor(6, 1);
 				#endif
 
@@ -1898,7 +1900,7 @@ void draw_screen(void)
 							str_buf[i++] = unit;
 						str_buf[i++] = 'H';
 						str_buf[i++] = '\0';
-						ssd1306_WriteString(str_buf, &Font_11x18, White);
+						ssd1306_WriteString(str_buf, &font_11x18, White);
 						break;
 					}
 
@@ -1909,7 +1911,7 @@ void draw_screen(void)
 							str_buf[i++] = unit;
 						str_buf[i++] = 'F';
 						str_buf[i++] = '\0';
-						ssd1306_WriteString(str_buf, &Font_11x18, White);
+						ssd1306_WriteString(str_buf, &font_11x18, White);
 						break;
 					}
 
@@ -1919,7 +1921,7 @@ void draw_screen(void)
 						{
 							str_buf[0] = unit;
 							str_buf[1] = '\0';
-							ssd1306_WriteString(str_buf, &Font_11x18, White);
+							ssd1306_WriteString(str_buf, &font_11x18, White);
 						}
 
 						ssd1306_MoveCursor(3, 0);
@@ -1949,8 +1951,8 @@ void draw_screen(void)
 				str_buf[0] = volt_gain_sel ? 'H' : 'L';
 				str_buf[1] = amp_gain_sel  ? 'H' : 'L';
 				str_buf[2] ='\0';
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 2) * Font_8x12.width), LINE3_Y);
-				ssd1306_WriteString(str_buf, &Font_8x12, White);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 2) * font_8x12.width), LINE3_Y);
+				ssd1306_WriteString(str_buf, &font_8x12, White);
 			}
 			#endif
 
@@ -1965,8 +1967,8 @@ void draw_screen(void)
 					default:               s = sp[3]; break;
 				}
 				strcpy(str_buf, (s != NULL) ? s : "");
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * Font_8x12.width), LINE3_Y);
-				ssd1306_WriteString(str_buf, &Font_8x12, White);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * font_8x12.width), LINE3_Y);
+				ssd1306_WriteString(str_buf, &font_8x12, White);
 			}
 
 			// ***************************
@@ -1986,7 +1988,7 @@ void draw_screen(void)
 					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
 					ssd1306_SetCursor(0, LINE3_Y);
-					ssd1306_WriteString(str_buf, &Font_8x12, White);
+					ssd1306_WriteString(str_buf, &font_8x12, White);
 				}
 
 				{	// current
@@ -2002,7 +2004,7 @@ void draw_screen(void)
 					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
 					ssd1306_SetCursor(xx, LINE3_Y);
-					ssd1306_WriteString(str_buf, &Font_8x12, White);
+					ssd1306_WriteString(str_buf, &font_8x12, White);
 				}
 			#endif
 
@@ -2019,16 +2021,16 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.esr : system_data.series.esr;
 						const char unit = unit_conversion(&value, "mkMG");
 
-						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_8x12.height);
-						ssd1306_WriteString("ER", &Font_8x12, White);
+						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
+						ssd1306_WriteString("ER", &font_8x12, White);
 
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_MoveCursor(Font_8x12.width / 2, 0);
-						ssd1306_WriteString(str_buf, &Font_8x12, White);
+						ssd1306_MoveCursor(font_8x12.width / 2, 0);
+						ssd1306_WriteString(str_buf, &font_8x12, White);
 					}
 
 					#if 0
@@ -2037,16 +2039,16 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.tan_delta : system_data.series.tan_delta;
 						const char unit = unit_conversion(&value, "kMG");
 
-						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - Font_8x12.height);
-						ssd1306_WriteString("D", &Font_8x12, White);
+						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
+						ssd1306_WriteString("D", &font_8x12, White);
 
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_MoveCursor(Font_8x12.width / 2, 0);
-						ssd1306_WriteString(str_buf, &Font_8x12, White);
+						ssd1306_MoveCursor(font_8x12.width / 2, 0);
+						ssd1306_WriteString(str_buf, &font_8x12, White);
 					}
 					#else
 					{	// Quality factor
@@ -2054,17 +2056,17 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value, "kMG");
 
-						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - Font_8x12.height);
-						ssd1306_WriteString("Q", &Font_8x12, White);
+						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
+						ssd1306_WriteString("Q", &font_8x12, White);
 
-						//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - Font_8x12.height);
+						//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - font_8x12.height);
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_MoveCursor(Font_8x12.width / 2, 0);
-						ssd1306_WriteString(str_buf, &Font_8x12, White);
+						ssd1306_MoveCursor(font_8x12.width / 2, 0);
+						ssd1306_WriteString(str_buf, &font_8x12, White);
 					}
 					#endif
 
@@ -2084,8 +2086,8 @@ void draw_screen(void)
 						str_buf[i++] = 'H';
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - Font_8x12.height);
-						ssd1306_WriteString(str_buf, &Font_8x12, White);
+						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
+						ssd1306_WriteString(str_buf, &font_8x12, White);
 					}
 
 					{	// Quality factor
@@ -2093,16 +2095,16 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
 						const char unit = unit_conversion(&value, "kMG");
 
-						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - Font_8x12.height);
-						ssd1306_WriteString("Q", &Font_8x12, White);
+						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
+						ssd1306_WriteString("Q", &font_8x12, White);
 
 						print_sprint(3, value, str_buf, sizeof(str_buf));
 						unsigned int i = strlen(str_buf);
 						str_buf[i++] = unit;
 						str_buf[i++] = '\0';
 						trim_trailing_zeros(str_buf);
-						ssd1306_MoveCursor(Font_8x12.width / 2, 0);
-						ssd1306_WriteString(str_buf, &Font_8x12, White);
+						ssd1306_MoveCursor(font_8x12.width / 2, 0);
+						ssd1306_WriteString(str_buf, &font_8x12, White);
 					}
 
 					break;
@@ -2123,7 +2125,7 @@ void draw_screen(void)
 		case OP_MODE_OPEN_PROBE_CALIBRATION:
 			snprintf(str_buf, sizeof(str_buf), "OPEN cal %d", CALIBRATE_COUNT - calibrate.count - 1);
 			ssd1306_SetCursor(0, 5);
-			ssd1306_WriteString(str_buf, &Font_11x18, White);
+			ssd1306_WriteString(str_buf, &font_11x18, White);
 
 			//float value = measurement_Hz;
 			//const char unit = unit_conversion(&value, "kMG");
@@ -2133,14 +2135,14 @@ void draw_screen(void)
 				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);
 			ssd1306_SetCursor(0, LINE3_Y - 5);
-			ssd1306_WriteString(str_buf, &Font_11x18, White);
+			ssd1306_WriteString(str_buf, &font_11x18, White);
 
 			break;
 
 		case OP_MODE_SHORTED_PROBE_CALIBRATION:
 			snprintf(str_buf, sizeof(str_buf), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
 			ssd1306_SetCursor(0, 5);
-			ssd1306_WriteString(str_buf, &Font_11x18, White);
+			ssd1306_WriteString(str_buf, &font_11x18, White);
 
 			//float value = measurement_Hz;
 			//const char unit = unit_conversion(&value, "kMG");
@@ -2150,7 +2152,7 @@ void draw_screen(void)
 				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);
 			ssd1306_SetCursor(0, LINE3_Y - 5);
-			ssd1306_WriteString(str_buf, &Font_11x18, White);
+			ssd1306_WriteString(str_buf, &font_11x18, White);
 
 			break;
 	}
@@ -2167,8 +2169,8 @@ void draw_screen(void)
 			case DATA_MODE_BINARY: str_buf[0] = 'B'; break;
 			default:               str_buf[0] = 'E'; break;
 		}
-		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_8x12.width), SSD1306_HEIGHT - 1 - Font_8x12.height);
-		ssd1306_WriteString(str_buf, &Font_8x12, White);
+		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * font_8x12.width), SSD1306_HEIGHT - 1 - font_8x12.height);
+		ssd1306_WriteString(str_buf, &font_8x12, White);
 	}
 
 	// ***************************
@@ -3545,7 +3547,7 @@ void process_serial_command(char cmd[], unsigned int len)
 			return;
 
 		case CMD_VERSION_ID:
-			printf(NEWLINE "M181 LCR Meter v%0.2f %s %s %s %s %s %s %s" NEWLINE,
+			printf(NEWLINE "M181 LCR Meter v%s %s %s %s %s %s %s %s" NEWLINE,
 				FW_VERSION,
 				reset_cause.por    ? "POR"    : "por",
 				reset_cause.pin    ? "PIN"    : "pin",
@@ -3870,7 +3872,7 @@ int main(void)
 	screen_init();
 	bootup_screen();
 
-	printf(NEWLINE NEWLINE "rebooted M181 LCR Meter v%0.2f %s %s %s %s %s %s %s" NEWLINE,
+	printf(NEWLINE NEWLINE "rebooted M181 LCR Meter v%s %s %s %s %s %s %s %s" NEWLINE,
 		FW_VERSION,
 		reset_cause.por    ? "POR"    : "por",
 		reset_cause.pin    ? "PIN"    : "pin",
@@ -3976,6 +3978,7 @@ int main(void)
 		{
 			if (write_settings() < 0)     // save settings to flash
 				write_settings();         // failed, have a 2nd go
+
 			save_settings_timer = -1;     // don't try saving again (until the next time)
 
 			printf(NEWLINE "settings saved" NEWLINE);

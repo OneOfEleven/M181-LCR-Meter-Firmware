@@ -8,10 +8,8 @@
 
 #include <stdint.h>
 
-#ifndef DEBUG
-	#ifndef __FAST_MATH__
-		#define __FAST_MATH__
-	#endif
+#ifdef __FAST_MATH__
+	#undef __FAST_MATH__    // some libs sacrifice accuracy when fast mode is used :(
 #endif
 #include <math.h>
 
@@ -35,16 +33,15 @@
 #endif
 
 #ifndef DEBUG
-	#define USE_IWDG                 // useful to reset the CPU if something locks up etc
+	#define USE_IWDG
 #endif
 
 #ifndef M_PI
-    #define M_PI                     3.14159265358979323846264338327950288
+	#define M_PI                     3.14159265358979323846264338327950288
 #endif
 
-#define FW_VERSION                   0.43
+#define FW_VERSION                   "1.0a"
 
-//#define NEWLINE                    "\r\n"
 #define NEWLINE                      "\n"
 
 #define ARRAY_SIZE(x)               (sizeof(x) / sizeof((x)[0]))
@@ -77,8 +74,8 @@
 
 #define DUAL_ADC_MODE                               // comment out to use single ADC dual channel mode
 
-#define SP_AUTO_LOW_OHMS_THRESHOLD   100            // impedance <= this we switch to SERIES mode
-#define SP_AUTO_HIGH_OHMS_THRESHOLD  5000           // impedance >= this we switch to PARELLEL mode
+#define SP_AUTO_LOW_OHMS_THRESHOLD   1000           // impedance <= this we switch to SERIES mode
+#define SP_AUTO_HIGH_OHMS_THRESHOLD  10000          // impedance >= this we switch to PARELLEL mode
 
 #define SERIES_RESISTOR_OHMS         1000           // the value of the resistor in series with the DUT
 
@@ -86,12 +83,13 @@
 
 //#define AVERAGE_PHASE                             // average all the Goertzel filter outputs to create a phase average - TEST ONLY
 
-#define MEDIAN_SIZE                  3                       // ODD length only (median uses the center value of a sorted list)
+// remove outliner values
+#define MEDIAN_SIZE                  3              // '0' or ODD length only
 
 //#define GOERTZEL_FILTER_LENGTH     0                       // don't Goertzel filter
 //#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 4)   // 1/2 sine cycle filter length
-//#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker than full filtering
-#define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH         // two sine cycle filter length (slightly longer)
+//#define GOERTZEL_FILTER_LENGTH     (ADC_DATA_LENGTH / 2)   // one sine cycle filter length, less filtering, but quicker
+#define GOERTZEL_FILTER_LENGTH       ADC_DATA_LENGTH         // two sine cycle filter length
 
 #define CALIBRATE_COUNT              4              // number of results to average when doing the open/short calibration
 
