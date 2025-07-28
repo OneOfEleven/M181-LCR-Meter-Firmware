@@ -3170,10 +3170,10 @@ void send_data(void)
 			printf(NEWLINE);
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
-				printf("%3u,", 1 + i);
+				printf("%u,", 1 + i);
 				for (unsigned int col = 0; col < (cols - 1); col++)
-					printf("%0.1f,", adc_data[col][i]);
-				printf("%0.1f" NEWLINE, adc_data[cols - 1][i]);
+					printf("%0.3f,", adc_data[col][i]);
+				printf("%0.3f" NEWLINE, adc_data[cols - 1][i]);
 			}
 			break;
 		}
@@ -3182,6 +3182,7 @@ void send_data(void)
 			// create TX packet
 			tx_packet.marker = PACKET_MARKER;                                         // packet start marker
 			memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
+			tx_packet.crc = 0;
 			tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
 
 			// sen dit
@@ -4002,7 +4003,7 @@ int main(void)
 		__WFI();    // wait here until next interrupt occurs
 //		__WFE();    // wait here in low power mode until next interrupt occurs
 
-		// servicing any and all user input without delay is the highest priority
+		// service user input, this is high priority !
 		process_buttons();
 
 		// process any data received via the serial port
@@ -4034,15 +4035,15 @@ int main(void)
 		// save any unsaved settings to flash (we don't have an EEPROM etc)
 		if (save_settings_timer == 0)
 		{
-			if (write_settings() < 0)     // save settings to flash
-				write_settings();         // failed, have a 2nd go
-
-			save_settings_timer = -1;     // don't try saving again (until the next time)
-
-			printf(NEWLINE "settings saved" NEWLINE);
+			if (write_settings() >= 0)     // save settings to flash
+			{	// done
+				save_settings_timer = -1;
+				printf(NEWLINE "settings saved" NEWLINE);
+			}
 		}
 
 		#ifdef USE_IWDG
+			// feed the doggy
 			service_IWDG(0);
 		#endif
 	}
