@@ -82,9 +82,6 @@
 
 #define SERIES_RESISTOR_OHMS         1000           // the value of the resistor in series with the DUT
 
-#define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
-#define MODE_SWITCH_BLOCK_WAIT_LONG  10             //   "         "      "         "
-
 //#define HISTOGRAM_CLIP_DET                        // uncomment to use histogram clip detector, comment out for faster/simple threshold clip detector
 
 //#define AVERAGE_PHASE                             // average all the Goertzel filter outputs to create a phase average - TEST ONLY
