@@ -128,6 +128,9 @@ static const uint16_t omega_13x18[] = {
 	0b0000000000000    // 18
 };
 
+static const uint16_t measurement_table_Hz[] = {100, 1000};
+//static const uint16_t measurement_table_Hz[] = {100, 1000, 10000};
+
 struct {
 	uint8_t por;
 	uint8_t pin;
@@ -166,6 +169,7 @@ unsigned int          display_hold = 0;                            // '1' to hol
 
 // for when the user is running the calibrations (open, short, load)
 struct {
+	unsigned int      index_Hz;
 	int               count;
 	float             mag_sum[8];
 	t_complex         phase_sum[8];
@@ -836,14 +840,14 @@ void start_probe_open_cal(void)
 {
 	memset((void *)&calibrate, 0, sizeof(calibrate));
 	op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
-	set_measurement_frequency(100);
+	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
 }
 
 void start_probe_short_cal(void)
 {
 	memset((void *)&calibrate, 0, sizeof(calibrate));
 	op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
-	set_measurement_frequency(100);
+	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
 }
 
 #if 1
@@ -3098,6 +3102,9 @@ void process_buttons(void)
 			display_hold = 0;
 
 			// cycle the frequency
+			//
+			// todo: use measurement_table_Hz[]
+			//
 			switch (settings.measurement_Hz)
 			{
 				default:
@@ -3719,7 +3726,7 @@ void process_op_mode(void)
 			if (++calibrate.count >= CALIBRATE_COUNT)
 			{	// finished summing, save the average
 
-				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;   // 100Hz/1kHz
+				unsigned int index = calibrate.index_Hz;
 
 				// magnitudes
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
@@ -3732,11 +3739,12 @@ void process_op_mode(void)
 				// set flag to say "open calibration done"
 				settings.open_probe_calibration[index].done = 1;
 
-				if (index == 0)
+				if (++index < ARRAY_SIZE(measurement_table_Hz))
 				{	// do the same again but at the next measurement frequency
 
 					memset((void *)&calibrate, 0, sizeof(calibrate));
-					set_measurement_frequency(1000);
+					calibrate.index_Hz = index;
+					set_measurement_frequency(measurement_table_Hz[index]);
 				}
 				else
 				{	// done
@@ -3780,7 +3788,7 @@ void process_op_mode(void)
 			if (++calibrate.count >= CALIBRATE_COUNT)
 			{	// finished summing, save the average
 
-				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;   // 100Hz/1kHz
+				unsigned int index = calibrate.index_Hz;
 
 				// magnitudes
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
@@ -3793,11 +3801,12 @@ void process_op_mode(void)
 				// set flag to say "shorted calibration done"
 				settings.shorted_probe_calibration[index].done = 1;
 
-				if (index == 0)
+				if (++index < ARRAY_SIZE(measurement_table_Hz))
 				{	// do the same again but at the next measurement frequency
 
 					memset((void *)&calibrate, 0, sizeof(calibrate));
-					set_measurement_frequency(1000);
+					calibrate.index_Hz = index;
+					set_measurement_frequency(measurement_table_Hz[index]);
 				}
 				else
 				{	// done
@@ -4002,7 +4011,7 @@ int main(void)
 		// process the new ADC sample block
 		process_ADC();
 
-//		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
+		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
 		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 
 		if (vi_measure_index >= VI_MODE_DONE)
@@ -4017,9 +4026,10 @@ int main(void)
 
 			vi_measure_index = 0;         // start next data capture
 		}
-		//else
-		//if (system_data.vi_measure_mode != prev_vi_measure_mode && draw_screen_count > 0)
-		//	draw_measurement_mode();
+		else
+//		if (system_data.vi_measure_mode != prev_vi_measure_mode && (draw_screen_count > 0 || op_mode != OP_MODE_MEASURING))
+		if (system_data.vi_measure_mode != prev_vi_measure_mode && op_mode != OP_MODE_MEASURING)
+			draw_measurement_mode();
 
 		// save any unsaved settings to flash (we don't have an EEPROM etc)
 		if (save_settings_timer == 0)
