@@ -1263,7 +1263,7 @@ void process_data(void)
 
 	system_data.voltage_phase_deg = phase_diff(system_data.phase_deg[(volt_gain_sel * 4) + 0], system_data.phase_deg[(volt_gain_sel * 4) + 1]);   // phase difference between ADC and AFC waves
 	system_data.current_phase_deg = phase_diff(system_data.phase_deg[(amp_gain_sel  * 4) + 2], system_data.phase_deg[(amp_gain_sel  * 4) + 3]);   // phase difference between ADC and AFC waves
-	//
+
 	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);             // phase difference between voltage and current waves
 
 	if (op_mode != OP_MODE_MEASURING)
@@ -1334,10 +1334,10 @@ void process_data(void)
 
 	if (settings.sp_mode == SP_MODE_AUTO)
 	{
-		if (system_data.impedance < 100)
+		if (system_data.impedance <= SP_AUTO_LOW_OHMS_THRESHOLD)
 			sp_mode = SP_MODE_SERIES;
 		else
-		if (system_data.impedance > 5000)
+		if (system_data.impedance >= SP_AUTO_HIGH_OHMS_THRESHOLD)
 			sp_mode = SP_MODE_PARALLEL;
 	}
 

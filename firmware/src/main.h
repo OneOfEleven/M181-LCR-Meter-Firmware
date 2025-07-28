@@ -77,6 +77,9 @@
 
 #define DUAL_ADC_MODE                               // comment out to use single ADC dual channel mode
 
+#define SP_AUTO_LOW_OHMS_THRESHOLD   100            // impedance <= this we switch to SERIES mode
+#define SP_AUTO_HIGH_OHMS_THRESHOLD  5000           // impedance >= this we switch to PARELLEL mode
+
 #define SERIES_RESISTOR_OHMS         1000           // the value of the resistor in series with the DUT
 
 #define MODE_SWITCH_BLOCK_WAIT_SHORT 4              // number of sample blocks to wait after switching modes before saving them
@@ -350,7 +353,7 @@ enum {
 enum {
 	SP_MODE_SERIES = 0,
 	SP_MODE_PARALLEL,
-	SP_MODE_AUTO                      // TODO: add AUTO mode code
+	SP_MODE_AUTO
 };
 
 // VI mode
