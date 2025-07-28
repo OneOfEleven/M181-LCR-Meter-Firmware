@@ -2124,26 +2124,19 @@ void draw_screen(void)
 
 		case OP_MODE_OPEN_PROBE_CALIBRATION:
 			snprintf(str_buf, sizeof(str_buf), "OPEN cal %d", CALIBRATE_COUNT - calibrate.count - 1);
-			ssd1306_SetCursor(0, 5);
-			ssd1306_WriteString(str_buf, &font_11x18, White);
-
-			//float value = measurement_Hz;
-			//const char unit = unit_conversion(&value, "kMG");
-			if (measurement_Hz < 1000)
-				snprintf(str_buf, sizeof(str_buf), " %u Hz", measurement_Hz);
-			else
-				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", measurement_Hz * 1e-3f);
-			trim_trailing_zeros(str_buf);
-			ssd1306_SetCursor(0, LINE3_Y - 5);
-			ssd1306_WriteString(str_buf, &font_11x18, White);
-
 			break;
 
 		case OP_MODE_SHORTED_PROBE_CALIBRATION:
 			snprintf(str_buf, sizeof(str_buf), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
-			ssd1306_SetCursor(0, 5);
-			ssd1306_WriteString(str_buf, &font_11x18, White);
+			break;
+	}
 
+	if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION || op_mode == OP_MODE_SHORTED_PROBE_CALIBRATION)
+	{
+		ssd1306_SetCursor(0, 0);
+		ssd1306_WriteString(str_buf, &font_11x18, White);
+
+		{	// frequency
 			//float value = measurement_Hz;
 			//const char unit = unit_conversion(&value, "kMG");
 			if (measurement_Hz < 1000)
@@ -2151,10 +2144,41 @@ void draw_screen(void)
 			else
 				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);
-			ssd1306_SetCursor(0, LINE3_Y - 5);
+			ssd1306_SetCursor(0, font_11x18.height + 8);
 			ssd1306_WriteString(str_buf, &font_11x18, White);
+		}
 
-			break;
+		{	// voltage
+			float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
+			value = adc_to_volts(value);
+			const char unit = unit_conversion(&value, "mkMG");
+
+			print_sprint(4, value, str_buf, sizeof(str_buf));
+			unsigned int i = strlen(str_buf);
+			if (unit != ' ')
+				str_buf[i++] = unit;
+			str_buf[i++] = 'V';
+			str_buf[i++] = '\0';
+			trim_trailing_zeros(str_buf);
+			ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
+			ssd1306_WriteString(str_buf, &font_8x12, White);
+		}
+
+		{	// current
+			float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
+			value = adc_to_volts(value);
+			const char unit = unit_conversion(&value, "umkMG");
+
+			print_sprint(4, value, str_buf, sizeof(str_buf));
+			unsigned int i = strlen(str_buf);
+			if (unit != ' ')
+				str_buf[i++] = unit;
+			str_buf[i++] = 'A';
+			str_buf[i++] = '\0';
+			trim_trailing_zeros(str_buf);
+			ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
+			ssd1306_WriteString(str_buf, &font_8x12, White);
+		}
 	}
 
 	// ***************************
