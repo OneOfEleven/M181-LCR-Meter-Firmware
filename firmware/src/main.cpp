@@ -832,6 +832,20 @@ void set_measurement_frequency(uint32_t Hz)
 	}
 }
 
+void start_probe_open_cal(void)
+{
+	memset((void *)&calibrate, 0, sizeof(calibrate));
+	op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
+	set_measurement_frequency(100);
+}
+
+void start_probe_short_cal(void)
+{
+	memset((void *)&calibrate, 0, sizeof(calibrate));
+	op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
+	set_measurement_frequency(100);
+}
+
 #if 1
 	float phase_diff(const t_complex c1, const t_complex c2)
 	{
@@ -1756,386 +1770,378 @@ void draw_screen(void)
 	// clear the screen
 	ssd1306_Fill(Black);
 
-	switch (op_mode)
+	if (op_mode == OP_MODE_MEASURING)
 	{
-		default:
-		case OP_MODE_MEASURING:
+		// ***************************
+		// Line 1
 
-			// ***************************
-			// Line 1
-
-			{	// serial/parallel mode
-				const char *sp[] = {"SER", "PAR", "AUT", "ERR"};
-				const char *s = NULL;
-				switch (settings.sp_mode)
-				{
-					case SP_MODE_SERIES:   s = sp[0]; break;
-					case SP_MODE_PARALLEL: s = sp[1]; break;
-					case SP_MODE_AUTO:     s = sp[2]; break;
-					default:               s = sp[3]; break;
-				}
-				strcpy(str_buf, (s != NULL) ? s : "");
-				ssd1306_SetCursor(0, 0);
-				ssd1306_WriteString(str_buf, &font_8x12, White);
+		{	// serial/parallel mode
+			const char *sp[] = {"SER", "PAR", "AUT", "ERR"};
+			const char *s = NULL;
+			switch (settings.sp_mode)
+			{
+				case SP_MODE_SERIES:   s = sp[0]; break;
+				case SP_MODE_PARALLEL: s = sp[1]; break;
+				case SP_MODE_AUTO:     s = sp[2]; break;
+				default:               s = sp[3]; break;
 			}
-
-			// measurement frequency
-			if (measurement_Hz < 1000)
-				snprintf(str_buf, sizeof(str_buf), "%u", measurement_Hz);
-			else
-				snprintf(str_buf, sizeof(str_buf), "%0.1fk", measurement_Hz * 1e-3f);
-			trim_trailing_zeros(str_buf);
-			ssd1306_MoveCursor(font_8x12.width / 2, 0);
+			strcpy(str_buf, (s != NULL) ? s : "");
+			ssd1306_SetCursor(0, 0);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
+		}
 
-			{	// open/short calibration
-				const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;
-				unsigned int i = 0;
-				memset(str_buf, 0, sizeof(str_buf));
-				str_buf[i++] = settings.open_probe_calibration[index].done    ? 'O' : '-';
-				str_buf[i++] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 4) * font_8x12.width), 0);
-				ssd1306_WriteString(str_buf, &font_8x12, White);
-			}
+		// measurement frequency
+		if (measurement_Hz < 1000)
+			snprintf(str_buf, sizeof(str_buf), "%u", measurement_Hz);
+		else
+			snprintf(str_buf, sizeof(str_buf), "%0.1fk", measurement_Hz * 1e-3f);
+		trim_trailing_zeros(str_buf);
+		ssd1306_MoveCursor(font_8x12.width / 2, 0);
+		ssd1306_WriteString(str_buf, &font_8x12, White);
 
-			// hold or fast
-			ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * font_8x12.width), 0);
-			if (display_hold)
-				ssd1306_WriteString("HOLD", &font_8x12, White);
+		{	// open/short calibration
+			const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;
+			unsigned int i = 0;
+			memset(str_buf, 0, sizeof(str_buf));
+			str_buf[i++] = settings.open_probe_calibration[index].done    ? 'O' : '-';
+			str_buf[i++] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
+			ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 4) * font_8x12.width), 0);
+			ssd1306_WriteString(str_buf, &font_8x12, White);
+		}
+
+		// hold or fast
+		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (4 * font_8x12.width), 0);
+		if (display_hold)
+			ssd1306_WriteString("HOLD", &font_8x12, White);
+		else
+		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
+			ssd1306_WriteString("fast", &font_8x12, White);
+		#if 1
 			else
-			if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-				ssd1306_WriteString("fast", &font_8x12, White);
-			#if 1
-				else
-				{	// VI phase
-					print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
-					ssd1306_WriteString(str_buf, &font_8x12, White);
-				}
-			#endif
-
-			// ***************************
-			// Line 2
-
-			{	// LCR mode
-
-				float value = 0;
-
-				switch (lcr_mode)
-				{
-					case LCR_MODE_INDUCTANCE:
-						value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
-						break;
-					case LCR_MODE_CAPACITANCE:
-						value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.capacitance : system_data.series.capacitance;
-						break;
-					case LCR_MODE_RESISTANCE:
-						value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.resistance : system_data.series.resistance;
-						break;
-					case LCR_MODE_AUTO:
-
-						// TODO: add AUTO mode code
-
-						break;
-				}
-
-				//char unit = unit_conversion(&value, "fpnumkMG");
-				char unit = ' ';
-
-				memset(str_buf, 0, sizeof(str_buf));
-
-				switch (lcr_mode)
-				{
-					case LCR_MODE_INDUCTANCE:
-						unit = unit_conversion(&value, "umkMG");
-						if (unit == 'u')
-							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
-						else
-							print_sprint(4, value, str_buf, sizeof(str_buf));
-						break;
-
-					case LCR_MODE_CAPACITANCE:
-						unit = unit_conversion(&value, "pnumkMG");
-						if (unit == 'p')
-							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
-						else
-							print_sprint(4, value, str_buf, sizeof(str_buf));
-						break;
-
-					case LCR_MODE_RESISTANCE:
-						unit = unit_conversion(&value, "mkMG");
-						if (unit == 'm')
-							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
-						else
-							print_sprint(4, value, str_buf, sizeof(str_buf));
-						break;
-
-					case LCR_MODE_AUTO:
-
-						// TODO: add AUTO mode code
-
-						break;
-				}
-
-				// print the DUT value
-
-				trim_trailing_zeros(str_buf);
-
-				#if 0
-					ssd1306_SetCursor(0, LINE2_Y + 3);
-					ssd1306_WriteString(str_buf, &font_16x26, White);
-					//ssd1306_WriteString(str_buf, &font_16x24, White);
-					ssd1306_MoveCursor(6, -1);
-				#else
-					ssd1306_SetCursor(0, LINE2_Y - 1);
-					ssd1306_WriteString(str_buf, &font_16x32, White);
-					ssd1306_MoveCursor(6, 1);
-				#endif
-
-				switch (lcr_mode)
-				{
-					case LCR_MODE_INDUCTANCE:
-					{
-						unsigned int i = 0;
-						if (unit != ' ')
-							str_buf[i++] = unit;
-						str_buf[i++] = 'H';
-						str_buf[i++] = '\0';
-						ssd1306_WriteString(str_buf, &font_11x18, White);
-						break;
-					}
-
-					case LCR_MODE_CAPACITANCE:
-					{
-						unsigned int i = 0;
-						if (unit != ' ')
-							str_buf[i++] = unit;
-						str_buf[i++] = 'F';
-						str_buf[i++] = '\0';
-						ssd1306_WriteString(str_buf, &font_11x18, White);
-						break;
-					}
-
-					case LCR_MODE_RESISTANCE:
-					{
-						if (unit != ' ')
-						{
-							str_buf[0] = unit;
-							str_buf[1] = '\0';
-							ssd1306_WriteString(str_buf, &font_11x18, White);
-						}
-
-						ssd1306_MoveCursor(3, 0);
-
-						{
-							uint16_t x;
-							uint16_t y;
-							ssd1306_GetCursor(&x, &y);
-							ssd1306_symbol(x, y, omega_13x18, 13, 18);
-						}
-
-						break;
-					}
-
-					case LCR_MODE_AUTO:
-
-
-						// todo:
-
-
-						break;
-				}
-			}
-
-			#if 1
-			{	// show gain setting for V and I modes
-				str_buf[0] = volt_gain_sel ? 'H' : 'L';
-				str_buf[1] = amp_gain_sel  ? 'H' : 'L';
-				str_buf[2] ='\0';
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 2) * font_8x12.width), LINE3_Y);
+			{	// VI phase
+				print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
 				ssd1306_WriteString(str_buf, &font_8x12, White);
 			}
-			#endif
+		#endif
 
-			{	// show current serial/parallel mode
-				const char *sp[] = {"Rs", "Rp", "Ra", "ER"};
-				const char *s = NULL;
-				switch (sp_mode)
-				{
-					case SP_MODE_SERIES:   s = sp[0]; break;
-					case SP_MODE_PARALLEL: s = sp[1]; break;
-					case SP_MODE_AUTO:     s = sp[2]; break;
-					default:               s = sp[3]; break;
-				}
-				strcpy(str_buf, (s != NULL) ? s : "");
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * font_8x12.width), LINE3_Y);
-				ssd1306_WriteString(str_buf, &font_8x12, White);
+		// ***************************
+		// Line 2
+
+		{	// LCR mode
+
+			float value = 0;
+
+			switch (lcr_mode)
+			{
+				case LCR_MODE_INDUCTANCE:
+					value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
+					break;
+				case LCR_MODE_CAPACITANCE:
+					value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.capacitance : system_data.series.capacitance;
+					break;
+				case LCR_MODE_RESISTANCE:
+					value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.resistance : system_data.series.resistance;
+					break;
+				case LCR_MODE_AUTO:
+
+					// TODO: add AUTO mode code
+
+					break;
 			}
 
-			// ***************************
-			// Line 3
+			//char unit = unit_conversion(&value, "fpnumkMG");
+			char unit = ' ';
 
-			# if 0
-				{	// voltage
-					float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
-					value = adc_to_volts(value);
-					const char unit = unit_conversion(&value, "mkMG");
+			memset(str_buf, 0, sizeof(str_buf));
 
-					print_sprint(4, value, str_buf, sizeof(str_buf));
-					unsigned int i = strlen(str_buf);
+			switch (lcr_mode)
+			{
+				case LCR_MODE_INDUCTANCE:
+					unit = unit_conversion(&value, "umkMG");
+					if (unit == 'u')
+						snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+					else
+						print_sprint(4, value, str_buf, sizeof(str_buf));
+					break;
+
+				case LCR_MODE_CAPACITANCE:
+					unit = unit_conversion(&value, "pnumkMG");
+					if (unit == 'p')
+						snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+					else
+						print_sprint(4, value, str_buf, sizeof(str_buf));
+					break;
+
+				case LCR_MODE_RESISTANCE:
+					unit = unit_conversion(&value, "mkMG");
+					if (unit == 'm')
+						snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+					else
+						print_sprint(4, value, str_buf, sizeof(str_buf));
+					break;
+
+				case LCR_MODE_AUTO:
+
+					// TODO: add AUTO mode code
+
+					break;
+			}
+
+			// print the DUT value
+
+			trim_trailing_zeros(str_buf);
+
+			#if 0
+				ssd1306_SetCursor(0, LINE2_Y + 3);
+				ssd1306_WriteString(str_buf, &font_16x26, White);
+				//ssd1306_WriteString(str_buf, &font_16x24, White);
+				ssd1306_MoveCursor(6, -1);
+			#else
+				ssd1306_SetCursor(0, LINE2_Y - 1);
+				ssd1306_WriteString(str_buf, &font_16x32, White);
+				ssd1306_MoveCursor(6, 1);
+			#endif
+
+			switch (lcr_mode)
+			{
+				case LCR_MODE_INDUCTANCE:
+				{
+					unsigned int i = 0;
 					if (unit != ' ')
 						str_buf[i++] = unit;
-					str_buf[i++] = 'V';
+					str_buf[i++] = 'H';
+					str_buf[i++] = '\0';
+					ssd1306_WriteString(str_buf, &font_11x18, White);
+					break;
+				}
+
+				case LCR_MODE_CAPACITANCE:
+				{
+					unsigned int i = 0;
+					if (unit != ' ')
+						str_buf[i++] = unit;
+					str_buf[i++] = 'F';
+					str_buf[i++] = '\0';
+					ssd1306_WriteString(str_buf, &font_11x18, White);
+					break;
+				}
+
+				case LCR_MODE_RESISTANCE:
+				{
+					if (unit != ' ')
+					{
+						str_buf[0] = unit;
+						str_buf[1] = '\0';
+						ssd1306_WriteString(str_buf, &font_11x18, White);
+					}
+
+					ssd1306_MoveCursor(3, 0);
+
+					{
+						uint16_t x;
+						uint16_t y;
+						ssd1306_GetCursor(&x, &y);
+						ssd1306_symbol(x, y, omega_13x18, 13, 18);
+					}
+
+					break;
+				}
+
+				case LCR_MODE_AUTO:
+
+					// todo:
+
+					break;
+			}
+		}
+
+		#if 1
+		{	// show gain setting for V and I modes
+			str_buf[0] = volt_gain_sel ? 'H' : 'L';
+			str_buf[1] = amp_gain_sel  ? 'H' : 'L';
+			str_buf[2] ='\0';
+			ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 2) * font_8x12.width), LINE3_Y);
+			ssd1306_WriteString(str_buf, &font_8x12, White);
+		}
+		#endif
+
+		{	// show current serial/parallel mode
+			const char *sp[] = {"Rs", "Rp", "Ra", "ER"};
+			const char *s = NULL;
+			switch (sp_mode)
+			{
+				case SP_MODE_SERIES:   s = sp[0]; break;
+				case SP_MODE_PARALLEL: s = sp[1]; break;
+				case SP_MODE_AUTO:     s = sp[2]; break;
+				default:               s = sp[3]; break;
+			}
+			strcpy(str_buf, (s != NULL) ? s : "");
+			ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * font_8x12.width), LINE3_Y);
+			ssd1306_WriteString(str_buf, &font_8x12, White);
+		}
+
+		// ***************************
+		// Line 3
+
+		# if 0
+			{	// voltage
+				float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
+				value = adc_to_volts(value);
+				const char unit = unit_conversion(&value, "mkMG");
+
+				print_sprint(4, value, str_buf, sizeof(str_buf));
+				unsigned int i = strlen(str_buf);
+				if (unit != ' ')
+					str_buf[i++] = unit;
+				str_buf[i++] = 'V';
+				str_buf[i++] = '\0';
+				trim_trailing_zeros(str_buf);
+				ssd1306_SetCursor(0, LINE3_Y);
+				ssd1306_WriteString(str_buf, &font_8x12, White);
+			}
+
+			{	// current
+				float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
+				value = adc_to_volts(value);
+				const char unit = unit_conversion(&value, "umkMG");
+
+				print_sprint(4, value, str_buf, sizeof(str_buf));
+				unsigned int i = strlen(str_buf);
+				if (unit != ' ')
+					str_buf[i++] = unit;
+				str_buf[i++] = 'A';
+				str_buf[i++] = '\0';
+				trim_trailing_zeros(str_buf);
+				ssd1306_SetCursor(xx, LINE3_Y);
+				ssd1306_WriteString(str_buf, &font_8x12, White);
+			}
+		#endif
+
+		// ***************************
+		// Bottom line
+
+		switch (lcr_mode)
+		{
+			case LCR_MODE_INDUCTANCE:
+			case LCR_MODE_CAPACITANCE:
+
+				{	// ESR
+					float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.esr : system_data.series.esr;
+					const char unit = unit_conversion(&value, "mkMG");
+
+					ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
+					ssd1306_WriteString("ER", &font_8x12, White);
+
+					print_sprint(3, value, str_buf, sizeof(str_buf));
+					unsigned int i = strlen(str_buf);
+					str_buf[i++] = unit;
 					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
-					ssd1306_SetCursor(0, LINE3_Y);
+					ssd1306_MoveCursor(font_8x12.width / 2, 0);
 					ssd1306_WriteString(str_buf, &font_8x12, White);
 				}
 
-				{	// current
-					float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
-					value = adc_to_volts(value);
+				#if 0
+				{	// Tan Delta
+					float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.tan_delta : system_data.series.tan_delta;
+					const char unit = unit_conversion(&value, "kMG");
+
+					ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
+					ssd1306_WriteString("D", &font_8x12, White);
+
+					print_sprint(3, value, str_buf, sizeof(str_buf));
+					unsigned int i = strlen(str_buf);
+					str_buf[i++] = unit;
+					str_buf[i++] = '\0';
+					trim_trailing_zeros(str_buf);
+					ssd1306_MoveCursor(font_8x12.width / 2, 0);
+					ssd1306_WriteString(str_buf, &font_8x12, White);
+				}
+				#else
+				{	// Quality factor
+					float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
+					const char unit = unit_conversion(&value, "kMG");
+
+					ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
+					ssd1306_WriteString("Q", &font_8x12, White);
+
+					//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - font_8x12.height);
+					print_sprint(3, value, str_buf, sizeof(str_buf));
+					unsigned int i = strlen(str_buf);
+					str_buf[i++] = unit;
+					str_buf[i++] = '\0';
+					trim_trailing_zeros(str_buf);
+					ssd1306_MoveCursor(font_8x12.width / 2, 0);
+					ssd1306_WriteString(str_buf, &font_8x12, White);
+				}
+				#endif
+
+				break;
+
+			case LCR_MODE_RESISTANCE:
+				{	// inductance
+					float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
 					const char unit = unit_conversion(&value, "umkMG");
 
 					print_sprint(4, value, str_buf, sizeof(str_buf));
 					unsigned int i = strlen(str_buf);
 					if (unit != ' ')
 						str_buf[i++] = unit;
-					str_buf[i++] = 'A';
+					str_buf[i++] = 'H';
 					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
-					ssd1306_SetCursor(xx, LINE3_Y);
+					ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
 					ssd1306_WriteString(str_buf, &font_8x12, White);
 				}
-			#endif
 
-			// ***************************
-			// Bottom line
+				{	// Quality factor
+					float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
+					const char unit = unit_conversion(&value, "kMG");
 
-			switch (lcr_mode)
-			{
-				case LCR_MODE_INDUCTANCE:
-				case LCR_MODE_CAPACITANCE:
+					ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
+					ssd1306_WriteString("Q", &font_8x12, White);
 
-					{	// ESR
+					print_sprint(3, value, str_buf, sizeof(str_buf));
+					unsigned int i = strlen(str_buf);
+					str_buf[i++] = unit;
+					str_buf[i++] = '\0';
+					trim_trailing_zeros(str_buf);
+					ssd1306_MoveCursor(font_8x12.width / 2, 0);
+					ssd1306_WriteString(str_buf, &font_8x12, White);
+				}
 
-						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.esr : system_data.series.esr;
-						const char unit = unit_conversion(&value, "mkMG");
+				break;
 
-						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
-						ssd1306_WriteString("ER", &font_8x12, White);
+			case LCR_MODE_AUTO:
 
-						print_sprint(3, value, str_buf, sizeof(str_buf));
-						unsigned int i = strlen(str_buf);
-						str_buf[i++] = unit;
-						str_buf[i++] = '\0';
-						trim_trailing_zeros(str_buf);
-						ssd1306_MoveCursor(font_8x12.width / 2, 0);
-						ssd1306_WriteString(str_buf, &font_8x12, White);
-					}
+				// todo:
 
-					#if 0
-					{	// Tan Delta
+				break;
+		}
 
-						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.tan_delta : system_data.series.tan_delta;
-						const char unit = unit_conversion(&value, "kMG");
-
-						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
-						ssd1306_WriteString("D", &font_8x12, White);
-
-						print_sprint(3, value, str_buf, sizeof(str_buf));
-						unsigned int i = strlen(str_buf);
-						str_buf[i++] = unit;
-						str_buf[i++] = '\0';
-						trim_trailing_zeros(str_buf);
-						ssd1306_MoveCursor(font_8x12.width / 2, 0);
-						ssd1306_WriteString(str_buf, &font_8x12, White);
-					}
-					#else
-					{	// Quality factor
-
-						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
-						const char unit = unit_conversion(&value, "kMG");
-
-						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
-						ssd1306_WriteString("Q", &font_8x12, White);
-
-						//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - font_8x12.height);
-						print_sprint(3, value, str_buf, sizeof(str_buf));
-						unsigned int i = strlen(str_buf);
-						str_buf[i++] = unit;
-						str_buf[i++] = '\0';
-						trim_trailing_zeros(str_buf);
-						ssd1306_MoveCursor(font_8x12.width / 2, 0);
-						ssd1306_WriteString(str_buf, &font_8x12, White);
-					}
-					#endif
-
-					break;
-
-				case LCR_MODE_RESISTANCE:
-
-					{	// inductance
-
-						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
-						const char unit = unit_conversion(&value, "umkMG");
-
-						print_sprint(4, value, str_buf, sizeof(str_buf));
-						unsigned int i = strlen(str_buf);
-						if (unit != ' ')
-							str_buf[i++] = unit;
-						str_buf[i++] = 'H';
-						str_buf[i++] = '\0';
-						trim_trailing_zeros(str_buf);
-						ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
-						ssd1306_WriteString(str_buf, &font_8x12, White);
-					}
-
-					{	// Quality factor
-
-						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.qf : system_data.series.qf;
-						const char unit = unit_conversion(&value, "kMG");
-
-						ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
-						ssd1306_WriteString("Q", &font_8x12, White);
-
-						print_sprint(3, value, str_buf, sizeof(str_buf));
-						unsigned int i = strlen(str_buf);
-						str_buf[i++] = unit;
-						str_buf[i++] = '\0';
-						trim_trailing_zeros(str_buf);
-						ssd1306_MoveCursor(font_8x12.width / 2, 0);
-						ssd1306_WriteString(str_buf, &font_8x12, White);
-					}
-
-					break;
-
-				case LCR_MODE_AUTO:
-
-
-					// todo:
-
-
-					break;
-			}
-
-			// ***************************
-
-			break;
-
-		case OP_MODE_OPEN_PROBE_CALIBRATION:
-			snprintf(str_buf, sizeof(str_buf), "OPEN cal %d", CALIBRATE_COUNT - calibrate.count - 1);
-			break;
-
-		case OP_MODE_SHORTED_PROBE_CALIBRATION:
-			snprintf(str_buf, sizeof(str_buf), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
-			break;
+		// ***************************
 	}
-
+	else
 	if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION || op_mode == OP_MODE_SHORTED_PROBE_CALIBRATION)
 	{
+		if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION)
+			snprintf(str_buf, sizeof(str_buf), "OPEN cal %d",  CALIBRATE_COUNT - calibrate.count - 1);
+		else
+			snprintf(str_buf, sizeof(str_buf), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
 		ssd1306_SetCursor(0, 0);
 		ssd1306_WriteString(str_buf, &font_11x18, White);
 
+		float rms_voltage = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
+		float rms_current = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
+
+		uint8_t probes_OK = 1;
+
+		if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION)
+			probes_OK = (rms_voltage < VOLTAGE_OPEN_THRESHOLD  || rms_current > CURRENT_OPEN_THRESHOLD)  ? 0 : 1;    // probes not fully open
+		else
+			probes_OK = (rms_voltage > VOLTAGE_SHORT_THRESHOLD || rms_current < CURRENT_SHORT_THRESHOLD) ? 0 : 1;    // probes not fully closed
+
+		if (probes_OK)
 		{	// frequency
 			//float value = measurement_Hz;
 			//const char unit = unit_conversion(&value, "kMG");
@@ -2147,17 +2153,27 @@ void draw_screen(void)
 			ssd1306_SetCursor(0, font_11x18.height + 8);
 			ssd1306_WriteString(str_buf, &font_11x18, White);
 		}
+		else
+		{
+			ssd1306_SetCursor(0, font_11x18.height + 8);
+			ssd1306_WriteString("PROBE ERROR", &font_11x18, White);
+
+			// restart the calibration
+			if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION)
+				start_probe_open_cal();
+			else
+				start_probe_short_cal();
+		}
 
 		{	// voltage
-			float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
-			value = adc_to_volts(value);
-			const char unit = unit_conversion(&value, "mkMG");
+//			rms_voltage = adc_to_volts(rms_voltage);
+			const char unit = unit_conversion(&rms_voltage, "mkMG");
 
-			print_sprint(4, value, str_buf, sizeof(str_buf));
+			print_sprint(4, rms_voltage, str_buf, sizeof(str_buf));
 			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
 				str_buf[i++] = unit;
-			str_buf[i++] = 'V';
+//			str_buf[i++] = 'V';
 			str_buf[i++] = '\0';
 			trim_trailing_zeros(str_buf);
 			ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
@@ -2165,15 +2181,14 @@ void draw_screen(void)
 		}
 
 		{	// current
-			float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
-			value = adc_to_volts(value);
-			const char unit = unit_conversion(&value, "umkMG");
+//			rms_current = adc_to_volts(rms_current);
+			const char unit = unit_conversion(&rms_current, "umkMG");
 
-			print_sprint(4, value, str_buf, sizeof(str_buf));
+			print_sprint(4, rms_current, str_buf, sizeof(str_buf));
 			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
 				str_buf[i++] = unit;
-			str_buf[i++] = 'A';
+//			str_buf[i++] = 'A';
 			str_buf[i++] = '\0';
 			trim_trailing_zeros(str_buf);
 			ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
@@ -2184,6 +2199,7 @@ void draw_screen(void)
 	// ***************************
 	// Bottom line: UART mode
 
+	#if 1
 	{
 		memset(str_buf, 0, sizeof(str_buf));
 		switch (settings.data_mode)
@@ -2196,10 +2212,11 @@ void draw_screen(void)
 		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * font_8x12.width), SSD1306_HEIGHT - 1 - font_8x12.height);
 		ssd1306_WriteString(str_buf, &font_8x12, White);
 	}
+	#endif
 
 	// ***************************
-	// write the display buffer to the screen
 
+	// write the display buffer to the screen
 	ssd1306_UpdateScreen();
 
 	draw_screen_count++;
@@ -3009,10 +3026,9 @@ void process_buttons(void)
 		{	// HOLD held down
 			button[BUTTON_HOLD].processed = 1;
 
+			start_probe_open_cal();
+
 			display_hold = 0;
-			memset((void *)&calibrate, 0, sizeof(calibrate));
-			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
-			set_measurement_frequency(100);
 			draw_screen();
 		}
 		return;
@@ -3039,10 +3055,9 @@ void process_buttons(void)
 		{	// S/P held down
 			button[BUTTON_SP].processed = 1;
 
+			start_probe_short_cal();
+
 			display_hold = 0;
-			memset((void *)&calibrate, 0, sizeof(calibrate));
-			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
-			set_measurement_frequency(100);
 			draw_screen();
 		}
 		return;
@@ -3342,11 +3357,9 @@ void process_serial_command(char cmd[], unsigned int len)
 
 			printf(NEWLINE "open probe calibration .." NEWLINE);
 
-			display_hold = 0;
-			memset((void *)&calibrate, 0, sizeof(calibrate));
-			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
-			set_measurement_frequency(100);
+			start_probe_open_cal();
 
+			display_hold = 0;
 			draw_screen();
 			return;
 
@@ -3359,11 +3372,9 @@ void process_serial_command(char cmd[], unsigned int len)
 
 			printf(NEWLINE "shorted probe calibration .." NEWLINE);
 
-			display_hold = 0;
-			memset((void *)&calibrate, 0, sizeof(calibrate));
-			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
-			set_measurement_frequency(100);
+			start_probe_short_cal();
 
+			display_hold = 0;
 			draw_screen();
 			return;
 
@@ -3674,6 +3685,9 @@ void process_uart_receive(void)
 //
 void process_op_mode(void)
 {
+	const float rms_voltage = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
+	const float rms_current = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
+
 	switch (op_mode)
 	{
 		default:
@@ -3682,6 +3696,11 @@ void process_op_mode(void)
 
 		case OP_MODE_OPEN_PROBE_CALIBRATION:   // doing an OPEN probe calibration
 		{
+			if (rms_voltage < VOLTAGE_OPEN_THRESHOLD || rms_current > CURRENT_OPEN_THRESHOLD)
+			{	// probes are not fully open
+				break;
+			}
+
 			// sum a number of sample block magnitudes
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
 				calibrate.mag_sum[i] += system_data.mag_rms[i];
@@ -3738,6 +3757,11 @@ void process_op_mode(void)
 
 		case OP_MODE_SHORTED_PROBE_CALIBRATION:   // doing a SHORTED probe calibration
 		{
+			if (rms_voltage > VOLTAGE_SHORT_THRESHOLD || rms_current < CURRENT_SHORT_THRESHOLD)
+			{	// probes are not fully closed
+				break;
+			}
+
 			// sum a number of magnitudes
 			for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.mag_sum); i++)
 				calibrate.mag_sum[i] += system_data.mag_rms[i];
