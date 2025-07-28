@@ -359,10 +359,14 @@ enum {
 	VI_MODE_DONE
 };
 
-#define SETTING_FLAG_UART_DSO       (1u << 0)   // set if the user wants to send all sampled blocks out the serial port
-#define SETTING_FLAG_SPARE          (1u << 1)   //
-#define SETTING_FLAG_FAST_UPDATES   (1u << 2)   // set if the user wants faster screen updates
-#define SETTING_FLAG_SEND_BINARY    (1u << 3)   // set if the user wants binary data rather than ascii data
+// serial data mode
+enum {
+	DATA_MODE_NONE = 0,
+	DATA_MODE_ASCII,
+	DATA_MODE_BINARY
+};
+
+#define SETTING_FLAG_FAST_UPDATES   (1u << 0)   // set if the user wants faster screen updates
 
 // this structure will be stored in flash (emulated EEPROM) so as to remember various things for the user
 //
@@ -377,8 +381,9 @@ typedef struct t_settings {
 	uint16_t     measurement_Hz;      // the sine wave measurement frequency the user is using
 	uint8_t      lcr_mode;            // the LCR mode the user has selected
 	uint8_t      sp_mode;             // the series/parallel mode the user has selected
+	uint8_t      data_mode;           // type of data we're sending via the serial port
 	uint8_t      flags;               // various settings
-	uint8_t      padding1[3];         // maintain 32-bit alignment
+	uint8_t      padding1[2];         // maintain 32-bit alignment
 
 	struct {
 		float    adc[4];              // ADC input offset

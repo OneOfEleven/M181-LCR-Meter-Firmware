@@ -1742,8 +1742,8 @@ void bootup_screen(void)
 
 void draw_measurement_mode(void)
 {
-	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_8x12.width), 0);
 	snprintf(str_buf, sizeof(str_buf), "%u", system_data.vi_measure_mode);
+	ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_8x12.width), 0);
 	ssd1306_WriteString(str_buf, &Font_8x12, White);
 
 	ssd1306_UpdateScreen();
@@ -1752,7 +1752,7 @@ void draw_measurement_mode(void)
 void draw_screen(void)
 {
 	const unsigned int xx = Font_8x12.width * 8;
-	
+
 	// clear the screen
 	ssd1306_Fill(Black);
 
@@ -1764,24 +1764,20 @@ void draw_screen(void)
 			// ***************************
 			// Line 1
 
-			// serial/parallel mode
-			switch (settings.sp_mode)
-			{
-				case SP_MODE_SERIES:
-					strcpy(str_buf, "SER ");
-					break;
-				case SP_MODE_PARALLEL:
-					strcpy(str_buf, "PAR ");
-					break;
-				case SP_MODE_AUTO:
-					strcpy(str_buf, "AUT ");
-					break;
-				default:
-					strcpy(str_buf, "ERR ");
-					break;
+			{	// serial/parallel mode
+				const char *sp[] = {"SER", "PAR", "AUT", "ERR"};
+				const char *s = NULL;
+				switch (settings.sp_mode)
+				{
+					case SP_MODE_SERIES:   s = sp[0]; break;
+					case SP_MODE_PARALLEL: s = sp[1]; break;
+					case SP_MODE_AUTO:     s = sp[2]; break;
+					default:               s = sp[3]; break;
+				}
+				strcpy(str_buf, (s != NULL) ? s : "");
+				ssd1306_SetCursor(0, 0);
+				ssd1306_WriteString(str_buf, &Font_8x12, White);
 			}
-			ssd1306_SetCursor(0, 0);
-			ssd1306_WriteString(str_buf, &Font_8x12, White);
 
 			// measurement frequency
 			if (measurement_Hz < 1000)
@@ -1789,7 +1785,7 @@ void draw_screen(void)
 			else
 				snprintf(str_buf, sizeof(str_buf), "%0.1fk", measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);
-			//ssd1306_MoveCursor(3, 0);
+			ssd1306_MoveCursor(Font_8x12.width / 2, 0);
 			ssd1306_WriteString(str_buf, &Font_8x12, White);
 
 			{	// open/short calibration
@@ -1798,8 +1794,7 @@ void draw_screen(void)
 				memset(str_buf, 0, sizeof(str_buf));
 				str_buf[i++] = settings.open_probe_calibration[index].done    ? 'O' : '-';
 				str_buf[i++] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
-				//ssd1306_SetCursor(SSD1306_WIDTH - 1 - (7 * Font_7x10.width), 0);
-				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (7 * Font_8x12.width), 0);
+				ssd1306_SetCursor(SSD1306_WIDTH - 1 - ((2 + 1 + 4) * Font_8x12.width), 0);
 				ssd1306_WriteString(str_buf, &Font_8x12, White);
 			}
 
@@ -1814,7 +1809,6 @@ void draw_screen(void)
 				else
 				{	// VI phase
 					print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
-					//ssd1306_SetCursor(SSD1306_WIDTH - 1 - (5 * Font_8x12.width), 0);
 					ssd1306_WriteString(str_buf, &Font_8x12, White);
 				}
 			#endif
@@ -1831,28 +1825,23 @@ void draw_screen(void)
 					case LCR_MODE_INDUCTANCE:
 						value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
 						break;
-
 					case LCR_MODE_CAPACITANCE:
 						value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.capacitance : system_data.series.capacitance;
 						break;
-
 					case LCR_MODE_RESISTANCE:
 						value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.resistance : system_data.series.resistance;
 						break;
-
 					case LCR_MODE_AUTO:
 
-
 						// TODO: add AUTO mode code
-
 
 						break;
 				}
 
-				ssd1306_SetCursor(0, LINE2_Y + 6);
-
 				//char unit = unit_conversion(&value, "fpnumkMG");
 				char unit = ' ';
+
+				memset(str_buf, 0, sizeof(str_buf));
 
 				switch (lcr_mode)
 				{
@@ -1876,17 +1865,13 @@ void draw_screen(void)
 						unit = unit_conversion(&value, "mkMG");
 						if (unit == 'm')
 							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
-							//snprintf(str_buf, sizeof(str_buf), "%d", (int)value);
 						else
 							print_sprint(4, value, str_buf, sizeof(str_buf));
 						break;
 
 					case LCR_MODE_AUTO:
-						unit = unit_conversion(&value, "fpnumkMG");
-
 
 						// TODO: add AUTO mode code
-
 
 						break;
 				}
@@ -1894,12 +1879,12 @@ void draw_screen(void)
 				trim_trailing_zeros(str_buf);
 
 				#if 0
-					ssd1306_MoveCursor(0, -3);
+					ssd1306_SetCursor(0, LINE2_Y + 3);
 					ssd1306_WriteString(str_buf, &Font_16x26, White);
 					//ssd1306_WriteString(str_buf, &Font_16x24, White);
 					ssd1306_MoveCursor(6, -1);
 				#else
-					ssd1306_MoveCursor(0, -7);
+					ssd1306_SetCursor(0, LINE2_Y - 1);
 					ssd1306_WriteString(str_buf, &Font_16x32, White);
 					ssd1306_MoveCursor(6, 1);
 				#endif
@@ -1939,10 +1924,12 @@ void draw_screen(void)
 
 						ssd1306_MoveCursor(3, 0);
 
-						uint16_t x;
-						uint16_t y;
-						ssd1306_GetCursor(&x, &y);
-						ssd1306_symbol(x, y, omega_13x18, 13, 18);
+						{
+							uint16_t x;
+							uint16_t y;
+							ssd1306_GetCursor(&x, &y);
+							ssd1306_symbol(x, y, omega_13x18, 13, 18);
+						}
 
 						break;
 					}
@@ -1968,13 +1955,16 @@ void draw_screen(void)
 			#endif
 
 			{	// show current serial/parallel mode
+				const char *sp[] = {"Rs", "Rp", "Ra", "ER"};
+				const char *s = NULL;
 				switch (sp_mode)
 				{
-					case SP_MODE_SERIES:   strcpy(str_buf, "Rs"); break;
-					case SP_MODE_PARALLEL: strcpy(str_buf, "Rp"); break;
-					case SP_MODE_AUTO:     strcpy(str_buf, "Ra"); break;
-					default:               strcpy(str_buf, "ER"); break;
+					case SP_MODE_SERIES:   s = sp[0]; break;
+					case SP_MODE_PARALLEL: s = sp[1]; break;
+					case SP_MODE_AUTO:     s = sp[2]; break;
+					default:               s = sp[3]; break;
 				}
+				strcpy(str_buf, (s != NULL) ? s : "");
 				ssd1306_SetCursor(SSD1306_WIDTH - 1 - (2 * Font_8x12.width), LINE3_Y);
 				ssd1306_WriteString(str_buf, &Font_8x12, White);
 			}
@@ -2168,10 +2158,17 @@ void draw_screen(void)
 	// ***************************
 	// Bottom line: UART mode
 
-	if (settings.flags & SETTING_FLAG_UART_DSO)
 	{
+		memset(str_buf, 0, sizeof(str_buf));
+		switch (settings.data_mode)
+		{
+			case DATA_MODE_NONE:   str_buf[0] = ' '; break;
+			case DATA_MODE_ASCII:  str_buf[0] = 'A'; break;
+			case DATA_MODE_BINARY: str_buf[0] = 'B'; break;
+			default:               str_buf[0] = 'E'; break;
+		}
 		ssd1306_SetCursor(SSD1306_WIDTH - 1 - (1 * Font_8x12.width), SSD1306_HEIGHT - 1 - Font_8x12.height);
-		ssd1306_WriteString((settings.flags & SETTING_FLAG_SEND_BINARY) ? "B" : "A", &Font_8x12, White);
+		ssd1306_WriteString(str_buf, &Font_8x12, White);
 	}
 
 	// ***************************
@@ -2675,27 +2672,13 @@ void MX_GPIO_Init(void)
 		switch (prescaler_div)
 		{
 			default:
-			case LL_IWDG_PRESCALER_4:
-				clk_Hz >>= 2;
-				break;
-			case LL_IWDG_PRESCALER_8:
-				clk_Hz >>= 3;
-				break;
-			case LL_IWDG_PRESCALER_16:
-				clk_Hz >>= 4;
-				break;
-			case LL_IWDG_PRESCALER_32:
-				clk_Hz >>= 5;
-				break;
-			case LL_IWDG_PRESCALER_64:
-				clk_Hz >>= 6;
-				break;
-			case LL_IWDG_PRESCALER_128:
-				clk_Hz >>= 7;
-				break;
-			case LL_IWDG_PRESCALER_256:
-				clk_Hz >>= 8;
-				break;
+			case LL_IWDG_PRESCALER_4:   clk_Hz >>= 2; break;
+			case LL_IWDG_PRESCALER_8:   clk_Hz >>= 3; break;
+			case LL_IWDG_PRESCALER_16:  clk_Hz >>= 4; break;
+			case LL_IWDG_PRESCALER_32:  clk_Hz >>= 5; break;
+			case LL_IWDG_PRESCALER_64:  clk_Hz >>= 6; break;
+			case LL_IWDG_PRESCALER_128: clk_Hz >>= 7; break;
+			case LL_IWDG_PRESCALER_256: clk_Hz >>= 8; break;
 		}
 
 		LL_IWDG_Enable(IWDG);
@@ -3077,12 +3060,8 @@ void process_buttons(void)
 			switch (settings.measurement_Hz)
 			{
 				default:
-				case 100:
-					settings.measurement_Hz = 1000;
-					break;
-				case 1000:
-					settings.measurement_Hz = 100;
-					break;
+				case 100:  settings.measurement_Hz = 1000; break;
+				case 1000: settings.measurement_Hz =  100; break;
 			}
 
 			set_measurement_frequency(settings.measurement_Hz);
@@ -3126,39 +3105,40 @@ void process_buttons(void)
 
 // send data out via the serial port
 //
-// we pass the data over to the serial TX DMA for it to send out
-//
 void send_data(void)
 {
-	if ((settings.flags & SETTING_FLAG_UART_DSO) == 0)
-		return;
-
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
 		return;     // uart DMA is still busy sending
 
-	// send the sampled data down the serial link
+	switch (settings.data_mode)
+	{
+		default:
+		case DATA_MODE_NONE:
+			break;
 
-	if (settings.flags & SETTING_FLAG_SEND_BINARY)
-	{	// send as binary packet
-
-		// create TX packet
-		tx_packet.marker = PACKET_MARKER;                                         // packet start marker
-		memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
-		tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
-
-		// sen dit
-		start_tx_dma(&tx_packet, sizeof(tx_packet));
-	}
-	else
-	{	// send as ASCII
-		const unsigned int cols = 8;
-		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+		case DATA_MODE_ASCII:
 		{
-			printf("%3u,", 1 + i);
-			for (unsigned int col = 0; col < (cols - 1); col++)
-				printf("%0.1f,", adc_data[col][i]);
-			printf("%0.1f" NEWLINE, adc_data[cols - 1][i]);
+			const unsigned int cols = 8;
+			printf(NEWLINE);
+			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+			{
+				printf("%3u,", 1 + i);
+				for (unsigned int col = 0; col < (cols - 1); col++)
+					printf("%0.1f,", adc_data[col][i]);
+				printf("%0.1f" NEWLINE, adc_data[cols - 1][i]);
+			}
+			break;
 		}
+
+		case DATA_MODE_BINARY:
+			// create TX packet
+			tx_packet.marker = PACKET_MARKER;                                         // packet start marker
+			memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
+			tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
+
+			// sen dit
+			start_tx_dma(&tx_packet, sizeof(tx_packet));
+			break;
 	}
 }
 
@@ -3316,14 +3296,15 @@ void process_serial_command(char cmd[], unsigned int len)
 				if (settings.baudrate != baudrate)
 				{
 					settings.baudrate = baudrate;
-					LL_USART_SetBaudRate(USART1, rcc_clocks.PCLK2_Frequency, settings.baudrate);
+					LL_USART_SetBaudRate(USART1, rcc_clocks.PCLK2_Frequency, baudrate);
 
 					save_settings_timer = SAVE_SETTINGS_MS;
-					draw_screen();
 				}
 			}
 
 			printf(NEWLINE "baudrate %lu" NEWLINE, settings.baudrate);
+
+			draw_screen();
 			return;
 
 		case CMD_OPEN_CAL_ID:
@@ -3339,8 +3320,8 @@ void process_serial_command(char cmd[], unsigned int len)
 			memset((void *)&calibrate, 0, sizeof(calibrate));
 			op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
 			set_measurement_frequency(100);
-			draw_screen();
 
+			draw_screen();
 			return;
 
 		case CMD_SHORT_CAL_ID:
@@ -3356,8 +3337,8 @@ void process_serial_command(char cmd[], unsigned int len)
 			memset((void *)&calibrate, 0, sizeof(calibrate));
 			op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
 			set_measurement_frequency(100);
-			draw_screen();
 
+			draw_screen();
 			return;
 
 		case CMD_FREQUENCY_ID:
@@ -3379,7 +3360,6 @@ void process_serial_command(char cmd[], unsigned int len)
 						set_measurement_frequency(Hz);
 
 					save_settings_timer = SAVE_SETTINGS_MS;
-					draw_screen();
 				}
 			}
 
@@ -3390,6 +3370,7 @@ void process_serial_command(char cmd[], unsigned int len)
 			trim_trailing_zeros(str_buf);
 			printf(NEWLINE "measurement frequency %s" NEWLINE, str_buf);
 
+			draw_screen();
 			return;
 
 		case CMD_LCR_MODE_ID:
@@ -3404,11 +3385,11 @@ void process_serial_command(char cmd[], unsigned int len)
 				if (strncmp(param, "capacitance", param_len) == 0)
 					settings.lcr_mode = LCR_MODE_CAPACITANCE;
 				else
-//				if (strncmp(param, "auto", param_len) == 0)
-//					settings.lcr_mode = LCR_MODE_AUTO;               // todo:
-//				else
+				if (strncmp(param, "auto", param_len) == 0)
+					settings.lcr_mode = LCR_MODE_AUTO;
+				else
 				{
-					printf(NEWLINE "error: mode param '%s'" NEWLINE, param);
+					printf(NEWLINE "error: lcr mode param '%s'" NEWLINE, param);
 					return;
 				}
 
@@ -3419,27 +3400,28 @@ void process_serial_command(char cmd[], unsigned int len)
 				display_hold = 0;
 			}
 
-			printf(NEWLINE "lcr mode");
-			fflush(NULL);
-			switch (settings.lcr_mode)
 			{
-				case LCR_MODE_INDUCTANCE:
-					printf(" inductance" NEWLINE);
-					break;
-				default:
-					settings.lcr_mode = LCR_MODE_CAPACITANCE;
-					lcr_mode          = settings.lcr_mode;
-				case LCR_MODE_CAPACITANCE:
-					printf(" capacitance" NEWLINE);
-					break;
-				case LCR_MODE_RESISTANCE:
-					printf(" resistance" NEWLINE);
-					break;
-				case LCR_MODE_AUTO:
-					printf(" auto" NEWLINE);
-					break;
-					printf(" ERROR" NEWLINE);
-					break;
+				const char *lcr[] = {"inductance", "capacitance", "resistance", "auto"};
+				const char *s = NULL;
+				switch (settings.lcr_mode)
+				{
+					default:
+						settings.lcr_mode = LCR_MODE_CAPACITANCE;
+						lcr_mode          = settings.lcr_mode;
+					case LCR_MODE_INDUCTANCE:
+						s = lcr[0];
+						break;
+					case LCR_MODE_CAPACITANCE:
+						s = lcr[1];
+						break;
+					case LCR_MODE_RESISTANCE:
+						s = lcr[2];
+						break;
+//					case LCR_MODE_AUTO:
+//						s = lcr[3];
+//						break;
+				}
+				printf(NEWLINE "lcr mode %s" NEWLINE, (s != NULL) ? s : "");
 			}
 
 			draw_screen();
@@ -3458,7 +3440,7 @@ void process_serial_command(char cmd[], unsigned int len)
 					settings.sp_mode = SP_MODE_AUTO;
 				else
 				{
-					printf(NEWLINE "error: spmode param '%s'" NEWLINE, param);
+					printf(NEWLINE "error: sp mode param '%s'" NEWLINE, param);
 					return;
 				}
 
@@ -3469,22 +3451,26 @@ void process_serial_command(char cmd[], unsigned int len)
 				display_hold = 0;
 			}
 
-			printf(NEWLINE "sp mode");
-			fflush(NULL);
-			switch (settings.sp_mode)
 			{
-				default:
-					settings.sp_mode = SP_MODE_SERIES;
-					sp_mode          = settings.sp_mode;
-				case SP_MODE_SERIES:
-					printf(" series" NEWLINE);
-					break;
-				case SP_MODE_PARALLEL:
-					printf(" parallel" NEWLINE);
-					break;
-				case SP_MODE_AUTO:
-					printf(" auto" NEWLINE);
-					break;
+				const char *sp[] = {"series", "parallel", "auto", "error"};
+				const char *s = NULL;
+				switch (settings.sp_mode)
+				{
+					default:
+						settings.sp_mode = SP_MODE_SERIES;
+						sp_mode          = settings.sp_mode;
+						//s = sp[3];
+					case SP_MODE_SERIES:
+						s = sp[0];
+						break;
+					case SP_MODE_PARALLEL:
+						s = sp[1];
+						break;
+					case SP_MODE_AUTO:
+						s = sp[2];
+						break;
+				}
+				printf(NEWLINE "sp mode %s" NEWLINE, (s != NULL) ? s : "");
 			}
 
 			draw_screen();
@@ -3494,13 +3480,13 @@ void process_serial_command(char cmd[], unsigned int len)
 			if (param_len > 0)
 			{
 				if (strncmp(param, "off", param_len) == 0)
-					settings.flags &= ~SETTING_FLAG_UART_DSO;
-				else
-				if (strncmp(param, "binary", param_len) == 0)
-					settings.flags |= SETTING_FLAG_SEND_BINARY | SETTING_FLAG_UART_DSO;
+					settings.data_mode = DATA_MODE_NONE;
 				else
 				if (strncmp(param, "ascii", param_len) == 0)
-					settings.flags = (settings.flags & ~SETTING_FLAG_SEND_BINARY) | SETTING_FLAG_UART_DSO;
+					settings.data_mode = DATA_MODE_ASCII;
+				else
+				if (strncmp(param, "binary", param_len) == 0)
+					settings.data_mode = DATA_MODE_BINARY;
 				else
 				{
 					printf(NEWLINE "error: data param '%s'" NEWLINE, param);
@@ -3508,19 +3494,30 @@ void process_serial_command(char cmd[], unsigned int len)
 				}
 
 				save_settings_timer = SAVE_SETTINGS_MS;
-				draw_screen();
 			}
 
-			printf(NEWLINE "live data");
-			fflush(NULL);
-			if (settings.flags & SETTING_FLAG_UART_DSO)
-				printf(" off" NEWLINE);
-			else
-			if (settings.flags & SETTING_FLAG_SEND_BINARY)
-				printf(" binary" NEWLINE);
-			else
-				printf(" ascii" NEWLINE);
+			{
+				const char *dm[] = {"off", "ascii", "binary", "error"};
+				const char *s = NULL;
+				switch (settings.data_mode)
+				{
+					default:
+						settings.data_mode = DATA_MODE_NONE;
+						//s = dm[3];
+					case DATA_MODE_NONE:
+						s = dm[0];
+						break;
+					case DATA_MODE_ASCII:
+						s = dm[1];
+						break;
+					case DATA_MODE_BINARY:
+						s = dm[2];
+						break;
+				}
+				printf(NEWLINE "data mode %s" NEWLINE, (s != NULL) ? s : "");
+			}
 
+			draw_screen();
 			return;
 
 		case CMD_HOLD_ID:
@@ -3531,7 +3528,6 @@ void process_serial_command(char cmd[], unsigned int len)
 			}
 
 			display_hold ^= 1u;        // toggle hold flag
-			draw_screen();
 
 			printf(NEWLINE "display");
 			fflush(NULL);
@@ -3540,6 +3536,7 @@ void process_serial_command(char cmd[], unsigned int len)
 			else
 				printf(" run" NEWLINE);
 
+			draw_screen();
 			return;
 
 		case CMD_REBOOT_ID:
@@ -3837,8 +3834,7 @@ int main(void)
 		settings.measurement_Hz = 1000;
 		settings.lcr_mode       = LCR_MODE_CAPACITANCE;
 		settings.sp_mode        = SP_MODE_AUTO;
-		settings.flags         |= SETTING_FLAG_UART_DSO;     // send ADC data via the serial port
-//		settings.flags         |= SETTING_FLAG_SEND_BINARY;  // binary data
+		settings.data_mode      = DATA_MODE_NONE;
 	}
 
 	DWT_Delay_Init();
