@@ -1627,8 +1627,8 @@ void process_data(void)
 
 	system_data.vi_phase_deg      = phase_diff(system_data.voltage_phase_deg, system_data.current_phase_deg);             // phase difference between voltage and current waves
 
-	if (op_mode != OP_MODE_MEASURING)
-		return;                          // doing the open/short calibration runs, no need to go any further here
+//	if (op_mode != OP_MODE_MEASURING)
+//		return;                          // doing the open/short calibration runs, no need to go any further here
 
 	// **************************
 	// compute the DUT (L, C or R) parameters using the above measurements
@@ -2205,20 +2205,17 @@ void draw_screen(void)
 			else
 				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);
-			ssd1306_SetCursor(0, font_11x18.height + 8);
-			ssd1306_WriteString(str_buf, &font_11x18, White);
 		}
 		else
-		{
-			ssd1306_SetCursor(0, font_11x18.height + 8);
-			ssd1306_WriteString("PROBE ERROR", &font_11x18, White);
-
-			// restart the calibration
+		{	// probe error, restart the calibration
 			if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION)
 				start_probe_open_cal();
 			else
 				start_probe_short_cal();
+			strcpy(str_buf, "PROBE ERROR");
 		}
+		ssd1306_SetCursor(0, font_11x18.height + 8);
+		ssd1306_WriteString(str_buf, &font_11x18, White);
 
 		{	// voltage
 //			rms_voltage = adc_to_volts(rms_voltage);
@@ -3046,6 +3043,42 @@ void USART1_IRQHandler(void)
 #endif
 
 // ***********************************************************
+
+// wait until the user has released all buttons (for at least 200ms)
+//
+void wait_for_button_release(void)
+{
+	uint32_t butt_tick = sys_tick;
+
+	while (1)
+	{
+		__WFI();
+
+		const uint32_t tick = sys_tick;
+
+		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
+			if (button[i].debounce > 0)
+				butt_tick = tick;
+
+		if ((tick - butt_tick) >= 200)
+			break;
+
+		#ifdef USE_IWDG
+			// feed the dog
+			service_IWDG(0);
+		#endif
+	}
+
+	// clear all butt press info
+	for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
+	{
+		button[i].processed  = 0;
+		button[i].debounce   = 0;
+		button[i].pressed_ms = 0;
+		button[i].released   = 0;
+		button[i].held_ms    = 0;
+	}
+}
 
 // process any button presses
 //
@@ -3978,9 +4011,6 @@ int main(void)
 
 	set_measurement_frequency(settings.measurement_Hz);
 
-	screen_init();
-	bootup_screen();
-
 	printf(NEWLINE NEWLINE "rebooted M181 LCR Meter v%s %s %s %s %s %s %s %s" NEWLINE,
 		FW_VERSION,
 		reset_cause.por    ? "POR"    : "por",
@@ -3991,89 +4021,57 @@ int main(void)
 		reset_cause.lpwr   ? "LPWR"   : "lpwr",
 		reset_cause.lsirdy ? "LSIRDY" : "lsirdy");
 
-	// *************************************
+	screen_init();
 
-	{	// wait until the user has released all buttons (for at least 200ms)
+	wait_for_button_release();
 
-		uint32_t butt_tick = sys_tick;
-
-		while (1)
-		{
-			__WFI();
-
-			const uint32_t tick = sys_tick;
-
-			for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
-				if (button[i].debounce > 0)
-					butt_tick = tick;
-
-			if ((tick - butt_tick) >= 200)
-				break;
-
-			#ifdef USE_IWDG
-				// feed the dog
-				service_IWDG(0);
-			#endif
-		}
-
-		// clear all butt press info
-		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
-		{
-			button[i].processed  = 0;
-			button[i].debounce   = 0;
-			button[i].pressed_ms = 0;
-			button[i].released   = 0;
-			button[i].held_ms    = 0;
-		}
-	}
-
-	// *************************************
+	bootup_screen();
 
 	MX_ADC_Init();
 	MX_TIM3_Init();
 
-	#ifdef USE_IWDG
-		// feed the dog
-		service_IWDG(1);
-	#endif
-
+	// *******
 	// give the user more time to read the bootup screen
-	LL_mDelay(4000);
 
-	if (button[BUTTON_HOLD].held_ms || button[BUTTON_HOLD].released)
-	{	// HOLD button was pressed
+	for (unsigned int i = 0; i < 40; i++)
+	{
+		if (button[BUTTON_HOLD].released)
+		{	// HOLD button was pressed
 
-		while (!button[BUTTON_HOLD].released)
-			__WFI();
+			button[BUTTON_HOLD].processed = 1;
 
-		button[BUTTON_HOLD].processed  = 0;
-		button[BUTTON_HOLD].debounce   = 0;
-		button[BUTTON_HOLD].pressed_ms = 0;
-		button[BUTTON_HOLD].released   = 0;
-		button[BUTTON_HOLD].held_ms    = 0;
+			wait_for_button_release();
 
-		// wait for 2nd button press
-		while (button[BUTTON_HOLD].held_ms == 0 || !button[BUTTON_HOLD].released)
-			__WFI();
+			// wait for 2nd button press - to release the display hold
+			while (!button[BUTTON_HOLD].released)
+			{
+				__WFI();
+				LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+				LL_mDelay(100);
+				#ifdef USE_IWDG
+					// feed the dog
+					service_IWDG(0);
+				#endif
+			}
 
-		// wait for release
-		while (!button[BUTTON_HOLD].released)
-			__WFI();
+			button[BUTTON_HOLD].processed = 1;
 
-		button[BUTTON_HOLD].processed  = 0;
-		button[BUTTON_HOLD].debounce   = 0;
-		button[BUTTON_HOLD].pressed_ms = 0;
-		button[BUTTON_HOLD].released   = 0;
-		button[BUTTON_HOLD].held_ms    = 0;
+			wait_for_button_release();
+			break;
+		}
+
+		LL_mDelay(100);
+
+		#ifdef USE_IWDG
+			// feed the dog
+			service_IWDG(0);
+		#endif
 	}
+
+	// *******
 
 	// start making use of the incoming ADC blocks
 	initialising = 0;
-
-	#ifdef USE_IWDG
-		// feed the dog
-		service_IWDG(1);
-	#endif
 
 	while (1)
 	{
