@@ -1617,11 +1617,19 @@ void process_data(void)
 
 		if (settings.sp_mode == SP_MODE_AUTO)
 		{
-			if (system_data.impedance <= SP_AUTO_LOW_OHMS_THRESHOLD)
-				sp_mode = SP_MODE_SERIES;
-			else
-			if (system_data.impedance >= SP_AUTO_HIGH_OHMS_THRESHOLD)
-				sp_mode = SP_MODE_PARALLEL;
+			#if 0
+				if (system_data.impedance <= SP_AUTO_LOW_OHMS_THRESHOLD)
+					sp_mode = SP_MODE_SERIES;
+				else
+				if (system_data.impedance >= SP_AUTO_HIGH_OHMS_THRESHOLD)
+					sp_mode = SP_MODE_PARALLEL;
+			#else
+				if (system_data.series.esr <= SP_AUTO_LOW_OHMS_THRESHOLD)
+					sp_mode = SP_MODE_SERIES;
+				else
+				if (system_data.series.esr >= SP_AUTO_HIGH_OHMS_THRESHOLD)
+					sp_mode = SP_MODE_PARALLEL;
+			#endif
 		}
 	}
 
@@ -1866,14 +1874,14 @@ void draw_screen(void)
 		// Line 1
 
 		{	// serial/parallel mode
-			const char *sp[] = {"SER", "PAR", "A-S", "A-P", "ERR"};
+			const char *sp[] = {"SER", "PAR", "A-S", "A-P", "A--", "ERR"};
 			const char *s = NULL;
 			switch (settings.sp_mode)
 			{
 				case SP_MODE_SERIES:   s = sp[0]; break;
 				case SP_MODE_PARALLEL: s = sp[1]; break;
 				case SP_MODE_AUTO:     s = (sp_mode == SP_MODE_SERIES) ? sp[2] : (sp_mode == SP_MODE_PARALLEL) ? sp[3] : sp[4]; break;
-				default:               s = sp[4]; break;
+				default:               s = sp[5]; break;
 			}
 			strcpy(str_buf, (s != NULL) ? s : "");
 			ssd1306_SetCursor(0, 0);
@@ -2065,7 +2073,7 @@ void draw_screen(void)
 		#endif
 
 		{	// show current serial/parallel mode
-			const char *sp[] = {"Rs", "Rp", "Ra", "ER"};
+			const char *sp[] = {"Rs", "Rp", "R-", "ER"};
 			const char *s = NULL;
 			switch (sp_mode)
 			{
@@ -4086,7 +4094,7 @@ int main(void)
 
 	bootup_screen();
 
-	MX_EXTI_Init();
+//	MX_EXTI_Init();
 	MX_ADC_Init();
 	MX_TIM3_Init();
 
