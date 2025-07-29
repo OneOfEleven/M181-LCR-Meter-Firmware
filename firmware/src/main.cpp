@@ -874,7 +874,7 @@ void set_measurement_frequency(uint32_t Hz)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
 
-	// set the timer rate, the timer clocks the ADC and DAC DMA at the desired rate
+	// set the timer rate, the timer clocks the ADC and DAC DMA at the desired ratetmp_buffer_in_use
 	if (measurement_Hz > 0)
 	{
 		const uint32_t timer_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
@@ -888,26 +888,28 @@ void set_measurement_frequency(uint32_t Hz)
 //
 void start_probe_open_cal(void)
 {
-	tmp_buffer_in_use    = 1;
+	initialising         = 1;
 	memset((void *)&calibrate, 0, sizeof(calibrate));
 	op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
 	adc_buffer_sum_count = 0;
 	vi_measure_index     = 0;
 	tmp_buffer_in_use    = 0;
+	initialising         = 0;
 }
 
 // initiate an SHORTED probe calibration run
 //
 void start_probe_short_cal(void)
 {
-	tmp_buffer_in_use    = 1;
+	initialising         = 1;
 	memset((void *)&calibrate, 0, sizeof(calibrate));
 	op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
 	adc_buffer_sum_count = 0;
 	vi_measure_index     = 0;
 	tmp_buffer_in_use    = 0;
+	initialising         = 0;
 }
 
 // compute the phase difference between two phases (in degrees)
@@ -1060,7 +1062,11 @@ int process_Goertzel(void)
 
 			// filter the entire waveform using many Goertzel DFTs
 			if (goertzel_wrap(buf, tmp_buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
-				return -1;        // their was a key press whilst doing it, drop everthing (on this run) to immediately process the users input
+			{	// their was a key press whilst doing it, drop everthing (on this run) to immediately process the users input
+				tmp_buffer_in_use = 0;
+				return -1;
+
+			}
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
 				float sum = 0;
@@ -1431,7 +1437,7 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 //
 void process_data(void)
 {
-	if (display_hold)
+	if (display_hold || initialising)
 		return;
 
 	if (process_Goertzel() < 0)
@@ -1654,7 +1660,7 @@ void process_data(void)
 //
 void process_ADC(void)
 {
-	if (tmp_buffer_in_use == 0)
+	if (tmp_buffer_in_use == 0 || initialising)
 		return;                      // ADC DMA hasn't yet given us anything
 
 	// current VI mode index
@@ -1855,7 +1861,8 @@ void bootup_screen(void)
 void draw_measurement_mode(void)
 {
 	snprintf(str_buf, sizeof(str_buf), "%u", system_data.vi_measure_mode);
-	ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width), 0);
+//	ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width), (SSD1306_HEIGHT - font_8x12.height) / 2);
+	ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width), (SSD1306_HEIGHT / 2) - 4);
 	ssd1306_WriteString(str_buf, &font_8x12, White);
 
 	ssd1306_UpdateScreen();
@@ -1869,7 +1876,8 @@ void draw_screen(void)
 	ssd1306_Fill(Black);
 
 	if (op_mode == OP_MODE_MEASURING)
-	{
+	{	// we're in normal DUT measurement mode
+
 		// ***************************
 		// Line 1
 
@@ -2230,11 +2238,9 @@ void draw_screen(void)
 	}
 	else
 	if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION || op_mode == OP_MODE_SHORTED_PROBE_CALIBRATION)
-	{
-		if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION)
-			snprintf(str_buf, sizeof(str_buf), "OPEN cal %d",  CALIBRATE_COUNT - calibrate.count - 1);
-		else
-			snprintf(str_buf, sizeof(str_buf), "SHORT cal %d", CALIBRATE_COUNT - calibrate.count - 1);
+	{	// we're doing a probe calibration
+
+		snprintf(str_buf, sizeof(str_buf), (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION) ? "OPEN cal %d" : "SHORT cal %d",  CALIBRATE_COUNT - calibrate.count - 1);
 		ssd1306_SetCursor(0, 0);
 		ssd1306_WriteString(str_buf, &font_11x18, White);
 
@@ -3164,6 +3170,14 @@ void process_buttons(void)
 		return;
 	}
 
+	// both S/P and RCL buttons held down
+	if (button[BUTTON_HOLD].pressed_ms == 0 && button[BUTTON_SP].pressed_ms > 0 && button[BUTTON_RCL].pressed_ms > 0)
+	{
+		if (button[BUTTON_SP].held_ms >= 800 && button[BUTTON_RCL].held_ms >= 800)
+			reboot();
+		return;
+	}
+
 	if (op_mode != OP_MODE_MEASURING)
 	{	// busy calibrating
 
@@ -3226,8 +3240,7 @@ void process_buttons(void)
 		{
 			button[BUTTON_SP].processed = 1;
 
-			display_hold = 0;
-
+			initialising = 1;
 			{
 				uint8_t mode = settings.sp_mode;
 				if (++mode > SP_MODE_AUTO)
@@ -3235,9 +3248,11 @@ void process_buttons(void)
 				settings.sp_mode = mode;
 				sp_mode          = mode;
 			}
+			initialising = 0;
 
 			save_settings_timer = SAVE_SETTINGS_MS;     // save settings
 
+			display_hold = 0;
 			draw_screen();
 		}
 		return;
@@ -3252,7 +3267,7 @@ void process_buttons(void)
 		{	// RCL held down
 			button[BUTTON_RCL].processed = 1;
 
-			display_hold = 0;
+			initialising = 1;
 
 			// cycle the frequency
 			//
@@ -3267,8 +3282,11 @@ void process_buttons(void)
 
 			set_measurement_frequency(settings.measurement_Hz);
 
+			initialising = 0;
+
 			save_settings_timer = SAVE_SETTINGS_MS;
 
+			display_hold = 0;
 			draw_screen();
 		}
 		return;
@@ -3280,7 +3298,7 @@ void process_buttons(void)
 		{
 			button[BUTTON_RCL].processed = 1;
 
-			display_hold = 0;
+			initialising = 1;
 
 			// cycle through the LCR modes (inc SLOW/FAST mode)
 			settings.flags ^= SETTING_FLAG_FAST_UPDATES;
@@ -3294,8 +3312,11 @@ void process_buttons(void)
 				lcr_mode          = mode;
 			}
 
+			initialising = 0;
+
 			save_settings_timer = SAVE_SETTINGS_MS;
 
+			display_hold = 0;
 			draw_screen();
 		}
 		return;
@@ -4094,7 +4115,7 @@ int main(void)
 
 	bootup_screen();
 
-//	MX_EXTI_Init();
+	MX_EXTI_Init();
 	MX_ADC_Init();
 	MX_TIM3_Init();
 
@@ -4169,13 +4190,9 @@ int main(void)
 
 		if (vi_measure_index >= VI_MODE_DONE)
 		{	// completed another full measurement cycle
-
 			process_op_mode();
-
 			send_data();
-
 			frames++;
-
 			vi_measure_index = 0;         // start next data capture
 		}
 		else
