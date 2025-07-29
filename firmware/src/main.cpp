@@ -888,20 +888,26 @@ void set_measurement_frequency(uint32_t Hz)
 //
 void start_probe_open_cal(void)
 {
+	tmp_buffer_in_use    = 1;
 	memset((void *)&calibrate, 0, sizeof(calibrate));
 	op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
-	tmp_buffer_in_use = 0;
+	adc_buffer_sum_count = 0;
+	vi_measure_index     = 0;
+	tmp_buffer_in_use    = 0;
 }
 
 // initiate an SHORTED probe calibration run
 //
 void start_probe_short_cal(void)
 {
+	tmp_buffer_in_use    = 1;
 	memset((void *)&calibrate, 0, sizeof(calibrate));
 	op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
-	tmp_buffer_in_use = 0;
+	adc_buffer_sum_count = 0;
+	vi_measure_index     = 0;
+	tmp_buffer_in_use    = 0;
 }
 
 // compute the phase difference between two phases (in degrees)
@@ -1247,8 +1253,8 @@ void process_ADC_DMA(const void *buffer, const unsigned int size)
 	tmp_buffer_in_use = 1;                            // let the exec know their is a new sample block ready and waiting
 
 	// generate an SWI to further process these new samples
-//	if (LL_EXTI_IsEnabledIT_0_31(LL_EXTI_LINE_4))
-//		LL_EXTI_GenerateSWI_0_31(LL_EXTI_LINE_4);
+	if (LL_EXTI_IsEnabledIT_0_31(LL_EXTI_LINE_4))
+		LL_EXTI_GenerateSWI_0_31(LL_EXTI_LINE_4);
 }
 
 // add the new sample block to the averaging buffer (reduces noise)
@@ -1661,6 +1667,9 @@ void process_ADC(void)
 
 		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
 
+		// reset averaging buffer ready for the next measurement run
+		memset(adc_buffer_sum, 0, sizeof(adc_buffer_sum));
+
 		// reset the waveform clip/saturation detection flags (one for each VI mode)
 		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
 	}
@@ -1742,7 +1751,7 @@ void process_ADC(void)
 		amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;      // '0' = LOW gain I mode   '1' = HIGH gain I mode
 	}
 
-//	process_data();
+	process_data();
 }
 
 // ***********************************************************
@@ -4077,7 +4086,7 @@ int main(void)
 
 	bootup_screen();
 
-//	MX_EXTI_Init();
+	MX_EXTI_Init();
 	MX_ADC_Init();
 	MX_TIM3_Init();
 
@@ -4144,15 +4153,14 @@ int main(void)
 		// process any data received via the serial port
 		process_uart_receive();
 
-		process_ADC();
+		if (!LL_EXTI_IsEnabledIT_0_31(LL_EXTI_LINE_4))
+			process_ADC();
 
 		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
 		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 
 		if (vi_measure_index >= VI_MODE_DONE)
 		{	// completed another full measurement cycle
-
-			process_data();
 
 			process_op_mode();
 
