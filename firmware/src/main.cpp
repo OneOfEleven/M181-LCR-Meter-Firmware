@@ -38,7 +38,7 @@ enum {
 typedef struct {
 	GPIO_TypeDef     *gpio_port;       // the GPIO port for the button
 	uint32_t          gpio_pin;        // the GPIO pin for the button
-	volatile int16_t  debounce;        // counter for debouncing (switches always become more noisy after time)
+	volatile int      debounce;        // counter for debouncing (switches always become more noisy after time)
 	volatile uint32_t pressed_ms;      // milli-sec tick when the button was initially pressed
 	volatile uint32_t held_ms;         // number of ms the button has/was held pressed for
 	volatile uint8_t  released;        // set to '1' when the user releases the button
@@ -1741,33 +1741,33 @@ void print_sprint(const unsigned int digit, const float value, char output_char[
 	{
 		case 2:
 	        if (v < 10)
-    	        snprintf(output_char, out_max_size, "%0.1f", value); // 1.2
+    	        snprintf(output_char, out_max_size, "%-3.1f", value); // 1.2
         	else
-            	snprintf(output_char, out_max_size, "%0.0f", value); // 12 (no dp)
+            	snprintf(output_char, out_max_size, "%-2.0f", value); // 12 (no dp)
 			break;
 
 		case 3:
 	        if (v < 10)
-				snprintf(output_char, out_max_size, "%0.2f", value); // 1.23
+				snprintf(output_char, out_max_size, "%-4.2f", value); // 1.23
         	else
 			if (v < 100)
-				snprintf(output_char, out_max_size, "%0.1f", value); // 12.3
+				snprintf(output_char, out_max_size, "%-4.1f", value); // 12.3
 	        else
-				snprintf(output_char, out_max_size, "%0.0f", value); // 123 (no dp)
+				snprintf(output_char, out_max_size, "%-3.0f", value); // 123 (no dp)
 			break;
 
 		default:
 		case 4:
 	        if (v < 10)
-				snprintf(output_char, out_max_size, "%0.3f", value); // 1.234
+				snprintf(output_char, out_max_size, "%-5.3f", value); // 1.234
         	else
 			if (v < 100)
-				snprintf(output_char, out_max_size, "%0.2f", value); // 12.34
+				snprintf(output_char, out_max_size, "%-5.2f", value); // 12.34
 			else
 			if (v < 1000)
-				snprintf(output_char, out_max_size, "%0.1f", value); // 123.4
+				snprintf(output_char, out_max_size, "%-5.1f", value); // 123.4
 	        else
-				snprintf(output_char, out_max_size, "%0.0f", value); // 1234 (no dp)
+				snprintf(output_char, out_max_size, "%-4.0f", value); // 1234 (no dp)
 			break;
     }
 }
@@ -1834,14 +1834,14 @@ void draw_screen(void)
 		// Line 1
 
 		{	// serial/parallel mode
-			const char *sp[] = {"SER", "PAR", "AUT", "ERR"};
+			const char *sp[] = {"SER", "PAR", "A-S", "A-P", "ERR"};
 			const char *s = NULL;
 			switch (settings.sp_mode)
 			{
 				case SP_MODE_SERIES:   s = sp[0]; break;
 				case SP_MODE_PARALLEL: s = sp[1]; break;
-				case SP_MODE_AUTO:     s = sp[2]; break;
-				default:               s = sp[3]; break;
+				case SP_MODE_AUTO:     s = (sp_mode == SP_MODE_SERIES) ? sp[2] : (sp_mode == SP_MODE_PARALLEL) ? sp[3] : sp[4]; break;
+				default:               s = sp[4]; break;
 			}
 			strcpy(str_buf, (s != NULL) ? s : "");
 			ssd1306_SetCursor(0, 0);
@@ -1917,7 +1917,7 @@ void draw_screen(void)
 				case LCR_MODE_INDUCTANCE:
 					unit = unit_conversion(&value, "umkMG");
 					if (unit == 'u')
-						snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+						snprintf(str_buf, sizeof(str_buf), "%-5.1f", value);
 					else
 						print_sprint(4, value, str_buf, sizeof(str_buf));
 					break;
@@ -1925,7 +1925,7 @@ void draw_screen(void)
 				case LCR_MODE_CAPACITANCE:
 					unit = unit_conversion(&value, "pnumkMG");
 					if (unit == 'p')
-						snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+						snprintf(str_buf, sizeof(str_buf), "%-5.1f", value);
 					else
 						print_sprint(4, value, str_buf, sizeof(str_buf));
 					break;
@@ -1933,7 +1933,7 @@ void draw_screen(void)
 				case LCR_MODE_RESISTANCE:
 					unit = unit_conversion(&value, "mkMG");
 					if (unit == 'm')
-						snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+						snprintf(str_buf, sizeof(str_buf), "%-5.1f", value);
 					else
 						print_sprint(4, value, str_buf, sizeof(str_buf));
 					break;
@@ -1947,7 +1947,7 @@ void draw_screen(void)
 
 			// print the DUT value
 
-			trim_trailing_zeros(str_buf);
+			//trim_trailing_zeros(str_buf);
 
 			#if 0
 				ssd1306_SetCursor(0, LINE2_Y + 3);
@@ -2861,11 +2861,13 @@ void PendSV_Handler(void)
 {
 }
 
-// 1ms system interrupt
+// 1ms system int
 //
 void SysTick_Handler(void)
 {
 	HAL_IncTick();
+
+//	uint32_t HAL_GetTick();
 
 	sys_tick++;
 
@@ -2874,7 +2876,7 @@ void SysTick_Handler(void)
 
 		const uint32_t tick = sys_tick;
 
-		const int16_t debounce_ms = 30;
+		const int debounce_ms = 30;     // 30ms debounce time
 
 		for (unsigned int i = 0; i < BUTTON_NUM; i++)
 		{
@@ -2883,9 +2885,10 @@ void SysTick_Handler(void)
 				continue;
 
 			// update debounce counter
-			int16_t debounce = butt->debounce;
-			debounce = (LL_GPIO_IsInputPinSet(butt->gpio_port, butt->gpio_pin) == 0) ? debounce + 1 : debounce - 1;
-			debounce = (debounce < 0) ? 0 : (debounce > debounce_ms) ? debounce_ms : debounce;
+			// increment if button is pressed
+			// decrement if not
+			int debounce   = LL_GPIO_IsInputPinSet(butt->gpio_port, butt->gpio_pin) ? butt->debounce - 1 : butt->debounce + 1;
+			debounce       = (debounce < 0) ? 0 : (debounce > debounce_ms) ? debounce_ms : debounce;  // clamp
 			butt->debounce = debounce;
 
 			const uint32_t pressed_ms = butt->pressed_ms;
@@ -2901,27 +2904,27 @@ void SysTick_Handler(void)
 			if (pressed_ms > 0 && debounce <= 0)
 			{	// just released
 				if (butt->processed)
-				{
+				{	// exec has finished with this data
 					butt->held_ms    = 0;
 					butt->released   = 0;
 					butt->pressed_ms = 0;
 					butt->processed  = 0;
 				}
 				else
-				{
+				{	// exec hasn't yet processed this data
 					butt->held_ms    = tick - pressed_ms;         // save the time the button was held down for
 					butt->released   = 1;                         // set released flag
 					butt->pressed_ms = 0;                         // reset pressed tick
 				}
 			}
 			else
-			if (pressed_ms > 0) // && butt->processed == 0)
-			{
+			if (pressed_ms > 0)
+			{	// button is still pressed
 				butt->held_ms = tick - pressed_ms;                // time the button has been held down for
 			}
 			else
 			if (butt->processed)
-			{
+			{	// button is no longer pressed and the exec has finished with this data
 				butt->held_ms    = 0;
 				butt->released   = 0;
 				butt->pressed_ms = 0;
@@ -2934,7 +2937,7 @@ void SysTick_Handler(void)
 	if (save_settings_timer > 0)
 		save_settings_timer--;
 
-	if (serial.rx.timer < (serial.rx.timer + 1))         // prevent roll-over
+	if (serial.rx.timer < (serial.rx.timer + 1))                  // prevent roll-over
 		serial.rx.timer++;
 
 	#ifdef USE_IWDG
@@ -2942,61 +2945,52 @@ void SysTick_Handler(void)
 	#endif
 }
 
-// ADC DMA
-// pass the ADC sample blocks over to the routine that does something with them
+// ADC DMA int
 //
 void DMA1_Channel1_IRQHandler(void)
 {
+	// pass the ADC sample blocks over to the routine that does something with them
+
 	if (LL_DMA_IsActiveFlag_TE1(DMA1))
-	{
+	{	// error
 
 		LL_DMA_ClearFlag_TE1(DMA1);
 	}
 
 	if (LL_DMA_IsActiveFlag_HT1(DMA1))
-	{
+	{	// half transfer complete
+
 		process_ADC_DMA(&adc_dma_buffer[0], sizeof(adc_dma_buffer[0]));  // lower half of ADC buffer
 		LL_DMA_ClearFlag_HT1(DMA1);
 	}
 
 	if (LL_DMA_IsActiveFlag_TC1(DMA1))
-	{
+	{	// full transfer complete
+
 		process_ADC_DMA(&adc_dma_buffer[1], sizeof(adc_dma_buffer[0]));  // upper half of ADC buffer
 		LL_DMA_ClearFlag_TC1(DMA1);
 	}
 }
 
-/*
-// DAC DMA
-void DMA1_Channel3_IRQHandler(void)
-{
-	if (LL_DMA_IsActiveFlag_TC3(DMA1))
-	{
-
-		LL_DMA_ClearFlag_TC3(DMA1);
-	}
-}
-*/
-
 // UART TX DMA
-// the serial TX DMA has completed, disable it ready for the next serial send
 //
 void DMA1_Channel4_IRQHandler(void)
 {
-	// disable the TX DMA if the send has completed
-	if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
+	// the uart TX DMA has completed, disable it ready for the next uart send
+//	if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
 	{
 		LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
 		LL_DMA_ClearFlag_TE4(DMA1);
+		LL_DMA_ClearFlag_HT4(DMA1);
 		LL_DMA_ClearFlag_TC4(DMA1);
 	}
 }
 
-// serial RX
+// UART RX int
 //
 void USART1_IRQHandler(void)
 {
-	{	// RX
+	{	// RX int
 
 		//if (LL_USART_IsActiveFlag_IDLE(USART1))
 		//	LL_USART_ClearFlag_IDLE(USART1);
@@ -3025,7 +3019,7 @@ void USART1_IRQHandler(void)
 	}
 
 	#if 0
-	{	// TX
+	{	// TX int
 
 		const uint8_t enabled = LL_USART_IsEnabledIT_TXE(USART1);
 		//if (enabled)
@@ -3057,6 +3051,8 @@ void USART1_IRQHandler(void)
 	#endif
 }
 
+// SWI
+//
 void EXTI4_IRQHandler(void)
 {
 	if (LL_EXTI_IsActiveFlag_0_31(LL_EXTI_LINE_4))
@@ -3070,7 +3066,7 @@ void EXTI4_IRQHandler(void)
 
 // wait until the user has released all buttons (for at least 200ms)
 //
-void wait_for_button_release(void)
+void wait_for_all_button_release(void)
 {
 	uint32_t butt_tick = sys_tick;
 
@@ -4045,7 +4041,7 @@ int main(void)
 
 	screen_init();
 
-	wait_for_button_release();
+	wait_for_all_button_release();
 
 	bootup_screen();
 
@@ -4063,14 +4059,17 @@ int main(void)
 
 			button[BUTTON_HOLD].processed = 1;
 
-			wait_for_button_release();
+			wait_for_all_button_release();
 
 			// wait for 2nd button press - to release the display hold
 			while (!button[BUTTON_HOLD].released)
 			{
 				__WFI();
-				LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-				LL_mDelay(50);
+				//LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+				LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);        // LED on
+				LL_mDelay(5);
+				LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);      // LED off
+				LL_mDelay(80);
 				#ifdef USE_IWDG
 					// feed the dog
 					service_IWDG(0);
@@ -4079,7 +4078,7 @@ int main(void)
 
 			button[BUTTON_HOLD].processed = 1;
 
-			wait_for_button_release();
+			wait_for_all_button_release();
 			break;
 		}
 
@@ -4118,8 +4117,6 @@ int main(void)
 
 		if (vi_measure_index >= VI_MODE_DONE)
 		{	// completed another full measurement cycle
-
-//			process_data();   // the SWI is now calling this function
 
 			process_op_mode();
 
