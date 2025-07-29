@@ -284,11 +284,39 @@ void trim_leading_zero(char buf[])
 
 	const int len = strlen(buf);
 
-	for (int i = 0; i < (len - 1); i++)
+	if (buf[0] == '-')
+	{	// negative
+
+		// remove the '-'
+		buf[0] = ' ';
+
+		// trim leading zeroes
+		for (int i = 1; i < (len - 1); i++)
+		{
+			if (buf[i] != '0' || buf[i + 1] == '.')
+				break;
+			buf[i] = ' ';
+		}
+
+		// put the '-' back
+		for (int i = 1; i < (len - 1); i++)
+		{
+			if (buf[i] != ' ')
+			{
+				buf[i - 1] = '-';
+				break;
+			}
+		}
+	}
+	else
 	{
-		if  (buf[i] != '0' || buf[i + 1] == '.')
-			break;
-		buf[i] = ' ';
+		// trim leading zeroes
+		for (int i = 0; i < (len - 1); i++)
+		{
+			if (buf[i] != '0' || buf[i + 1] == '.')
+				break;
+			buf[i] = ' ';
+		}
 	}
 }
 
