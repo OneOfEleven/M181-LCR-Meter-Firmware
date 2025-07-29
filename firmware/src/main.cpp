@@ -1223,6 +1223,10 @@ void process_ADC_DMA(const void *buffer, const unsigned int size)
 	// copy the new ADC sample block as quickly as possible so as not to hold up the DMA
 	memcpy(tmp_buffer, buffer, size);
 	tmp_buffer_in_use = 1;                            // let the exec know their is a new sample block ready and waiting
+
+	// generate an SWI to further process these new samples
+	if (LL_EXTI_IsEnabledIT_0_31(LL_EXTI_LINE_4))
+		LL_EXTI_GenerateSWI_0_31(LL_EXTI_LINE_4);
 }
 
 // add the new sample block to the averaging buffer (reduces noise)
@@ -1393,118 +1397,6 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 	// reset averaging buffer ready for the next measurement run
 	memset(adc_buffer_sum, 0, sizeof(adc_buffer_sum));
 	adc_buffer_sum_count = 0;
-}
-
-// process the new ADC raw sample block that the ADC DMA saved for us
-//
-void process_ADC(void)
-{
-	if (tmp_buffer_in_use == 0)
-		return;                      // ADC DMA hasn't yet given us anything
-
-	// current VI mode index
-	unsigned int vi_index = vi_measure_index;
-
-	// ignore this sample block if we've completed the full VI measurement run
-	if (vi_index >= VI_MODE_DONE)
-	{
-		tmp_buffer_in_use = 0;
-		return;
-	}
-
-	// use a table to set HD mode pins in a custom order to help cope with HW design floor (DC spike when changing mode)
-	const unsigned int vi_mode = vi_measure_mode_table[vi_index];
-
-	if (vi_index == 0 && adc_buffer_sum_count == 0)
-	{	// the very first sample block of a new VI measurement run
-
-		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
-
-		// reset the waveform clip/saturation detection flags (one for each VI mode)
-		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
-	}
-
-	// each time the HW VI mode is changed, the ADC input sees a large unwanted DC offset spike, it takes time to settle :(
-	//
-	// so we simply discard a number of blocks after each HW VI mode change
-	//
-	unsigned int skip_block_count = (10ul * measurement_Hz) >> 10;          // the higher the measurement Hz, the more blocks we need to skip
-	skip_block_count = (skip_block_count < 1) ? 1 : skip_block_count;
-
-	add_ADC_to_average(vi_mode, skip_block_count);
-
-	// free up the temporary buffer, the DMA needs it back
-	tmp_buffer_in_use = 0;
-
-	// decide which modes are useful (or not)
-	//
-	// we drop the hi-gain blocks if they are clipped (clipping makes the data useless)
-	// we drop the lo-gain blocks if the hi-gain blocks are usable (if no high-gain clipping detected)
-	//
-	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
-	if (op_mode == OP_MODE_MEASURING)
-	{
-		if (display_hold)
-			average_count <<= 4;                                  // display is paused, we're just sending the data straight to the PC
-		else
-		if (adc_data_clipping[vi_mode])
-			average_count = 1;                                    // this block of samples are clipping, drop them, move on to the next mode
-		else
-		if (vi_mode < VI_MODE_VOLT_HI_GAIN && !adc_data_clipped[VI_MODE_VOLT_HI_GAIN + vi_mode])
-			average_count = 1;                                    // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples (assuming hi-gain samples will be OK too)
-		else
-		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-			average_count <<= 3;                                  // average fewer buffers in 'fast' mode (this is speeds up the display update rate)
-	}
-	average_count = (average_count < 1) ? 1 : average_count;
-
-	LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);               // TEST only, LED off
-
-	if (++adc_buffer_sum_count < (skip_block_count + average_count))
-	{	// not yet summed the desired number of sample blocks
-		return;
-	}
-
-
-
-
-	// we've now summed the desired number of sample blocks, so are ready to re-scale etc the block
-
-	// get ready for next measurement VI mode
-	vi_index++;
-
-	// set the GS/VI pins ready for the next measurement run
-	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
-
-	finish_ADC_averaging(vi_mode, skip_block_count);
-
-	// save the new VI mode for the next measurement run
-	vi_measure_index = vi_index;
-
-	if (vi_index < VI_MODE_DONE)
-		return;    // not yet gone through all the modes
-
-
-
-
-	// all done !
-	// we have sampled in all 4 modes (LOW and HIGH gain)
-
-	gain_changed = (memcmp(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped)) != 0) ? 1 : 0;    // set to '1' if we have changed the gain selection
-
-	memcpy(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped));   // save the new clip detection flags
-	memset(adc_data_clipping, 0, sizeof(adc_data_clipping));                 // reset ready for next run
-
-	if (display_hold)
-		return;
-
-//	if (gain_changed)
-	{	// gain path decision
-		// use the high gain samples only if they aren't clipped/saturated
-		//
-		volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;      // '0' = LOW gain V mode   '1' = HIGH gain V mode
-		amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;      // '0' = LOW gain I mode   '1' = HIGH gain I mode
-	}
 }
 
 // process the new averaged sample blocks to finally get the DUT parameters
@@ -1720,6 +1612,117 @@ void process_data(void)
 			system_data.parallel.resistance  = (system_data.parallel.resistance  > 100e6f) ? 100e6f : system_data.parallel.resistance;
 		}
 	#endif
+}
+
+// process the new ADC raw sample block that the ADC DMA saved for us
+//
+void process_ADC(void)
+{
+	if (tmp_buffer_in_use == 0)
+		return;                      // ADC DMA hasn't yet given us anything
+
+	// current VI mode index
+	unsigned int vi_index = vi_measure_index;
+
+	// ignore this sample block if we've completed the full VI measurement run
+	if (vi_index >= VI_MODE_DONE)
+	{
+		tmp_buffer_in_use = 0;
+		return;
+	}
+
+	// use a table to set HD mode pins in a custom order to help cope with HW design floor (DC spike when changing mode)
+	const unsigned int vi_mode = vi_measure_mode_table[vi_index];
+
+	if (vi_index == 0 && adc_buffer_sum_count == 0)
+	{	// the very first sample block of a new VI measurement run
+
+		set_measure_mode_pins(vi_mode);                                     // ensure the HW mode pins are set correctly
+
+		// reset the waveform clip/saturation detection flags (one for each VI mode)
+		memset(adc_data_clipping, 0, sizeof(adc_data_clipping));
+	}
+
+	// each time the HW VI mode is changed, the ADC input sees a large unwanted DC offset spike, it takes time to settle :(
+	//
+	// so we simply discard a number of blocks after each HW VI mode change
+	//
+	unsigned int skip_block_count = (10ul * measurement_Hz) >> 10;          // the higher the measurement Hz, the more blocks we need to skip
+	skip_block_count = (skip_block_count < 1) ? 1 : skip_block_count;
+
+	add_ADC_to_average(vi_mode, skip_block_count);
+
+	// free up the temporary buffer, the DMA needs it back
+	tmp_buffer_in_use = 0;
+
+	// decide which modes are useful (or not)
+	//
+	// we drop the hi-gain blocks if they are clipped (clipping makes the data useless)
+	// we drop the lo-gain blocks if the hi-gain blocks are usable (if no high-gain clipping detected)
+	//
+	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
+	if (op_mode == OP_MODE_MEASURING)
+	{
+		if (display_hold)
+			average_count <<= 4;                                  // display is paused, we're just sending the data straight to the PC
+		else
+		if (adc_data_clipping[vi_mode])
+			average_count = 1;                                    // this block of samples are clipping, drop them, move on to the next mode
+		else
+		if (vi_mode < VI_MODE_VOLT_HI_GAIN && !adc_data_clipped[VI_MODE_VOLT_HI_GAIN + vi_mode])
+			average_count = 1;                                    // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples (assuming hi-gain samples will be OK too)
+		else
+		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
+			average_count <<= 3;                                  // average fewer buffers in 'fast' mode (this is speeds up the display update rate)
+	}
+	average_count = (average_count < 1) ? 1 : average_count;
+
+	LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);               // TEST only, LED off
+
+	if (++adc_buffer_sum_count < (skip_block_count + average_count))
+	{	// not yet summed the desired number of sample blocks
+		return;
+	}
+
+
+
+
+	// we've now summed the desired number of sample blocks, so are ready to re-scale etc the block
+
+	// get ready for next measurement VI mode
+	vi_index++;
+
+	// set the GS/VI pins ready for the next measurement run
+	set_measure_mode_pins(vi_measure_mode_table[vi_index]);
+
+	finish_ADC_averaging(vi_mode, skip_block_count);
+
+	// save the new VI mode for the next measurement run
+	vi_measure_index = vi_index;
+
+	if (vi_index < VI_MODE_DONE)
+		return;    // not yet gone through all the modes
+
+
+
+
+	// all done !
+	// we have sampled in all 4 modes (LOW and HIGH gain)
+
+	gain_changed = (memcmp(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped)) != 0) ? 1 : 0;    // set to '1' if we have changed the gain selection
+
+	memcpy(adc_data_clipped, adc_data_clipping, sizeof(adc_data_clipped));   // save the new clip detection flags
+	memset(adc_data_clipping, 0, sizeof(adc_data_clipping));                 // reset ready for next run
+
+//	if (!display_hold && gain_changed)
+	{	// gain path decision
+		// use the high gain samples only if they aren't clipped/saturated
+		//
+		volt_gain_sel = adc_data_clipped[VI_MODE_VOLT_HI_GAIN] ? 0 : 1;      // '0' = LOW gain V mode   '1' = HIGH gain V mode
+		amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;      // '0' = LOW gain I mode   '1' = HIGH gain I mode
+	}
+
+	process_data();
 }
 
 // ***********************************************************
@@ -2318,8 +2321,26 @@ void SystemClock_Config(void)
 	HAL_SuspendTick();
 	//LL_Init1msTick(RCC_MAX_FREQUENCY);
 	LL_Init1msTick(SystemCoreClock);
-	NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), TICK_INT_PRIORITY, 0));
+//	NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), TICK_INT_PRIORITY, 0));
+	NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 5, 0));
 	LL_SYSTICK_EnableIT();
+}
+
+void MX_EXTI_Init(void)
+{
+	LL_EXTI_DisableIT_0_31(LL_EXTI_LINE_4);
+
+	LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_4);
+
+	// don't want any external pin changes to trigger this interrupt
+	LL_EXTI_DisableFallingTrig_0_31(LL_EXTI_LINE_4);
+	LL_EXTI_DisableRisingTrig_0_31(LL_EXTI_LINE_4);
+	LL_EXTI_DisableEvent_0_31(LL_EXTI_LINE_4);
+
+	LL_EXTI_EnableIT_0_31(LL_EXTI_LINE_4);
+
+	NVIC_SetPriority(EXTI4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
+	NVIC_EnableIRQ(  EXTI4_IRQn);
 }
 
 void MX_ADC_Init(void)
@@ -3036,11 +3057,14 @@ void USART1_IRQHandler(void)
 	#endif
 }
 
-#ifdef  USE_FULL_ASSERT
-	void assert_failed(uint8_t *file, uint32_t line)
-	{
+void EXTI4_IRQHandler(void)
+{
+	if (LL_EXTI_IsActiveFlag_0_31(LL_EXTI_LINE_4))
+	{	// process the new ADC sample block
+		process_ADC();
+		LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_4);
 	}
-#endif
+}
 
 // ***********************************************************
 
@@ -3841,8 +3865,6 @@ void process_op_mode(void)
 					// back to normal measurement mode
 					op_mode = OP_MODE_MEASURING;
 				}
-
-				draw_screen();
 			}
 
 			break;
@@ -3903,13 +3925,13 @@ void process_op_mode(void)
 					// back to normal measurement mode
 					op_mode = OP_MODE_MEASURING;
 				}
-
-				draw_screen();
 			}
 
 			break;
 		}
 	}
+
+	draw_screen();
 }
 
 // ***********************************************************
@@ -4027,13 +4049,14 @@ int main(void)
 
 	bootup_screen();
 
+	MX_EXTI_Init();
 	MX_ADC_Init();
 	MX_TIM3_Init();
 
 	// *******
 	// give the user more time to read the bootup screen
 
-	for (unsigned int i = 0; i < 40; i++)
+	for (unsigned int i = 0; i < 20; i++)
 	{
 		if (button[BUTTON_HOLD].released)
 		{	// HOLD button was pressed
@@ -4047,7 +4070,7 @@ int main(void)
 			{
 				__WFI();
 				LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-				LL_mDelay(100);
+				LL_mDelay(50);
 				#ifdef USE_IWDG
 					// feed the dog
 					service_IWDG(0);
@@ -4090,18 +4113,16 @@ int main(void)
 		// process any data received via the serial port
 		process_uart_receive();
 
-		// process the new ADC sample block
-		process_ADC();
-
 		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
 		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 
 		if (vi_measure_index >= VI_MODE_DONE)
 		{	// completed another full measurement cycle
 
-			process_data();
+//			process_data();   // the SWI is now calling this function
+
 			process_op_mode();
-			draw_screen();
+
 			send_data();
 
 			frames++;
