@@ -272,6 +272,26 @@ void stop(uint32_t ms = 0)
 	}
 }
 
+// remove any leading zeros from a float string
+//
+void trim_leading_zero(char buf[])
+{
+	if (buf == NULL)
+		return;
+
+	if (strchr(buf, '.') == NULL)
+		return;                    // no DP found
+
+	const int len = strlen(buf);
+
+	for (int i = 0; i < (len - 1); i++)
+	{
+		if  (buf[i] != '0' || buf[i + 1] == '.')
+			break;
+		buf[i] = ' ';
+	}
+}
+
 // remove any trailing zeros from a float string
 //
 void trim_trailing_zeros(char buf[])
@@ -1733,7 +1753,7 @@ void process_ADC(void)
 #define LINE2_Y      (LINE_SPACING + 2)
 #define LINE3_Y      (LINE2_Y + LINE_SPACING + 4)
 
-void print_sprint(const unsigned int digit, const float value, char output_char[], const unsigned int out_max_size)
+void print_sprint(const unsigned int digit, const float value, char buf[], const unsigned int out_max_size, const uint8_t trim_leading_zeros)
 {
 	const float v = fabsf(value);
 
@@ -1741,35 +1761,38 @@ void print_sprint(const unsigned int digit, const float value, char output_char[
 	{
 		case 2:
 	        if (v < 10)
-    	        snprintf(output_char, out_max_size, "%-3.1f", value); // 1.2
+    	        snprintf(buf, out_max_size, "%03.1f", value); // 1.2
         	else
-            	snprintf(output_char, out_max_size, "%-2.0f", value); // 12 (no dp)
+            	snprintf(buf, out_max_size, "%02.0f", value); // 12 (no dp)
 			break;
 
 		case 3:
 	        if (v < 10)
-				snprintf(output_char, out_max_size, "%-4.2f", value); // 1.23
+				snprintf(buf, out_max_size, "%04.2f", value); // 1.23
         	else
 			if (v < 100)
-				snprintf(output_char, out_max_size, "%-4.1f", value); // 12.3
+				snprintf(buf, out_max_size, "%04.1f", value); // 12.3
 	        else
-				snprintf(output_char, out_max_size, "%-3.0f", value); // 123 (no dp)
+				snprintf(buf, out_max_size, "%03.0f", value); // 123 (no dp)
 			break;
 
 		default:
 		case 4:
 	        if (v < 10)
-				snprintf(output_char, out_max_size, "%-5.3f", value); // 1.234
+				snprintf(buf, out_max_size, "%05.3f", value); // 1.234
         	else
 			if (v < 100)
-				snprintf(output_char, out_max_size, "%-5.2f", value); // 12.34
+				snprintf(buf, out_max_size, "%05.2f", value); // 12.34
 			else
 			if (v < 1000)
-				snprintf(output_char, out_max_size, "%-5.1f", value); // 123.4
+				snprintf(buf, out_max_size, "%05.1f", value); // 123.4
 	        else
-				snprintf(output_char, out_max_size, "%-4.0f", value); // 1234 (no dp)
+				snprintf(buf, out_max_size, "%04.0f", value); // 1234 (no dp)
 			break;
     }
+
+	if (trim_leading_zeros)
+		trim_leading_zero(buf);
 }
 
 void screen_init(void)
@@ -1877,7 +1900,7 @@ void draw_screen(void)
 		#if 1
 			else
 			{	// VI phase
-				print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf));
+				print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf), 1);
 				ssd1306_WriteString(str_buf, &font_8x12, White);
 			}
 		#endif
@@ -1917,25 +1940,34 @@ void draw_screen(void)
 				case LCR_MODE_INDUCTANCE:
 					unit = unit_conversion(&value, "umkMG");
 					if (unit == 'u')
-						snprintf(str_buf, sizeof(str_buf), "%-5.1f", value);
+					{
+						snprintf(str_buf, sizeof(str_buf), "%05.1f", value);
+						trim_leading_zero(str_buf);
+					}
 					else
-						print_sprint(4, value, str_buf, sizeof(str_buf));
+						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
 					break;
 
 				case LCR_MODE_CAPACITANCE:
 					unit = unit_conversion(&value, "pnumkMG");
 					if (unit == 'p')
-						snprintf(str_buf, sizeof(str_buf), "%-5.1f", value);
+					{
+						snprintf(str_buf, sizeof(str_buf), "%05.1f", value);
+						trim_leading_zero(str_buf);
+					}
 					else
-						print_sprint(4, value, str_buf, sizeof(str_buf));
+						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
 					break;
 
 				case LCR_MODE_RESISTANCE:
 					unit = unit_conversion(&value, "mkMG");
 					if (unit == 'm')
-						snprintf(str_buf, sizeof(str_buf), "%-5.1f", value);
+					{
+						snprintf(str_buf, sizeof(str_buf), "%05.1f", value);
+						trim_leading_zero(str_buf);
+					}
 					else
-						print_sprint(4, value, str_buf, sizeof(str_buf));
+						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
 					break;
 
 				case LCR_MODE_AUTO:
@@ -2047,7 +2079,7 @@ void draw_screen(void)
 				value = adc_to_volts(value);
 				const char unit = unit_conversion(&value, "mkMG");
 
-				print_sprint(4, value, str_buf, sizeof(str_buf));
+				print_sprint(4, value, str_buf, sizeof(str_buf), 1);
 				unsigned int i = strlen(str_buf);
 				if (unit != ' ')
 					str_buf[i++] = unit;
@@ -2063,7 +2095,7 @@ void draw_screen(void)
 				value = adc_to_volts(value);
 				const char unit = unit_conversion(&value, "umkMG");
 
-				print_sprint(4, value, str_buf, sizeof(str_buf));
+				print_sprint(4, value, str_buf, sizeof(str_buf), 1);
 				unsigned int i = strlen(str_buf);
 				if (unit != ' ')
 					str_buf[i++] = unit;
@@ -2090,7 +2122,7 @@ void draw_screen(void)
 					ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
 					ssd1306_WriteString("ER", &font_8x12, White);
 
-					print_sprint(3, value, str_buf, sizeof(str_buf));
+					print_sprint(3, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
 					str_buf[i++] = unit;
 					str_buf[i++] = '\0';
@@ -2107,7 +2139,7 @@ void draw_screen(void)
 					ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
 					ssd1306_WriteString("D", &font_8x12, White);
 
-					print_sprint(3, value, str_buf, sizeof(str_buf));
+					print_sprint(3, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
 					str_buf[i++] = unit;
 					str_buf[i++] = '\0';
@@ -2124,7 +2156,7 @@ void draw_screen(void)
 					ssd1306_WriteString("Q", &font_8x12, White);
 
 					//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - font_8x12.height);
-					print_sprint(3, value, str_buf, sizeof(str_buf));
+					print_sprint(3, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
 					str_buf[i++] = unit;
 					str_buf[i++] = '\0';
@@ -2141,7 +2173,7 @@ void draw_screen(void)
 					float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
 					const char unit = unit_conversion(&value, "umkMG");
 
-					print_sprint(4, value, str_buf, sizeof(str_buf));
+					print_sprint(4, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
 					if (unit != ' ')
 						str_buf[i++] = unit;
@@ -2159,7 +2191,7 @@ void draw_screen(void)
 					ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
 					ssd1306_WriteString("Q", &font_8x12, White);
 
-					print_sprint(3, value, str_buf, sizeof(str_buf));
+					print_sprint(3, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
 					str_buf[i++] = unit;
 					str_buf[i++] = '\0';
@@ -2224,7 +2256,7 @@ void draw_screen(void)
 //			rms_voltage = adc_to_volts(rms_voltage);
 			const char unit = unit_conversion(&rms_voltage, "mkMG");
 
-			print_sprint(4, rms_voltage, str_buf, sizeof(str_buf));
+			print_sprint(4, rms_voltage, str_buf, sizeof(str_buf), 1);
 			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
 				str_buf[i++] = unit;
@@ -2239,7 +2271,7 @@ void draw_screen(void)
 //			rms_current = adc_to_volts(rms_current);
 			const char unit = unit_conversion(&rms_current, "umkMG");
 
-			print_sprint(4, rms_current, str_buf, sizeof(str_buf));
+			print_sprint(4, rms_current, str_buf, sizeof(str_buf), 1);
 			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
 				str_buf[i++] = unit;
