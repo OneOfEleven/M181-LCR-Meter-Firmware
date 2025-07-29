@@ -60,6 +60,8 @@
 
 #define SETTINGS_MARKER              0x19961962     // 32-bit marker to indicate 'start of settings' - so we can find them in flash
 
+//#define RIGHT_ALIGN_DUT                             // this right aligns the large DUT value on the display
+
 #define MEASURE_HZ_MAX               10000          // maximum measurement frequency
 #define MEASURE_HZ_MIN               100            // minimum measurement frequency
 

@@ -213,7 +213,7 @@ t_settings            settings            = {0};                      // the sys
 t_system_data         system_data = {0};                              // various results saved in here
 
 uint8_t               tmp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];   // buffer must be big enough for whatever uses it
-volatile unsigned int tmp_buffer_in_use = 0;                             // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
+volatile uint8_t      tmp_buffer_in_use = 0;                             // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
 
 // for TX'ing binary packets via the serial port
 t_packet              tx_packet;
@@ -274,7 +274,7 @@ void stop(uint32_t ms = 0)
 
 // remove any leading zeros from a float string
 //
-void trim_leading_zero(char buf[])
+void trim_leading_zeros(char buf[])
 {
 	if (buf == NULL)
 		return;
@@ -664,6 +664,7 @@ int eeprom_write_settings(void)
 		for (unsigned int i = 0; i < sizeof(t_settings); i += sizeof(uint16_t))
 		{
 			// write the word into flash
+			//LL_FLASH_Program(FLASH, Address, DATA_32);
 			const HAL_StatusTypeDef status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, flash_addr + i, *set++);
 			if (status == HAL_OK)
 				continue;           // it worked !
@@ -1093,7 +1094,6 @@ int process_Goertzel(void)
 			{	// their was a key press whilst doing it, drop everthing (on this run) to immediately process the users input
 				tmp_buffer_in_use = 0;
 				return -1;
-
 			}
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
@@ -1804,46 +1804,46 @@ void process_ADC(void)
 #define LINE2_Y      (LINE_SPACING + 2)
 #define LINE3_Y      (LINE2_Y + LINE_SPACING + 4)
 
-void print_sprint(const unsigned int digit, const float value, char buf[], const unsigned int out_max_size, const uint8_t trim_leading_zeros)
+void print_sprint(const unsigned int digit, const float value, char buf[], const unsigned int out_max_size, const uint8_t _trim_leading_zeros)
 {
 	const float v = fabsf(value);
 
 	switch (digit)
 	{
 		case 2:
-	        if (v < 10)
-    	        snprintf(buf, out_max_size, "%03.1f", value); // 1.2
-        	else
-            	snprintf(buf, out_max_size, "%02.0f", value); // 12 (no dp)
+			if (v < 10)
+ 				snprintf(buf, out_max_size, "%03.1f", value); // 1.2
+			else
+				snprintf(buf, out_max_size, "%02.0f", value); // 12 (no dp)
 			break;
 
 		case 3:
-	        if (v < 10)
+			if (v < 10)
 				snprintf(buf, out_max_size, "%04.2f", value); // 1.23
-        	else
+			else
 			if (v < 100)
 				snprintf(buf, out_max_size, "%04.1f", value); // 12.3
-	        else
+			else
 				snprintf(buf, out_max_size, "%03.0f", value); // 123 (no dp)
 			break;
 
 		default:
 		case 4:
-	        if (v < 10)
+			if (v < 10)
 				snprintf(buf, out_max_size, "%05.3f", value); // 1.234
-        	else
+			else
 			if (v < 100)
 				snprintf(buf, out_max_size, "%05.2f", value); // 12.34
 			else
 			if (v < 1000)
 				snprintf(buf, out_max_size, "%05.1f", value); // 123.4
-	        else
+			else
 				snprintf(buf, out_max_size, "%04.0f", value); // 1234 (no dp)
 			break;
-    }
+	}
 
-	if (trim_leading_zeros)
-		trim_leading_zero(buf);
+	if (_trim_leading_zeros)
+		trim_leading_zeros(buf);
 }
 
 void screen_init(void)
@@ -1994,8 +1994,12 @@ void draw_screen(void)
 					unit = unit_conversion(&value, "umkMG");
 					if (unit == 'u')
 					{
-						snprintf(str_buf, sizeof(str_buf), "%05.1f", value);
-						trim_leading_zero(str_buf);
+						#ifdef RIGHT_ALIGN_DUT
+							snprintf(str_buf, sizeof(str_buf), "%05.1f", value);
+							trim_leading_zeros(str_buf);
+						#else
+							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+						#endif
 					}
 					else
 						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
@@ -2005,8 +2009,12 @@ void draw_screen(void)
 					unit = unit_conversion(&value, "pnumkMG");
 					if (unit == 'p')
 					{
-						snprintf(str_buf, sizeof(str_buf), "%05.1f", value);
-						trim_leading_zero(str_buf);
+						#ifdef RIGHT_ALIGN_DUT
+							snprintf(str_buf, sizeof(str_buf), "%05.1f", value);
+							trim_leading_zeros(str_buf);
+						#else
+							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+						#endif
 					}
 					else
 						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
@@ -2016,8 +2024,12 @@ void draw_screen(void)
 					unit = unit_conversion(&value, "mkMG");
 					if (unit == 'm')
 					{
-						snprintf(str_buf, sizeof(str_buf), "%05.1f", value);
-						trim_leading_zero(str_buf);
+						#ifdef RIGHT_ALIGN_DUT
+							snprintf(str_buf, sizeof(str_buf), "%05.1f", value);
+							trim_leading_zeros(str_buf);
+						#else
+							snprintf(str_buf, sizeof(str_buf), "%0.1f", value);
+						#endif
 					}
 					else
 						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
