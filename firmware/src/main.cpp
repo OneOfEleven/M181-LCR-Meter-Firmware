@@ -891,6 +891,7 @@ void start_probe_open_cal(void)
 	memset((void *)&calibrate, 0, sizeof(calibrate));
 	op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
+	tmp_buffer_in_use = 0;
 }
 
 // initiate an SHORTED probe calibration run
@@ -900,6 +901,7 @@ void start_probe_short_cal(void)
 	memset((void *)&calibrate, 0, sizeof(calibrate));
 	op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
+	tmp_buffer_in_use = 0;
 }
 
 // compute the phase difference between two phases (in degrees)
@@ -1245,8 +1247,8 @@ void process_ADC_DMA(const void *buffer, const unsigned int size)
 	tmp_buffer_in_use = 1;                            // let the exec know their is a new sample block ready and waiting
 
 	// generate an SWI to further process these new samples
-	if (LL_EXTI_IsEnabledIT_0_31(LL_EXTI_LINE_4))
-		LL_EXTI_GenerateSWI_0_31(LL_EXTI_LINE_4);
+//	if (LL_EXTI_IsEnabledIT_0_31(LL_EXTI_LINE_4))
+//		LL_EXTI_GenerateSWI_0_31(LL_EXTI_LINE_4);
 }
 
 // add the new sample block to the averaging buffer (reduces noise)
@@ -1684,7 +1686,7 @@ void process_ADC(void)
 	if (op_mode == OP_MODE_MEASURING)
 	{
 		if (display_hold)
-			average_count <<= 4;                                  // display is paused, we're just sending the data straight to the PC
+			average_count >>= 4;                                  // display is paused, we're just sending the data straight to the PC
 		else
 		if (adc_data_clipping[vi_mode])
 			average_count = 1;                                    // this block of samples are clipping, drop them, move on to the next mode
@@ -1693,16 +1695,14 @@ void process_ADC(void)
 			average_count = 1;                                    // hi-gain samples were not clipped on the previous run, so drop these lo-gain samples (assuming hi-gain samples will be OK too)
 		else
 		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-			average_count <<= 3;                                  // average fewer buffers in 'fast' mode (this is speeds up the display update rate)
+			average_count >>= 3;                                  // average fewer buffers in 'fast' mode (this is speeds up the display update rate)
 	}
 	average_count = (average_count < 1) ? 1 : average_count;
 
 	LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);               // TEST only, LED off
 
 	if (++adc_buffer_sum_count < (skip_block_count + average_count))
-	{	// not yet summed the desired number of sample blocks
-		return;
-	}
+		return;                                                   // not yet summed the desired number of sample blocks
 
 
 
@@ -1742,7 +1742,7 @@ void process_ADC(void)
 		amp_gain_sel  = adc_data_clipped[VI_MODE_AMP_HI_GAIN]  ? 0 : 1;      // '0' = LOW gain I mode   '1' = HIGH gain I mode
 	}
 
-	process_data();
+//	process_data();
 }
 
 // ***********************************************************
@@ -4077,7 +4077,7 @@ int main(void)
 
 	bootup_screen();
 
-	MX_EXTI_Init();
+//	MX_EXTI_Init();
 	MX_ADC_Init();
 	MX_TIM3_Init();
 
@@ -4144,11 +4144,15 @@ int main(void)
 		// process any data received via the serial port
 		process_uart_receive();
 
+		process_ADC();
+
 		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
 		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 
 		if (vi_measure_index >= VI_MODE_DONE)
 		{	// completed another full measurement cycle
+
+			process_data();
 
 			process_op_mode();
 
