@@ -50,11 +50,11 @@
 #define UART_BAUDRATE_MIN            115200
 #define UART_BAUDRATE_MAX            921600
 
-//#define UART_BAUDRATE              115200
-//#define UART_BAUDRATE              230400
-//#define UART_BAUDRATE              460800
-#define UART_BAUDRATE                921600
-//#define UART_BAUDRATE              1843200        // max rate the CH340N can do
+#define DEFAULT_UART_BAUDRATE        115200
+//#define DEFAULT_UART_BAUDRATE      230400
+//#define DEFAULT_UART_BAUDRATE      460800
+//#define DEFAULT_UART_BAUDRATE      921600
+//#define DEFAULT_UART_BAUDRATE      1843200        // max rate the CH340N can do
 
 #define PACKET_MARKER                0x19621996     // 32-bit marker to indicate 'start of packet' for the receiver (windows GUI etc)
 

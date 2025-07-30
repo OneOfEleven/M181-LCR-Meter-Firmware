@@ -4223,7 +4223,7 @@ int main(void)
 
 	// set defaults
 	settings.series_ohms    = SERIES_RESISTOR_OHMS;      // this can be calibrated using a DUT with a known resistance value
-	settings.baudrate       = UART_BAUDRATE;
+	settings.baudrate       = DEFAULT_UART_BAUDRATE;
 	settings.measurement_Hz = measurement_table_Hz[1];
 	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
 	settings.sp_mode        = SP_MODE_AUTO;
