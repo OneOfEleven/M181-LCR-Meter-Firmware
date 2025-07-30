@@ -370,7 +370,7 @@ enum {
 
 #define SETTING_FLAG_FAST_UPDATES   (1u << 0)   // set if the user wants faster screen updates
 
-// this structure will be stored in flash (emulated EEPROM) so as to remember various things for the user
+// this settings structure will be stored in flash (emulated EEPROM)
 //
 #pragma pack(push, 1)
 typedef struct t_settings {
@@ -384,26 +384,26 @@ typedef struct t_settings {
 	uint8_t      lcr_mode;            // the LCR mode the user has selected
 	uint8_t      sp_mode;             // the series/parallel mode the user has selected
 	uint8_t      data_mode;           // type of data we're sending via the serial port
-	uint8_t      flags;               // various settings
+	uint8_t      flags;               // various 'flags'
 	uint8_t      padding1[2];         // maintain 32-bit alignment
 
 	struct {
-		float    adc[4];              // ADC input offset
-		float    afc[4];              // AFC input offset
+		float    adc[4];              // ADC input DC offset
+		float    afc[4];              // AFC input DC offset
 	} input_offset;
 
 	struct {
 		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];          // just padding to maintain 32-bit alignment
+		uint8_t  padding[3];          // maintain 32-bit alignment
 	} open_probe_calibration[2];      // 100Hz and 1kHz results
 
 	struct {
 		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
 		float    phase_deg[8];        // averaged phase values for each VI mode
 		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];          // just padding to maintain 32-bit alignment
+		uint8_t  padding[3];          // maintain 32-bit alignment
 	} shorted_probe_calibration[2];   // 100Hz and 1kHz results
 
 	uint8_t      padding2[2];         // maintain 32-bit alignment
@@ -415,7 +415,7 @@ typedef struct t_settings {
 typedef struct t_system_data {
 	unsigned int vi_measure_mode;
 
-	// the final computed waveform magnitudes and phases - these are what's used to compute the following DUT parameters
+	// the final computed waveform magnitudes and phases - these are what's used to compute all the DUT parameters
 	float     mag_rms[8];
 	float     phase_deg[8];
 

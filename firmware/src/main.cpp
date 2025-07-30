@@ -4132,25 +4132,23 @@ int main(void)
 	#endif
 	LL_RCC_GetSystemClocksFreq(&rcc_clocks);
 	MX_GPIO_Init();
-	MX_USART1_UART_Init();
 
-	{	// setup the goertzel filter
-		const float normalized_freq = (float)SINES_PER_BLOCK / ADC_DATA_LENGTH;
-		goertzel_init(&goertzel, normalized_freq);
-	}
-
-	// fetch saved settings from flash
+	// fetch saved settings
 	eeprom_read_settings();
 
 	settings.baudrate = (settings.baudrate < UART_BAUDRATE_MIN) ? UART_BAUDRATE_MIN : (settings.baudrate > UART_BAUDRATE_MAX) ? UART_BAUDRATE_MAX : settings.baudrate;
+
+	MX_USART1_UART_Init();
+
+	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
+	set_measure_mode_pins(system_data.vi_measure_mode);
 
 	inv_series_ohms = 1.0f / settings.series_ohms;
 
 	lcr_mode = settings.lcr_mode;
 	sp_mode  = settings.sp_mode;
 
-	system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
-	set_measure_mode_pins(system_data.vi_measure_mode);
+	goertzel_init(&goertzel, (float)SINES_PER_BLOCK / ADC_DATA_LENGTH);
 
 	set_measurement_frequency(settings.measurement_Hz);
 
@@ -4180,14 +4178,17 @@ int main(void)
 	for (unsigned int i = 0; i < 20; i++)
 	{
 		if (button[BUTTON_HOLD].released)
-		{	// HOLD button was pressed
+		{	// HOLD button was pressed whilst the boot-up display is showing
+			// so hold it for a while
 
 			button[BUTTON_HOLD].processed = 1;
 
 			wait_for_all_button_release();
 
-			// wait for 2nd button press - to release the display hold
-			while (!button[BUTTON_HOLD].released)
+			const uint32_t tick = sys_tick;
+
+			// wait for 2nd button press, or 15 secs, whichever comes first
+			while (!button[BUTTON_HOLD].released || (sys_tick - tick) >= 15000)
 			{
 				__WFI();
 				//LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
@@ -4201,7 +4202,8 @@ int main(void)
 				#endif
 			}
 
-			button[BUTTON_HOLD].processed = 1;
+			if (button[BUTTON_HOLD].released)
+				button[BUTTON_HOLD].processed = 1;
 
 			wait_for_all_button_release();
 			break;
@@ -4255,10 +4257,12 @@ int main(void)
 		if (system_data.vi_measure_mode != prev_vi_measure_mode && op_mode != OP_MODE_MEASURING)
 			draw_measurement_mode();
 
-		// save any unsaved settings to flash (we don't have an EEPROM etc)
+		// save any unsaved settings
+		// we don't have a real EEPROM, so we use a bit of spare flash instead
+		//
 		if (save_settings_timer == 0)
 		{
-			if (eeprom_write_settings() >= 0)     // save settings to flash
+			if (eeprom_write_settings() >= 0)     // save settings
 			{	// done
 				save_settings_timer = -1;
 				printf(NEWLINE "settings saved" NEWLINE);
