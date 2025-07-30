@@ -2380,6 +2380,7 @@ void draw_screen(void)
 			case DATA_MODE_NONE:   str_buf[0] = ' '; break;
 			case DATA_MODE_ASCII:  str_buf[0] = 'A'; break;
 			case DATA_MODE_BINARY: str_buf[0] = 'B'; break;
+			case DATA_MODE_DUT:    str_buf[0] = 'D'; break;
 			default:               str_buf[0] = 'E'; break;
 		}
 		ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width), SSD1306_HEIGHT - 1 - font_8x12.height);
@@ -3390,50 +3391,46 @@ void process_buttons(void)
 	// *************
 }
 
-// send sample data out via the serial port
-//
-void send_sample_data(void)
+int send_ascii_data(void)
 {
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
-		return;     // uart DMA is still busy sending
+		return -1;     // uart DMA is still busy sending
 
-	switch (settings.data_mode)
+	const unsigned int cols = 8;
+
+	printf(NEWLINE);
+	for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 	{
-		default:
-		case DATA_MODE_NONE:
-			break;
-
-		case DATA_MODE_ASCII:
-		{
-			const unsigned int cols = 8;
-			printf(NEWLINE);
-			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-			{
-				printf("%u,", 1 + i);
-				for (unsigned int col = 0; col < (cols - 1); col++)
-					printf("%0.3f,", adc_data[col][i]);
-				printf("%0.3f" NEWLINE, adc_data[cols - 1][i]);
-			}
-			break;
-		}
-
-		case DATA_MODE_BINARY:
-		{
-			t_packet *tx_packet = (t_packet *)&tx_buffer;
-
-			// create TX packet
-			tx_packet->marker = PACKET_MARKER;                                           // packet start marker
-			memcpy(&tx_packet->data, &adc_data, sizeof(adc_data));                       // packet data
-			tx_packet->crc = 0;
-			tx_packet->crc = CRC16_block(0, &tx_packet->data, sizeof(tx_packet->data));  // packet CRC - compute the CRC of the data
-
-			// sen dit
-			start_tx_dma(tx_buffer, sizeof(t_packet));
-			break;
-		}
+		printf("%u,", 1 + i);
+		for (unsigned int col = 0; col < (cols - 1); col++)
+			printf("%0.3f,", adc_data[col][i]);
+		printf("%0.3f" NEWLINE, adc_data[cols - 1][i]);
 	}
+
+	return 0;
 }
 
+int send_binary_data(void)
+{
+	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+		return -1;     // uart DMA is still busy sending
+
+	t_packet *tx_packet = (t_packet *)&tx_buffer;
+
+	// create TX packet
+	tx_packet->marker = PACKET_MARKER;                                           // packet start marker
+	memcpy(&tx_packet->data, &adc_data, sizeof(adc_data));                       // packet data
+	tx_packet->crc = 0;
+	tx_packet->crc = CRC16_block(0, &tx_packet->data, sizeof(tx_packet->data));  // packet CRC - compute the CRC of the data
+
+	// sen dit
+	start_tx_dma(tx_buffer, sizeof(t_packet));
+
+	return 0;
+}
+
+// send the DUT params via the serial port
+//
 int send_dut_data(void)
 {
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
@@ -3554,6 +3551,27 @@ int send_dut_data(void)
 	return 0;
 }
 
+// send sample data out via the serial port
+//
+void send_sample_data(void)
+{
+	switch (settings.data_mode)
+	{
+		default:
+		case DATA_MODE_NONE:
+			break;
+		case DATA_MODE_ASCII:
+			send_ascii_data();
+			break;
+		case DATA_MODE_BINARY:
+			send_binary_data();
+			break;
+		case DATA_MODE_DUT:
+			send_dut_data();
+			break;
+	}
+}
+
 enum t_cmd_id : uint8_t {
 	CMD_NONE_ID = 0,
 	CMD_HELP_ID1,
@@ -3582,21 +3600,21 @@ typedef struct {
 
 // serial command table
 const t_cmd cmds[] = {
-	{"?",         "              .. this help",                          CMD_HELP_ID1    },
-	{"help",      "              .. this help",                          CMD_HELP_ID2    },
-	{"baudrate",  "[baudrate]    .. read/set serial baudrate",           CMD_BAUDRATE_ID },
-	{"data",      "[off/asc/bin] .. read/set sending real-time data",    CMD_DATA_ID     },
-	{"dut",       "              .. read current DUT params",            CMD_DUT_ID      },
-	{"frequency", "[Hz]          .. read/set measurement frequency",     CMD_FREQUENCY_ID},
-	{"hold",      "              .. toggle display hold on/off",         CMD_HOLD_ID     },
-	{"lcrmode",   "[r/l/i/c/a]   .. read/set LCR mode",                  CMD_LCR_MODE_ID },
-	{"spmode",    "[s/p/a]       .. read/set Series/Parallel/Auto mode", CMD_SP_MODE_ID  },
-	{"opencal",   "              .. run open probe calibration",         CMD_OPEN_CAL_ID },
-	{"shortcal",  "              .. run shorted probe calibration",      CMD_SHORT_CAL_ID},
-	{"reboot",    "              .. reboot this unit",                   CMD_REBOOT_ID   },
-	{"defaults",  "              .. restore defaults",                   CMD_DEFAULTS_ID },
-	{"version",   "              .. this units version",                 CMD_VERSION_ID  },
-	{NULL,        "",                                                    CMD_NONE_ID     }    // last one, DO NOT delete this
+	{"?",         "                  .. this help",                          CMD_HELP_ID1    },
+	{"help",      "                  .. this help",                          CMD_HELP_ID2    },
+	{"baudrate",  "[baudrate]        .. read/set serial baudrate",           CMD_BAUDRATE_ID },
+	{"data",      "[off/asc/bin/dut] .. read/set sending real-time data",    CMD_DATA_ID     },
+	{"dut",       "                  .. read current DUT params",            CMD_DUT_ID      },
+	{"frequency", "[Hz]              .. read/set measurement frequency",     CMD_FREQUENCY_ID},
+	{"hold",      "                  .. toggle display hold on/off",         CMD_HOLD_ID     },
+	{"lcrmode",   "[r/l/i/c/a]       .. read/set LCR mode",                  CMD_LCR_MODE_ID },
+	{"spmode",    "[s/p/a]           .. read/set Series/Parallel/Auto mode", CMD_SP_MODE_ID  },
+	{"opencal",   "                  .. run open probe calibration",         CMD_OPEN_CAL_ID },
+	{"shortcal",  "                  .. run shorted probe calibration",      CMD_SHORT_CAL_ID},
+	{"reboot",    "                  .. reboot this unit",                   CMD_REBOOT_ID   },
+	{"defaults",  "                  .. restore defaults",                   CMD_DEFAULTS_ID },
+	{"version",   "                  .. this units version",                 CMD_VERSION_ID  },
+	{NULL,        "",                                                        CMD_NONE_ID     }    // last one, DO NOT delete this
 };
 
 // process any received serial commands
@@ -3898,6 +3916,9 @@ void process_serial_command(char cmd[], unsigned int len)
 				if (strncmp(param, "binary", param_len) == 0)
 					settings.data_mode = DATA_MODE_BINARY;
 				else
+				if (strncmp(param, "dut", param_len) == 0)
+					settings.data_mode = DATA_MODE_DUT;
+				else
 				{
 					printf(NEWLINE "error: data param '%s'" NEWLINE, param);
 					return;
@@ -3907,13 +3928,13 @@ void process_serial_command(char cmd[], unsigned int len)
 			}
 
 			{
-				const char *dm[] = {"off", "ascii", "binary", "error"};
+				const char *dm[] = {"off", "ascii", "binary", "dut", "error"};
 				const char *s = NULL;
 				switch (settings.data_mode)
 				{
 					default:
 						settings.data_mode = DATA_MODE_NONE;
-						//s = dm[3];
+						//s = dm[4];
 					case DATA_MODE_NONE:
 						s = dm[0];
 						break;
@@ -3922,6 +3943,9 @@ void process_serial_command(char cmd[], unsigned int len)
 						break;
 					case DATA_MODE_BINARY:
 						s = dm[2];
+						break;
+					case DATA_MODE_DUT:
+						s = dm[3];
 						break;
 				}
 				printf(NEWLINE "data mode %s" NEWLINE, (s != NULL) ? s : "");

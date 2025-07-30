@@ -365,7 +365,8 @@ enum {
 enum {
 	DATA_MODE_NONE = 0,
 	DATA_MODE_ASCII,
-	DATA_MODE_BINARY
+	DATA_MODE_BINARY,
+	DATA_MODE_DUT
 };
 
 #define SETTING_FLAG_FAST_UPDATES   (1u << 0)   // set if the user wants faster screen updates
