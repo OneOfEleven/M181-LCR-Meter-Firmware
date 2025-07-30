@@ -3439,6 +3439,7 @@ enum t_cmd_id : uint8_t {
 	CMD_OPEN_CAL_ID,
 	CMD_SHORT_CAL_ID,
 	CMD_DATA_ID,
+	CMD_DUT_ID,
 	CMD_HOLD_ID,
 	CMD_FREQUENCY_ID,
 	CMD_LCR_MODE_ID,
@@ -3461,6 +3462,7 @@ const t_cmd cmds[] = {
 	{"help",      "              .. this help",                          CMD_HELP_ID2    },
 	{"baudrate",  "[baudrate]    .. read/set serial baudrate",           CMD_BAUDRATE_ID },
 	{"data",      "[off/asc/bin] .. read/set sending real-time data",    CMD_DATA_ID     },
+	{"dut",       "              .. read current DUT params",            CMD_DUT_ID      },
 	{"frequency", "[Hz]          .. read/set measurement frequency",     CMD_FREQUENCY_ID},
 	{"hold",      "              .. toggle display hold on/off",         CMD_HOLD_ID     },
 	{"lcrmode",   "[r/l/i/c/a]   .. read/set LCR mode",                  CMD_LCR_MODE_ID },
@@ -3802,6 +3804,106 @@ void process_serial_command(char cmd[], unsigned int len)
 			}
 
 			draw_screen();
+			return;
+
+		case CMD_DUT_ID:
+			{
+				float rms_voltage = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
+				rms_voltage = adc_to_volts(rms_voltage);
+				const char rms_voltage_unit = unit_conversion(&rms_voltage, "mkMG");
+
+				float rms_current = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
+				rms_current = adc_to_volts(rms_current);
+				const char rms_current_unit = unit_conversion(&rms_current, "umkMG");
+
+				// impedance
+				float impedance = system_data.impedance;
+				const char impedance_unit = unit_conversion(&impedance, "mkMG");
+
+				printf(NEWLINE
+					"DUT:" NEWLINE
+					" freq %u Hz" NEWLINE
+					"    V %0.3f %cV" NEWLINE
+					"    I %0.3f %cA" NEWLINE
+					"phase %0.3f deg" NEWLINE
+					"  imp %0.3f %cR" NEWLINE,
+					measurement_Hz,
+					rms_voltage, rms_voltage_unit,
+					rms_current, rms_current_unit,
+					system_data.vi_phase_deg,
+					impedance, impedance_unit
+				);
+			}
+
+			{
+				float inductance  = system_data.series.inductance;
+				float capacitance = system_data.series.capacitance;
+				float resistance  = system_data.series.resistance;
+				float esr         = system_data.series.esr;
+				float tan_delta   = system_data.series.tan_delta;
+				float qf          = system_data.series.qf;
+				float reactance   = system_data.series.reactance;
+
+				const char inductance_unit  = unit_conversion(&inductance,  "umkMG");
+				const char capacitance_unit = unit_conversion(&capacitance, "pnumkMG");
+				const char resistance_unit  = unit_conversion(&resistance,  "mkMG");
+				const char esr_unit         = unit_conversion(&esr,         "mkMG");
+				const char tan_delta_unit   = unit_conversion(&tan_delta,   "mkMG");
+				const char qf_unit          = unit_conversion(&qf,          "kMG");
+				const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
+
+				printf(
+					"   Ls %0.3f %cH" NEWLINE
+					"   Cs %0.3f %cF" NEWLINE
+					"   Rs %0.3f %cR" NEWLINE
+					" ESRs %0.3f %cR" NEWLINE
+					"   Ds %0.3f %c" NEWLINE
+					"   Qs %0.3f %c" NEWLINE
+					"   Xs %0.3f %cR" NEWLINE,
+					inductance,  inductance_unit,
+					capacitance, capacitance_unit,
+					resistance,  resistance_unit,
+					esr,         esr_unit,
+					tan_delta,   tan_delta_unit,
+					qf,          qf_unit,
+					reactance,   reactance_unit
+				);
+			}
+
+			{
+				float inductance  = system_data.parallel.inductance;
+				float capacitance = system_data.parallel.capacitance;
+				float resistance  = system_data.parallel.resistance;
+				float esr         = system_data.parallel.esr;
+				float tan_delta   = system_data.parallel.tan_delta;
+				float qf          = system_data.parallel.qf;
+				float reactance   = system_data.parallel.reactance;
+
+				const char inductance_unit  = unit_conversion(&inductance,  "umkMG");
+				const char capacitance_unit = unit_conversion(&capacitance, "pnumkMG");
+				const char resistance_unit  = unit_conversion(&resistance,  "mkMG");
+				const char esr_unit         = unit_conversion(&esr,         "mkMG");
+				const char tan_delta_unit   = unit_conversion(&tan_delta,   "mkMG");
+				const char qf_unit          = unit_conversion(&qf,          "kMG");
+				const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
+
+				printf(
+					"   Lp %0.3f %cH" NEWLINE
+					"   Cp %0.3f %cF" NEWLINE
+					"   Rp %0.3f %cR" NEWLINE
+					" ESRp %0.3f %cR" NEWLINE
+					"   Dp %0.3f %c" NEWLINE
+					"   Qp %0.3f %c" NEWLINE
+					"   Xp %0.3f %cR" NEWLINE,
+					inductance,  inductance_unit,
+					capacitance, capacitance_unit,
+					resistance,  resistance_unit,
+					esr,         esr_unit,
+					tan_delta,   tan_delta_unit,
+					qf,          qf_unit,
+					reactance,   reactance_unit
+				);
+			}
 			return;
 
 		case CMD_HOLD_ID:
