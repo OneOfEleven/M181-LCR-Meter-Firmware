@@ -2167,7 +2167,7 @@ void draw_screen(void)
 				value = adc_to_volts(value);
 				const char unit = unit_conversion(&value, "mkMG");
 
-				print_sprint(4, value, str_buf, sizeof(str_buf), 1);
+				print_sprint(3, value, str_buf, sizeof(str_buf), 1);
 				unsigned int i = strlen(str_buf);
 				if (unit != ' ')
 					str_buf[i++] = unit;
@@ -2183,7 +2183,7 @@ void draw_screen(void)
 				value = adc_to_volts(value);
 				const char unit = unit_conversion(&value, "umkMG");
 
-				print_sprint(4, value, str_buf, sizeof(str_buf), 1);
+				print_sprint(3, value, str_buf, sizeof(str_buf), 1);
 				unsigned int i = strlen(str_buf);
 				if (unit != ' ')
 					str_buf[i++] = unit;
@@ -2342,14 +2342,17 @@ void draw_screen(void)
 //			rms_voltage = adc_to_volts(rms_voltage);
 			const char unit = unit_conversion(&rms_voltage, "mkMG");
 
-			print_sprint(4, rms_voltage, str_buf, sizeof(str_buf), 1);
+			ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
+			ssd1306_WriteString("V", &font_8x12, White);
+
+			print_sprint(3, rms_voltage, str_buf, sizeof(str_buf), 1);
 			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
 				str_buf[i++] = unit;
 //			str_buf[i++] = 'V';
 			str_buf[i++] = '\0';
 			trim_trailing_zeros(str_buf);
-			ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
+			ssd1306_MoveCursor(4, 0);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 
@@ -2357,14 +2360,17 @@ void draw_screen(void)
 //			rms_current = adc_to_volts(rms_current);
 			const char unit = unit_conversion(&rms_current, "umkMG");
 
-			print_sprint(4, rms_current, str_buf, sizeof(str_buf), 1);
+			ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
+			ssd1306_WriteString("I", &font_8x12, White);
+
+			print_sprint(3, rms_current, str_buf, sizeof(str_buf), 1);
 			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
 				str_buf[i++] = unit;
 //			str_buf[i++] = 'A';
 			str_buf[i++] = '\0';
 			trim_trailing_zeros(str_buf);
-			ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
+			ssd1306_MoveCursor(4, 0);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 	}
@@ -3603,18 +3609,18 @@ const t_cmd cmds[] = {
 	{"?",         "                  .. this help",                          CMD_HELP_ID1    },
 	{"help",      "                  .. this help",                          CMD_HELP_ID2    },
 	{"baudrate",  "[baudrate]        .. read/set serial baudrate",           CMD_BAUDRATE_ID },
-	{"data",      "[off/asc/bin/dut] .. read/set sending real-time data",    CMD_DATA_ID     },
+	{"data",      "[off asc bin dut] .. read/set sending real-time data",    CMD_DATA_ID     },
 	{"dut",       "                  .. read current DUT params",            CMD_DUT_ID      },
 	{"frequency", "[Hz]              .. read/set measurement frequency",     CMD_FREQUENCY_ID},
 	{"hold",      "                  .. toggle display hold on/off",         CMD_HOLD_ID     },
-	{"lcrmode",   "[r/l/i/c/a]       .. read/set LCR mode",                  CMD_LCR_MODE_ID },
-	{"spmode",    "[s/p/a]           .. read/set Series/Parallel/Auto mode", CMD_SP_MODE_ID  },
+	{"lcrmode",   "[r l i c a]       .. read/set LCR mode",                  CMD_LCR_MODE_ID },
+	{"spmode",    "[s p a]           .. read/set Series/Parallel/Auto mode", CMD_SP_MODE_ID  },
 	{"opencal",   "                  .. run open probe calibration",         CMD_OPEN_CAL_ID },
 	{"shortcal",  "                  .. run shorted probe calibration",      CMD_SHORT_CAL_ID},
 	{"reboot",    "                  .. reboot this unit",                   CMD_REBOOT_ID   },
 	{"defaults",  "                  .. restore defaults",                   CMD_DEFAULTS_ID },
 	{"version",   "                  .. this units version",                 CMD_VERSION_ID  },
-	{NULL,        "",                                                        CMD_NONE_ID     }    // last one, DO NOT delete this
+	{NULL,        "",                                                        CMD_NONE_ID     }    // last one, DO NOT delete/move this one, it must be the last entry
 };
 
 // process any received serial commands
