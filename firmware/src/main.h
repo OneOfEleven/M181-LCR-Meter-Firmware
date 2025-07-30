@@ -91,11 +91,11 @@
 
 #define CALIBRATE_COUNT              4              // number of results to average when doing the open/short calibration
 
-#define VOLTAGE_OPEN_THRESHOLD       900.0f         // RMS ADC value
-#define CURRENT_OPEN_THRESHOLD       0.000050f      // RMS ADC value
+#define VOLTAGE_OPEN_CAL_THRESHOLD   900.0f         // RMS ADC value
+#define CURRENT_OPEN_CAL_THRESHOLD   0.000050f      // RMS ADC value
 
-#define VOLTAGE_SHORT_THRESHOLD      0.4f           // RMS ADC value
-#define CURRENT_SHORT_THRESHOLD      1.0f           // RMS ADC value
+#define VOLTAGE_SHORT_CAL_THRESHOLD  0.4f           // RMS ADC value
+#define CURRENT_SHORT_CAL_THRESHOLD  1.0f           // RMS ADC value
 
 #define SAVE_SETTINGS_MS             5000           // ms we wait till we save new settings (helps reduce number of flash writes)
 

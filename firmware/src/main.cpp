@@ -28,6 +28,19 @@
 
 // ***********************************************************
 
+#ifdef TICK_INT_PRIORITY
+	#undef TICK_INT_PRIORITY
+#endif
+
+// 0  = highest priority
+// 15 = lowest priority
+//
+#define UART_RX_INT_PRIORITY       1
+#define UART_TX_DMA_INT_PRIORITY   2
+#define ADC_DMA_INT_PRIORITY       3
+#define TICK_INT_PRIORITY          4
+#define SWI_INT_PRIORITY           5
+
 enum {
 	BUTTON_HOLD = 0,
 	BUTTON_SP,
@@ -2290,9 +2303,9 @@ void draw_screen(void)
 		uint8_t probes_OK = 1;
 
 		if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION)
-			probes_OK = (rms_voltage < VOLTAGE_OPEN_THRESHOLD  || rms_current > CURRENT_OPEN_THRESHOLD)  ? 0 : 1;    // probes not fully open
+			probes_OK = (rms_voltage < VOLTAGE_OPEN_CAL_THRESHOLD  || rms_current > CURRENT_OPEN_CAL_THRESHOLD)  ? 0 : 1;    // probes not fully open
 		else
-			probes_OK = (rms_voltage > VOLTAGE_SHORT_THRESHOLD || rms_current < CURRENT_SHORT_THRESHOLD) ? 0 : 1;    // probes not fully closed
+			probes_OK = (rms_voltage > VOLTAGE_SHORT_CAL_THRESHOLD || rms_current < CURRENT_SHORT_CAL_THRESHOLD) ? 0 : 1;    // probes not fully closed
 
 		if (probes_OK)
 		{	// frequency
@@ -2416,25 +2429,27 @@ void SystemClock_Config(void)
 	HAL_SuspendTick();
 	//LL_Init1msTick(RCC_MAX_FREQUENCY);
 	LL_Init1msTick(SystemCoreClock);
-//	NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), TICK_INT_PRIORITY, 0));
-	NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 5, 0));
+	NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), TICK_INT_PRIORITY, 0));
 	LL_SYSTICK_EnableIT();
 }
 
-void MX_EXTI_Init(void)
+// enable int for internal use (not HW triggered) .. LL_EXTI_GenerateSWI_0_31()
+//
+void MX_SWI_Init(void)
 {
 	LL_EXTI_DisableIT_0_31(LL_EXTI_LINE_4);
 
-	LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_4);
-
-	// don't want any external pin changes to trigger this interrupt
+	// don't want any external pin changes/events to trigger this interrupt
 	LL_EXTI_DisableFallingTrig_0_31(LL_EXTI_LINE_4);
 	LL_EXTI_DisableRisingTrig_0_31(LL_EXTI_LINE_4);
 	LL_EXTI_DisableEvent_0_31(LL_EXTI_LINE_4);
 
+	// enable int
+
+	LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_4);
 	LL_EXTI_EnableIT_0_31(LL_EXTI_LINE_4);
 
-	NVIC_SetPriority(EXTI4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 10, 0));
+	NVIC_SetPriority(EXTI4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), SWI_INT_PRIORITY, 0));
 	NVIC_EnableIRQ(  EXTI4_IRQn);
 }
 
@@ -2486,7 +2501,7 @@ void MX_ADC_Init(void)
 			LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_1);
 			LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
 
-			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 3, 0));
+			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), ADC_DMA_INT_PRIORITY, 0));
 			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
 		}
 
@@ -2588,7 +2603,7 @@ void MX_ADC_Init(void)
 			LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_1);
 			LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
 
-			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 3, 0));
+			NVIC_SetPriority(DMA1_Channel1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), ADC_DMA_INT_PRIORITY, 0));
 			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
 		}
 
@@ -2755,7 +2770,7 @@ void MX_USART1_UART_Init(void)
 		LL_DMA_EnableIT_TE(DMA1, LL_DMA_CHANNEL_4);
 		LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_4);
 
-		NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
+		NVIC_SetPriority(DMA1_Channel4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), UART_TX_DMA_INT_PRIORITY, 0));
 		NVIC_EnableIRQ(DMA1_Channel4_IRQn);
 	}
 
@@ -2785,7 +2800,7 @@ void MX_USART1_UART_Init(void)
 	LL_USART_ClearFlag_RXNE(USART1);
 	LL_USART_EnableIT_RXNE(USART1);
 
-	NVIC_SetPriority(USART1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 1, 0));
+	NVIC_SetPriority(USART1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), UART_RX_INT_PRIORITY, 0));
 	NVIC_EnableIRQ(USART1_IRQn);
 
 	LL_USART_Enable(USART1);
@@ -3918,7 +3933,7 @@ void process_op_mode(void)
 
 		case OP_MODE_OPEN_PROBE_CALIBRATION:   // doing an OPEN probe calibration
 		{
-			if (rms_voltage < VOLTAGE_OPEN_THRESHOLD || rms_current > CURRENT_OPEN_THRESHOLD)
+			if (rms_voltage < VOLTAGE_OPEN_CAL_THRESHOLD || rms_current > CURRENT_OPEN_CAL_THRESHOLD)
 			{	// probes are not fully open
 				break;
 			}
@@ -3978,7 +3993,7 @@ void process_op_mode(void)
 
 		case OP_MODE_SHORTED_PROBE_CALIBRATION:   // doing a SHORTED probe calibration
 		{
-			if (rms_voltage > VOLTAGE_SHORT_THRESHOLD || rms_current < CURRENT_SHORT_THRESHOLD)
+			if (rms_voltage > VOLTAGE_SHORT_CAL_THRESHOLD || rms_current < CURRENT_SHORT_CAL_THRESHOLD)
 			{	// probes are not fully closed
 				break;
 			}
@@ -4155,7 +4170,7 @@ int main(void)
 
 	bootup_screen();
 
-	MX_EXTI_Init();
+	MX_SWI_Init();
 	MX_ADC_Init();
 	MX_TIM3_Init();
 
