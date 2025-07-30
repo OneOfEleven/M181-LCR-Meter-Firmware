@@ -67,92 +67,92 @@ Reset_Handler:
 
 
 
-// zero entire ram
+// zero entire ram .. 1o11
   ldr   r0,=_ram_address         // r0 = start of ram
   ldr   r1,=_ram_length          // r1 = size of ram
-	cbz		r1,fill_ram_end          // no ram
-	add		r1,r0,r1                 // r1 = r0 + r1    r1 = end of ram
-	movs	r2,#0                    // r3 = value to fill ram with
-fill_ram:
-	str		r2,[r0],#4               // *(r0++) = r2
+  cbz   r1,fill_ram2             // no ram
+  add   r1,r0,r1                 // r1 = r0 + r1    r1 = end of ram
+  movs  r2,#0                    // r3 = fill value
+fill_ram1:
+  str   r2,[r0],#4               // *r0++ = r2
   cmp   r0,r1
-  bcc   fill_ram
-fill_ram_end:
+  bcc   fill_ram1
+fill_ram2:
 
 
 
 
 
-// fill stack segment so we can see how much of the stack is used .. 1o11
-	ldr		r0,=_estack             // r0 = end of stack
-	ldr		r1,=_Min_Stack_Size     // r1 = size of stack
-	cbz		r1,fill_stack_end       // no stack
-	sub		r1,r0,r1                // r1 = r0 - r1; r1 = start of stack
-	movs	r2,#0xcccccccc          // r2 = value to fill stack with
-fill_stack:
-	str		r2,[r1],#4              // *(r1++) = r2
-	cmp		r1,r0
-	bcc		fill_stack
-fill_stack_end:
+// fill stack segment so we can see how much of the stack is really used .. 1o11
+  ldr   r0,=_estack              // r0 = end of stack
+  ldr   r1,=_Min_Stack_Size      // r1 = size of stack
+  cbz   r1,fill_stack2           // no stack
+  sub   r1,r0,r1                 // r1 = r0 - r1        r1 = start of stack
+  movs  r2,#0xCCCCCCCC           // r2 = fill value
+fill_stack1:
+  str   r2,[r1],#4               // *r1++ = r2
+  cmp   r1,r0
+  bcc   fill_stack1
+fill_stack2:
 
-// fill heap segment so we can see how much of the heap is used .. 1o11
-	ldr		r0,=_estack             // r0 = end of stack
-	ldr		r1,=_Min_Stack_Size     // r1 = size of stack
-	sub		r0,r0,r1                // r0 = r0 - r1; r1 = start of stack
-	ldr		r1,=_Min_Heap_Size      // r1 = size of heap
-	cbz		r1,fill_heap_end        // no heap
-	sub		r1,r0,r1                // r1 = r0 - r1; r1 = start of heap
-	movs	r2,#0xaaaaaaaa          // r2 = value to fill heap with
-fill_heap:
-	str		r2,[r1],#4              // *(r1++) = r2;
-	cmp		r1,r0
-	bcc		fill_heap
-fill_heap_end:
-
-
-
-
-
-// Copy the data segment initializers from flash to SRAM
-  ldr r0, =_sdata
-  ldr r1, =_edata
-  ldr r2, =_sidata
-  movs r3, #0
-  b LoopCopyDataInit
-CopyDataInit:
-  ldr r4, [r2, r3]
-  str r4, [r0, r3]
-  adds r3, r3, #4
-LoopCopyDataInit:
-  adds r4, r0, r3
-  cmp r4, r1
-  bcc CopyDataInit
+// fill heap segment so we can see how much of the heap is really used .. 1o11
+  ldr   r0,=_estack              // r0 = end of stack
+  ldr   r1,=_Min_Stack_Size      // r1 = size of stack
+  sub   r0,r0,r1                 // r0 = r0 - r1        r1 = start of stack
+  ldr   r1,=_Min_Heap_Size       // r1 = size of heap
+  cbz   r1,fill_heap2            // no heap
+  sub   r1,r0,r1                 // r1 = r0 - r1        r1 = start of heap
+  movs  r2,#0xAAAAAAAA           // r2 = fill value
+fill_heap1:
+  str   r2,[r1],#4               // *r1++ = r2
+  cmp   r1,r0
+  bcc   fill_heap1
+fill_heap2:
 
 
 
 
-// Zero fill the bss segment
-  ldr r2, =_sbss
-  ldr r4, =_ebss
-  movs r3, #0
-  b LoopFillZerobss
-FillZerobss:
-  str  r3, [r2]
-  adds r2, r2, #4
-LoopFillZerobss:
-  cmp r2, r4
-  bcc FillZerobss
+
+// copy the data segment initializers from flash to SRAM
+  ldr   r0,=_sdata
+  ldr   r1,=_edata
+  ldr   r2,=_sidata
+  movs  r3,#0
+  b     copy_data_init2
+copy_data_init1:
+  ldr   r4,[r2,r3]
+  str   r4,[r0,r3]
+  adds  r3,r3,#4
+copy_data_init2:
+  adds  r4,r0,r3
+  cmp   r4,r1
+  bcc   copy_data_init1
+
+
+
+
+// zero the bss segment
+  ldr   r2,=_sbss
+  ldr   r4,=_ebss
+  movs  r3,#0
+  b     fill_zero_bss2
+fill_zero_bss1:
+  str   r3,[r2]
+  adds  r2,r2,#4
+fill_zero_bss2:
+  cmp   r2,r4
+  bcc   fill_zero_bss1
 
 
 
 
 
 // Call static constructors
-  bl __libc_init_array
+  bl    __libc_init_array
 
-// Call the application's entry point
-  bl main
-  bx lr
+// Call the applications entry point
+  bl    main
+  bx    lr
 
 .size Reset_Handler, .-Reset_Handler
 

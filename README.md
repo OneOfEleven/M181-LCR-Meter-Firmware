@@ -27,6 +27,7 @@
 - Hold down HOLD button to perform the OPEN    probe calibration
 - Hold down S/P  button to perform the SHORTED probe calibration (not yet used)
 - Hold down RCL  button to cycle through the measurement frequencies (currently 100Hz, 300Hz and 1kHz)
+- Hold down S/P  and RCL buttons at the same time to reboot
 - Hold down HOLD and S/P buttons at the same time to clear all settings (inc calibs) and reboot
 
 ## Serial commands
