@@ -7,7 +7,7 @@
   *                - Set the initial SP
   *                - Set the initial PC == Reset_Handler,
   *                - Set the vector table entries with the exceptions ISR address
-  *                - Configure the clock system   
+  *                - Configure the clock system
   *                - Branches to main in the C library (which eventually
   *                  calls main()).
   *            After Reset the Cortex-M3 processor is in Thread mode,
@@ -60,45 +60,79 @@ defined in linker script */
   .type Reset_Handler, %function
 Reset_Handler:
 
-/* Call the clock system initialization function.*/
+// Call the clock system initialization function
     bl  SystemInit
 
-/* Copy the data segment initializers from flash to SRAM */
+
+
+
+// Copy the data segment initializers from flash to SRAM
   ldr r0, =_sdata
   ldr r1, =_edata
   ldr r2, =_sidata
   movs r3, #0
   b LoopCopyDataInit
-
 CopyDataInit:
   ldr r4, [r2, r3]
   str r4, [r0, r3]
   adds r3, r3, #4
-
 LoopCopyDataInit:
   adds r4, r0, r3
   cmp r4, r1
   bcc CopyDataInit
-  
-/* Zero fill the bss segment. */
+
+
+
+
+// Zero fill the bss segment
   ldr r2, =_sbss
   ldr r4, =_ebss
   movs r3, #0
   b LoopFillZerobss
-
 FillZerobss:
   str  r3, [r2]
   adds r2, r2, #4
-
 LoopFillZerobss:
   cmp r2, r4
   bcc FillZerobss
 
-/* Call static constructors */
-    bl __libc_init_array
-/* Call the application's entry point.*/
+
+
+// fill stack segment so we can see how much of the stack is used .. 1o11
+	ldr		r0,=_estack             // r0 = end of stack
+	ldr		r1,=_Min_Stack_Size     // r1 = size of stack
+	cbz		r1,fill_stack_end       // no stack
+	sub		r1,r0,r1                // r1 = r0 - r1; r1 = start of stack
+	movs	r2,#0xcccccccc          // r2 = value to fill stack with
+fill_stack:
+	str		r2,[r1],#4              // *(r1++) = r2;
+	cmp		r1,r0
+	bcc		fill_stack
+fill_stack_end:
+
+// fill heap segment so we can see how much of the heap is used .. 1o11
+	ldr		r0,=_estack             // r0 = end of stack
+	ldr		r1,=_Min_Stack_Size     // r1 = size of stack
+	sub		r0,r0,r1                // r0 = r0 - r1; r1 = start of stack
+	ldr		r1,=_Min_Heap_Size      // r1 = size of heap
+	cbz		r1,fill_heap_end        // no heap
+	sub		r1,r0,r1                // r1 = r0 - r1; r1 = start of heap
+	movs	r2,#0xaaaaaaaa          // r2 = value to fill heap with
+fill_heap:
+	str		r2,[r1],#4              // *(r1++) = r2;
+	cmp		r1,r0
+	bcc		fill_heap
+fill_heap_end:
+
+
+
+// Call static constructors
+  bl __libc_init_array
+
+// Call the application's entry point
   bl main
   bx lr
+
 .size Reset_Handler, .-Reset_Handler
 
 /**
@@ -360,5 +394,3 @@ g_pfnVectors:
 
   .weak USBWakeUp_IRQHandler
   .thumb_set USBWakeUp_IRQHandler,Default_Handler
-
-

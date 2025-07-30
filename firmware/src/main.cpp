@@ -32,7 +32,7 @@
 	#undef TICK_INT_PRIORITY
 #endif
 
-// 0  = highest priority
+//  0 = highest priority
 // 15 = lowest priority
 //
 #define UART_RX_INT_PRIORITY       1
@@ -722,12 +722,12 @@ typedef struct {
 
 t_goertzel goertzel = {0};
 
-// feed the supplied samples through the Goertzel filter
+// feed the supplied samples through the Goertzel DFT
 //
 // this is for the phase detector, this outputs a single I/Q pair
 //
 //std::complex <float> goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
-t_complex goertzel_block(const float *samples, const unsigned int len, const t_goertzel *g)
+t_complex goertzel_block(const float samples[], const unsigned int len, const t_goertzel *g)
 {
 	float m1 = 0;
 	float m2 = 0;
@@ -739,12 +739,12 @@ t_complex goertzel_block(const float *samples, const unsigned int len, const t_g
 		m1 = m;
 	}
 
-	const float re = (m1 * g->cos) - m2;
-	const float im = -m1 * g->sin;
+	const float real = (m1 * g->cos) - m2;
+	const float imag = -m1 * g->sin;
 
 	// correct the output sample amplitude
 	const float scale = 2.0f / len;
-	return t_complex(re * scale, im * scale);
+	return t_complex(real * scale, imag * scale);
 }
 
 // this one assumes the sample buffer contains an integer number of full sine cycles
@@ -752,38 +752,32 @@ t_complex goertzel_block(const float *samples, const unsigned int len, const t_g
 //
 // this one is for BPF filtering the waveform, the filtered wave is saved in 'out_samples', it removes all out-of-band 'noise'
 //
-//int goertzel_wrap(const float *in_samples, std::complex *out_samples, const unsigned int len, const unsigned int g_len, const t_goertzel *g)
-int goertzel_wrap(const float *in_samples, t_complex *out_samples, const unsigned int len, const unsigned int g_len, const t_goertzel *g)
+//int goertzel_wrap(const float in_samples[], std::complex out_samples[], const unsigned int len, const unsigned int g_len, const t_goertzel *g)
+int goertzel_wrap(const float in_samples[], t_complex out_samples[], const unsigned int len, const unsigned int g_len, const t_goertzel *g)
 {
-	const float scale = 2.0f / g_len;  // for correcting the output amplitude
+	const float scale = 2.0f / g_len;             // for correcting the output amplitude
 
 	for (unsigned int k = 0; k < len; k++)
 	{
 		float m1 = 0;
 		float m2 = 0;
-
-		for (unsigned int i = 0, n = k; i < g_len; i++)
+		for (unsigned int i = g_len, n = k; i > 0; i--)
 		{
 			const float m = in_samples[n] + (g->coeff * m1) - m2;
 			m2 = m1;
 			m1 = m;
 			if (++n >= len)
-				n = 0;
+				n = 0;             // wrap-a-round. we only have a couple of sine cycles in the buffer, so we use it as if their are more
 		}
-
 		const float real = (m1 * g->cos) - m2;
 		const float imag = -m1 * g->sin;
 
 		// correct the output sample amplitude
-		out_samples[k].real = real * scale;
-		out_samples[k].imag = imag * scale;
+		out_samples[k] = t_complex(real * scale, imag * scale);
 
-		// exit if the user presses a button
-		//
-		// servicing user input is paramount
-		//
-		for (unsigned int b = 0; b < BUTTON_NUM; b++)
-			if (button[b].pressed_ms > 0 || button[b].released)
+		// exit if the user presses a button, servicing user input is paramount
+		for (unsigned int i = 0; i < BUTTON_NUM; i++)
+			if (button[i].pressed_ms > 0 || button[i].released)
 				return -1;
 	}
 
@@ -792,7 +786,7 @@ int goertzel_wrap(const float *in_samples, t_complex *out_samples, const unsigne
 
 // create the Goertzel filter coeffs
 //
-// 'normalized_freq' .. fraction of sample rate, ie, 0.1, 0.4 etc  must be < 0.5 (nyquist frequency of the samples)
+// 'normalized_freq' .. fraction of sample rate, ie, 0.1, 0.4 etc  must be < 0.5 (nyquist frequency of the sample rate)
 //
 void goertzel_init(t_goertzel *g, const float normalized_freq)
 {

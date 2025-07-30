@@ -39,8 +39,8 @@ ENTRY(Reset_Handler)
 _estack = 0x20005000;		  /* end of RAM */
 
 /* Generate a link error if heap and stack don't fit into RAM */
-_Min_Heap_Size  = 512;		/* required amount of heap  */
-_Min_Stack_Size = 1024;		/* required amount of stack */
+_Min_Heap_Size  = 0;  		/* 512  size of heap  */
+_Min_Stack_Size = 1024;		/* 1024 size of stack */
 
 _EEPROM_SIZE_  = 4K;      /* emmulated EEPROM size */
 
@@ -102,7 +102,7 @@ SECTIONS
   {
   	*(.ARM.extab* .gnu.linkonce.armextab.*)
   } >FLASH
-  
+
   .ARM :
   {
     __exidx_start = .;
@@ -116,7 +116,7 @@ SECTIONS
     KEEP (*(.preinit_array*))
     PROVIDE_HIDDEN (__preinit_array_end = .);
   } >FLASH
- 
+
   .init_array :
   {
     PROVIDE_HIDDEN (__init_array_start = .);
@@ -137,7 +137,7 @@ SECTIONS
   _sidata = LOADADDR(.data);
 
   /* Initialized data sections goes into RAM, load LMA copy after code */
-  .data : 
+  .data :
   {
     . = ALIGN(4);
     _sdata = .;        /* create a global symbol at data start */
@@ -185,5 +185,3 @@ SECTIONS
 
   .ARM.attributes 0 : { *(.ARM.attributes) }
 }
-
-
