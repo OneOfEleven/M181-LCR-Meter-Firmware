@@ -377,9 +377,7 @@ typedef struct t_settings {
 	uint32_t     marker;              // settings marker - so we can find this saved block in flash area
 
 	float        series_ohms;         // the exact value of the series resistor
-
 	uint32_t     baudrate;            // uart baud rate
-
 	uint16_t     measurement_Hz;      // the sine wave measurement frequency the user is using
 	uint8_t      lcr_mode;            // the LCR mode the user has selected
 	uint8_t      sp_mode;             // the series/parallel mode the user has selected

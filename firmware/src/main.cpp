@@ -168,7 +168,7 @@ char                  str_buf[32] = {0};                              // used fo
 
 t_button              button[BUTTON_NUM] = {0};                       // holds each buttons state
 
-uint16_t              measurement_Hz = 1000;                          // current measurement frequency
+uint16_t              measurement_Hz = measurement_table_Hz[1];       // current measurement frequency
 
 uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE] = {0};       // holds look-up data for one complete sine wave cycle (for the DAC)
 
@@ -3168,7 +3168,7 @@ void EXTI4_IRQHandler(void)
 
 // ***********************************************************
 
-// wait until the user has released all buttons (for at least 200ms)
+// wait until the user has released all buttons
 //
 void wait_for_all_button_release(void)
 {
@@ -3178,14 +3178,14 @@ void wait_for_all_button_release(void)
 	{
 		__WFI();
 
-		const uint32_t tick = sys_tick;
-
-		for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
-			if (button[i].debounce > 0)
-				butt_tick = tick;
-
-		if ((tick - butt_tick) >= 200)
-			break;
+		{	// break if no butt press for >= 200ms
+			const uint32_t tick = sys_tick;
+			for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
+				if (button[i].pressed_ms > 0)
+					butt_tick = tick;
+			if ((tick - butt_tick) >= 200)
+				break;
+		}
 
 		#ifdef USE_IWDG
 			// feed the dog
@@ -4059,6 +4059,7 @@ int main(void)
 	// enable SWD JTAG config
 	LL_GPIO_AF_Remap_SWJ_NOJTAG();
 
+	#if 1
 	{	// stop stuff when debugging line-by-line
 		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_IWDG_STOP;
 		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_WWDG_STOP;
@@ -4070,9 +4071,11 @@ int main(void)
 		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_I2C2_STOP;
 		DBGMCU->CR |= LL_DBGMCU_APB1_GRP1_CAN1_STOP;
 	}
+	#endif
 
 	NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 
+	#if 1
 	{	// get reset cause
 		#pragma GCC diagnostic push
 		#pragma GCC diagnostic ignored "-Wunused-variable"
@@ -4087,6 +4090,7 @@ int main(void)
 			LL_RCC_ClearResetFlags();                           // clear the reset flags ready for the next reboot
 		#pragma GCC diagnostic pop
 	}
+	#endif
 
 	#if 0
 	{	// disable printf(), fread(), fwrite(), sscanf() etc buffering
@@ -4098,25 +4102,20 @@ int main(void)
 	}
 	#endif
 
-	{
-		button[BUTTON_HOLD].gpio_port = BUTT_HOLD_GPIO_Port;
-		button[BUTTON_HOLD].gpio_pin  = BUTT_HOLD_Pin;
+	button[BUTTON_HOLD].gpio_port = BUTT_HOLD_GPIO_Port;
+	button[BUTTON_HOLD].gpio_pin  = BUTT_HOLD_Pin;
+	button[BUTTON_SP].gpio_port   = BUTT_SP_GPIO_Port;
+	button[BUTTON_SP].gpio_pin    = BUTT_SP_Pin;
+	button[BUTTON_RCL].gpio_port  = BUTT_RCL_GPIO_Port;
+	button[BUTTON_RCL].gpio_pin   = BUTT_RCL_Pin;
 
-		button[BUTTON_SP].gpio_port   = BUTT_SP_GPIO_Port;
-		button[BUTTON_SP].gpio_pin    = BUTT_SP_Pin;
-
-		button[BUTTON_RCL].gpio_port  = BUTT_RCL_GPIO_Port;
-		button[BUTTON_RCL].gpio_pin   = BUTT_RCL_Pin;
-	}
-
-	{	// set defaults
-		settings.series_ohms    = SERIES_RESISTOR_OHMS;      // this can be calibrated using a DUT with a known resistance value
-		settings.baudrate       = UART_BAUDRATE;
-		settings.measurement_Hz = 1000;
-		settings.lcr_mode       = LCR_MODE_CAPACITANCE;
-		settings.sp_mode        = SP_MODE_AUTO;
-		settings.data_mode      = DATA_MODE_NONE;
-	}
+	// set defaults
+	settings.series_ohms    = SERIES_RESISTOR_OHMS;      // this can be calibrated using a DUT with a known resistance value
+	settings.baudrate       = UART_BAUDRATE;
+	settings.measurement_Hz = measurement_table_Hz[1];
+	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
+	settings.sp_mode        = SP_MODE_AUTO;
+	settings.data_mode      = DATA_MODE_NONE;
 
 	DWT_Delay_Init();
 	HAL_Init();
@@ -4171,35 +4170,42 @@ int main(void)
 
 	for (unsigned int i = 0; i < 20; i++)
 	{
-		if (button[BUTTON_HOLD].released)
+		if (button[BUTTON_HOLD].pressed_ms > 0 || button[BUTTON_HOLD].released)
 		{	// HOLD button was pressed whilst the boot-up display is showing
 			// so hold it for a while
-
-			button[BUTTON_HOLD].processed = 1;
 
 			wait_for_all_button_release();
 
 			const uint32_t tick = sys_tick;
 
-			// wait for 2nd button press, or 15 secs, whichever comes first
-			while (!button[BUTTON_HOLD].released || (sys_tick - tick) >= 15000)
+			// wait for 2nd button press (any butt), or 15 secs, whichever comes first
+			while ((sys_tick - tick) < 15000)
 			{
 				__WFI();
-				//LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-				LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);        // LED on
-				LL_mDelay(5);
-				LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);      // LED off
-				LL_mDelay(80);
+
+				{	// check for any butt press
+					uint8_t pressed = 0;
+					for (unsigned int b = 0; b < ARRAY_SIZE(button) && !pressed; b++)
+						if (button[b].pressed_ms > 0 || button[b].released)
+							pressed = 1;
+					if (pressed)
+						break;
+				}
+
+				{
+					//LL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+					LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);        // LED on
+					LL_mDelay(5);
+					LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);      // LED off
+					LL_mDelay(80);
+				}
+
 				#ifdef USE_IWDG
 					// feed the dog
 					service_IWDG(0);
 				#endif
 			}
 
-			if (button[BUTTON_HOLD].released)
-				button[BUTTON_HOLD].processed = 1;
-
-			wait_for_all_button_release();
 			break;
 		}
 
@@ -4210,6 +4216,8 @@ int main(void)
 			service_IWDG(0);
 		#endif
 	}
+
+	wait_for_all_button_release();
 
 	// *******
 

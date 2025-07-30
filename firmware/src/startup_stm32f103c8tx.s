@@ -60,9 +60,6 @@ defined in linker script */
   .type Reset_Handler, %function
 Reset_Handler:
 
-// Call the clock system initialization function
-    bl  SystemInit
-
 
 
 
@@ -71,7 +68,7 @@ Reset_Handler:
   ldr   r0,=_ram_address         // r0 = start of ram
   ldr   r1,=_ram_length          // r1 = size of ram
   cbz   r1,fill_ram2             // no ram
-  add   r1,r0,r1                 // r1 = r0 + r1    r1 = end of ram
+  add   r1,r0,r1                 // r1 = r0 + r1        r1 = end of ram
   movs  r2,#0                    // r3 = fill value
 fill_ram1:
   str   r2,[r0],#4               // *r0++ = r2
@@ -79,6 +76,12 @@ fill_ram1:
   bcc   fill_ram1
 fill_ram2:
 
+
+
+
+
+// Call the clock system initialization function
+  bl    SystemInit               // located in src/system_stm32f1xx.c
 
 
 
