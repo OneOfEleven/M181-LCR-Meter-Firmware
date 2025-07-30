@@ -898,7 +898,7 @@ void set_measurement_frequency(uint32_t Hz)
 	{	// fill the sine wave look-up table with one complete sine cycle
 
 		const float scale      = amplitude * (255 * 0.5f);                         // 0-255
-		const float phase_step = (2 * M_PI) / ARRAY_SIZE(sine_table);
+		const float phase_step = (2 * M_PI) / SAMPLES_PER_SINE_CYCLE;
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		//
@@ -906,7 +906,7 @@ void set_measurement_frequency(uint32_t Hz)
 		//
 		// see 9.2.4 (page 173) of the stm32f103xx reference manual about the ODR being WORD ONLY
 		//
-		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
+		for (unsigned int i = 0; i < SAMPLES_PER_SINE_CYCLE; i++)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
 
@@ -920,6 +920,20 @@ void set_measurement_frequency(uint32_t Hz)
 	}
 }
 
+// back to normal measurement mode
+//
+void start_measuring(void)
+{
+	initialising         = 1;
+	op_mode = OP_MODE_MEASURING;
+	set_measurement_frequency(settings.measurement_Hz);
+	adc_buffer_sum_count = 0;
+	vi_measure_index     = 0;
+	tmp_buffer_in_use    = 0;
+	frames               = 0;
+	initialising         = 0;
+}
+
 // initiate an OPEN probe calibration run
 //
 void start_probe_open_cal(void)
@@ -931,6 +945,7 @@ void start_probe_open_cal(void)
 	adc_buffer_sum_count = 0;
 	vi_measure_index     = 0;
 	tmp_buffer_in_use    = 0;
+	frames               = 0;
 	initialising         = 0;
 }
 
@@ -945,6 +960,7 @@ void start_probe_short_cal(void)
 	adc_buffer_sum_count = 0;
 	vi_measure_index     = 0;
 	tmp_buffer_in_use    = 0;
+	frames               = 0;
 	initialising         = 0;
 }
 
@@ -1030,7 +1046,7 @@ int process_Goertzel(void)
 	// tell DMA not to use the temp buffer, we need it for a short while
 	tmp_buffer_in_use = 1;
 
-	for (unsigned int buf_index = 0; buf_index < ARRAY_SIZE(adc_data); buf_index++)
+	for (unsigned int buf_index = 0; buf_index < 8; buf_index++)
 	{
 		const unsigned int vi_mode = buf_index >> 1;
 
@@ -2692,7 +2708,7 @@ void MX_TIM3_Init(void)
 		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_MDATAALIGN_HALFWORD);  //    "              "
 
 		LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3, (uint32_t)&sine_table, (uint32_t)&GPIOB->ODR, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, ARRAY_SIZE(sine_table));
+		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, SAMPLES_PER_SINE_CYCLE);
 	}
 
 	{	// setup the timer
@@ -3180,8 +3196,8 @@ void wait_for_all_button_release(void)
 
 		{	// break if no butt press for >= 200ms
 			const uint32_t tick = sys_tick;
-			for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
-				if (button[i].pressed_ms > 0)
+			for (unsigned int i = 0; i < BUTTON_NUM; i++)
+				if (button[i].pressed_ms > 0 || button[i].released)
 					butt_tick = tick;
 			if ((tick - butt_tick) >= 200)
 				break;
@@ -3194,7 +3210,7 @@ void wait_for_all_button_release(void)
 	}
 
 	// clear all butt press info
-	for (unsigned int i = 0; i < ARRAY_SIZE(button); i++)
+	for (unsigned int i = 0; i < BUTTON_NUM; i++)
 	{
 		button[i].processed  = 0;
 		button[i].debounce   = 0;
@@ -3974,11 +3990,8 @@ void process_op_mode(void)
 				{	// done
 					printf(NEWLINE "open probe calibration done" NEWLINE);
 
-					// restore original measurement frequency
-					set_measurement_frequency(settings.measurement_Hz);
-
 					// back to normal measurement mode
-					op_mode = OP_MODE_MEASURING;
+					start_measuring();
 				}
 			}
 
@@ -4034,11 +4047,8 @@ void process_op_mode(void)
 				{	// done
 					printf(NEWLINE "shorted probe calibration done" NEWLINE);
 
-					// restore original measurement frequency
-					set_measurement_frequency(settings.measurement_Hz);
-
 					// back to normal measurement mode
-					op_mode = OP_MODE_MEASURING;
+					start_measuring();
 				}
 			}
 
@@ -4185,7 +4195,7 @@ int main(void)
 
 				{	// check for any butt press
 					uint8_t pressed = 0;
-					for (unsigned int b = 0; b < ARRAY_SIZE(button) && !pressed; b++)
+					for (unsigned int b = 0; b < BUTTON_NUM && !pressed; b++)
 						if (button[b].pressed_ms > 0 || button[b].released)
 							pressed = 1;
 					if (pressed)
