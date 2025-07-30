@@ -228,8 +228,8 @@ t_system_data         system_data = {0};                              // various
 uint8_t               tmp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];   // buffer must be big enough for whatever uses it
 volatile uint8_t      tmp_buffer_in_use = 0;                             // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
 
-// for TX'ing binary packets via the serial port
-t_packet              tx_packet;
+// for TX'ing data via the serial port
+uint8_t               tx_buffer[sizeof(t_packet)];
 
 // serial port stuff
 struct {
@@ -3390,9 +3390,9 @@ void process_buttons(void)
 	// *************
 }
 
-// send data out via the serial port
+// send sample data out via the serial port
 //
-void send_data(void)
+void send_sample_data(void)
 {
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
 		return;     // uart DMA is still busy sending
@@ -3418,16 +3418,140 @@ void send_data(void)
 		}
 
 		case DATA_MODE_BINARY:
+		{
+			t_packet *tx_packet = (t_packet *)&tx_buffer;
+
 			// create TX packet
-			tx_packet.marker = PACKET_MARKER;                                         // packet start marker
-			memcpy(tx_packet.data, &adc_data, sizeof(adc_data));                      // packet data
-			tx_packet.crc = 0;
-			tx_packet.crc = CRC16_block(0, tx_packet.data, sizeof(tx_packet.data));   // packet CRC - compute the CRC of the data
+			tx_packet->marker = PACKET_MARKER;                                           // packet start marker
+			memcpy(&tx_packet->data, &adc_data, sizeof(adc_data));                       // packet data
+			tx_packet->crc = 0;
+			tx_packet->crc = CRC16_block(0, &tx_packet->data, sizeof(tx_packet->data));  // packet CRC - compute the CRC of the data
 
 			// sen dit
-			start_tx_dma(&tx_packet, sizeof(tx_packet));
+			start_tx_dma(tx_buffer, sizeof(t_packet));
 			break;
+		}
 	}
+}
+
+int send_dut_data(void)
+{
+	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+		return -1;     // uart DMA is still busy sending
+
+	memset(tx_buffer, 0, sizeof(tx_buffer));
+
+	const unsigned int tx_str_size = sizeof(tx_buffer);
+	char              *tx_str      = (char *)tx_buffer;
+
+	{
+		float rms_voltage = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
+		rms_voltage = adc_to_volts(rms_voltage);
+		const char rms_voltage_unit = unit_conversion(&rms_voltage, "mkMG");
+
+		float rms_current = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
+		rms_current = adc_to_volts(rms_current);
+		const char rms_current_unit = unit_conversion(&rms_current, "umkMG");
+
+		// impedance
+		float impedance = system_data.impedance;
+		const char impedance_unit = unit_conversion(&impedance, "mkMG");
+
+		const unsigned int len = strlen(tx_str);
+
+		snprintf(tx_str + len, tx_str_size - len,
+			NEWLINE
+			"DUT:" NEWLINE
+			" Freq %u Hz" NEWLINE
+			"    V %0.3f %cV rms" NEWLINE
+			"    I %0.3f %cA rms" NEWLINE
+			"  Phi %0.3f deg" NEWLINE
+			"    Z %0.3f %c" NEWLINE,
+			measurement_Hz,
+			rms_voltage, rms_voltage_unit,
+			rms_current, rms_current_unit,
+			system_data.vi_phase_deg,
+			impedance, impedance_unit
+		);
+	}
+
+	{
+		float inductance  = system_data.series.inductance;
+		float capacitance = system_data.series.capacitance;
+		float resistance  = system_data.series.resistance;
+		float esr         = system_data.series.esr;
+		float tan_delta   = system_data.series.tan_delta;
+		float qf          = system_data.series.qf;
+		float reactance   = system_data.series.reactance;
+
+		const char inductance_unit  = unit_conversion(&inductance,  "um");
+		const char capacitance_unit = unit_conversion(&capacitance, "pnum");
+		const char resistance_unit  = unit_conversion(&resistance,  "mkMG");
+		const char esr_unit         = unit_conversion(&esr,         "mkMG");
+		const char tan_delta_unit   = unit_conversion(&tan_delta,   "mkMG");
+		const char qf_unit          = unit_conversion(&qf,          "kMG");
+		const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
+
+		const unsigned int len = strlen(tx_str);
+
+		snprintf(tx_str + len, tx_str_size - len,
+			"   Ls %0.3f %cH" NEWLINE
+			"   Cs %0.3f %cF" NEWLINE
+			"   Rs %0.3f %c" NEWLINE
+			" ESRs %0.3f %c" NEWLINE
+			"   Ds %0.3f %c" NEWLINE
+			"   Qs %0.3f %c" NEWLINE
+			"   Xs %0.3f %c" NEWLINE,
+			inductance,  inductance_unit,
+			capacitance, capacitance_unit,
+			resistance,  resistance_unit,
+			esr,         esr_unit,
+			tan_delta,   tan_delta_unit,
+			qf,          qf_unit,
+			reactance,   reactance_unit
+		);
+	}
+
+	{
+		float inductance  = system_data.parallel.inductance;
+		float capacitance = system_data.parallel.capacitance;
+		float resistance  = system_data.parallel.resistance;
+		float esr         = system_data.parallel.esr;
+		float tan_delta   = system_data.parallel.tan_delta;
+		float qf          = system_data.parallel.qf;
+		float reactance   = system_data.parallel.reactance;
+
+		const char inductance_unit  = unit_conversion(&inductance,  "um");
+		const char capacitance_unit = unit_conversion(&capacitance, "pnum");
+		const char resistance_unit  = unit_conversion(&resistance,  "mkMG");
+		const char esr_unit         = unit_conversion(&esr,         "mkMG");
+		const char tan_delta_unit   = unit_conversion(&tan_delta,   "mkMG");
+		const char qf_unit          = unit_conversion(&qf,          "kMG");
+		const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
+
+		const unsigned int len = strlen(tx_str);
+
+		snprintf(tx_str + len, tx_str_size - len,
+			"   Lp %0.3f %cH" NEWLINE
+			"   Cp %0.3f %cF" NEWLINE
+			"   Rp %0.3f %c" NEWLINE
+			" ESRp %0.3f %c" NEWLINE
+			"   Dp %0.3f %c" NEWLINE
+			"   Qp %0.3f %c" NEWLINE
+			"   Xp %0.3f %c" NEWLINE,
+			inductance,  inductance_unit,
+			capacitance, capacitance_unit,
+			resistance,  resistance_unit,
+			esr,         esr_unit,
+			tan_delta,   tan_delta_unit,
+			qf,          qf_unit,
+			reactance,   reactance_unit
+		);
+	}
+
+	start_tx_dma(tx_buffer, strlen(tx_str));
+
+	return 0;
 }
 
 enum t_cmd_id : uint8_t {
@@ -3807,103 +3931,8 @@ void process_serial_command(char cmd[], unsigned int len)
 			return;
 
 		case CMD_DUT_ID:
-			{
-				float rms_voltage = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
-				rms_voltage = adc_to_volts(rms_voltage);
-				const char rms_voltage_unit = unit_conversion(&rms_voltage, "mkMG");
-
-				float rms_current = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
-				rms_current = adc_to_volts(rms_current);
-				const char rms_current_unit = unit_conversion(&rms_current, "umkMG");
-
-				// impedance
-				float impedance = system_data.impedance;
-				const char impedance_unit = unit_conversion(&impedance, "mkMG");
-
-				printf(NEWLINE
-					"DUT:" NEWLINE
-					" freq %u Hz" NEWLINE
-					"    V %0.3f %cV" NEWLINE
-					"    I %0.3f %cA" NEWLINE
-					"phase %0.3f deg" NEWLINE
-					"  imp %0.3f %cR" NEWLINE,
-					measurement_Hz,
-					rms_voltage, rms_voltage_unit,
-					rms_current, rms_current_unit,
-					system_data.vi_phase_deg,
-					impedance, impedance_unit
-				);
-			}
-
-			{
-				float inductance  = system_data.series.inductance;
-				float capacitance = system_data.series.capacitance;
-				float resistance  = system_data.series.resistance;
-				float esr         = system_data.series.esr;
-				float tan_delta   = system_data.series.tan_delta;
-				float qf          = system_data.series.qf;
-				float reactance   = system_data.series.reactance;
-
-				const char inductance_unit  = unit_conversion(&inductance,  "umkMG");
-				const char capacitance_unit = unit_conversion(&capacitance, "pnumkMG");
-				const char resistance_unit  = unit_conversion(&resistance,  "mkMG");
-				const char esr_unit         = unit_conversion(&esr,         "mkMG");
-				const char tan_delta_unit   = unit_conversion(&tan_delta,   "mkMG");
-				const char qf_unit          = unit_conversion(&qf,          "kMG");
-				const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
-
-				printf(
-					"   Ls %0.3f %cH" NEWLINE
-					"   Cs %0.3f %cF" NEWLINE
-					"   Rs %0.3f %cR" NEWLINE
-					" ESRs %0.3f %cR" NEWLINE
-					"   Ds %0.3f %c" NEWLINE
-					"   Qs %0.3f %c" NEWLINE
-					"   Xs %0.3f %cR" NEWLINE,
-					inductance,  inductance_unit,
-					capacitance, capacitance_unit,
-					resistance,  resistance_unit,
-					esr,         esr_unit,
-					tan_delta,   tan_delta_unit,
-					qf,          qf_unit,
-					reactance,   reactance_unit
-				);
-			}
-
-			{
-				float inductance  = system_data.parallel.inductance;
-				float capacitance = system_data.parallel.capacitance;
-				float resistance  = system_data.parallel.resistance;
-				float esr         = system_data.parallel.esr;
-				float tan_delta   = system_data.parallel.tan_delta;
-				float qf          = system_data.parallel.qf;
-				float reactance   = system_data.parallel.reactance;
-
-				const char inductance_unit  = unit_conversion(&inductance,  "umkMG");
-				const char capacitance_unit = unit_conversion(&capacitance, "pnumkMG");
-				const char resistance_unit  = unit_conversion(&resistance,  "mkMG");
-				const char esr_unit         = unit_conversion(&esr,         "mkMG");
-				const char tan_delta_unit   = unit_conversion(&tan_delta,   "mkMG");
-				const char qf_unit          = unit_conversion(&qf,          "kMG");
-				const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
-
-				printf(
-					"   Lp %0.3f %cH" NEWLINE
-					"   Cp %0.3f %cF" NEWLINE
-					"   Rp %0.3f %cR" NEWLINE
-					" ESRp %0.3f %cR" NEWLINE
-					"   Dp %0.3f %c" NEWLINE
-					"   Qp %0.3f %c" NEWLINE
-					"   Xp %0.3f %cR" NEWLINE,
-					inductance,  inductance_unit,
-					capacitance, capacitance_unit,
-					resistance,  resistance_unit,
-					esr,         esr_unit,
-					tan_delta,   tan_delta_unit,
-					qf,          qf_unit,
-					reactance,   reactance_unit
-				);
-			}
+			while (send_dut_data() < 0)
+				__WFI();
 			return;
 
 		case CMD_HOLD_ID:
@@ -4362,7 +4391,7 @@ int main(void)
 		if (vi_measure_index >= VI_MODE_DONE)
 		{	// completed another full measurement cycle
 			process_op_mode();
-			send_data();
+			send_sample_data();
 			frames++;
 			vi_measure_index = 0;         // start next data capture
 		}
