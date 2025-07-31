@@ -1092,7 +1092,8 @@ int process_Goertzel(void)
 
 			{	// compute waveform phase using a single Goertzel DFT on the unfiltered waveform
 				const t_complex g = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
-				system_data.phase_deg[buf_index] = (g.real != 0) ? fmodf((atan2f(g.imag, g.real) * RAD_TO_DEG) + 270, 360) : NAN;
+//				system_data.phase_deg[buf_index] = (g.real != 0) ? fmodf((atan2f(g.imag, g.real) * RAD_TO_DEG) + 270, 360) : NAN;
+				system_data.phase_deg[buf_index] = (g.real != 0) ? atan2f(g.imag, g.real) * RAD_TO_DEG : NAN;
 			}
 		}
 		else
@@ -1127,7 +1128,8 @@ int process_Goertzel(void)
 			#ifndef AVERAGE_PHASE
 			{	// compute waveform phase using a single Goertzel DFT on the filtered waveform
 				const t_complex s = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
-				system_data.phase_deg[buf_index] = (s.real != 0) ? fmodf((atan2f(s.imag, s.real) * RAD_TO_DEG) + 270, 360) : NAN;
+//				system_data.phase_deg[buf_index] = (s.real != 0) ? fmodf((atan2f(s.imag, s.real) * RAD_TO_DEG) + 270, 360) : NAN;
+				system_data.phase_deg[buf_index] = (s.real != 0) ? atan2f(s.imag, s.real) * RAD_TO_DEG : NAN;
 			}
 			#else
 			{	// compute waveform phase using all the Goertzel DFTs that filtered the entire waveform
@@ -1144,7 +1146,8 @@ int process_Goertzel(void)
 					sum.real += s.real;
 					sum.imag += s.imag;
 				}
-				system_data.phase_deg[buf_index] = (sum.real != 0) ? fmodf((atan2f(sum.imag, sum.real) * RAD_TO_DEG) + 270, 360) : NAN;
+//				system_data.phase_deg[buf_index] = (sum.real != 0) ? fmodf((atan2f(sum.imag, sum.real) * RAD_TO_DEG) + 270, 360) : NAN;
+				system_data.phase_deg[buf_index] = (sum.real != 0) ? atan2f(sum.imag, sum.real) * RAD_TO_DEG : NAN;
 			}
 			#endif
 		}
@@ -1661,9 +1664,14 @@ void process_data(void)
 	{
 		if (settings.lcr_mode == LCR_MODE_AUTO)
 		{
-
-			// todo:
-
+			// TEST ONLY
+			if (system_data.vi_phase_deg < -1.5f)
+				lcr_mode = LCR_MODE_INDUCTANCE;
+			else
+			if (system_data.vi_phase_deg >  1.5f)
+				lcr_mode = LCR_MODE_CAPACITANCE;
+			else
+				lcr_mode = LCR_MODE_RESISTANCE;
 		}
 
 		if (settings.sp_mode == SP_MODE_AUTO)
@@ -1750,7 +1758,8 @@ void process_ADC(void)
 	// we drop the hi-gain blocks if they are clipped (clipping makes the data useless)
 	// we drop the lo-gain blocks if the hi-gain blocks are usable (if no high-gain clipping detected)
 	//
-	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
+//	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
+	unsigned int average_count = (100ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
 	if (op_mode == OP_MODE_MEASURING)
 	{
 		if (display_hold)
@@ -1856,6 +1865,22 @@ void print_sprint(const unsigned int digit, const float value, char buf[], const
 				snprintf(buf, out_max_size, "%05.1f", value); // 123.4
 			else
 				snprintf(buf, out_max_size, "%04.0f", value); // 1234 (no dp)
+			break;
+
+		case 5:
+			if (v < 10)
+				snprintf(buf, out_max_size, "%06.4f", value); // 1.2345
+			else
+			if (v < 100)
+				snprintf(buf, out_max_size, "%06.3f", value); // 12.345
+			else
+			if (v < 1000)
+				snprintf(buf, out_max_size, "%06.2f", value); // 123.45
+			else
+			if (v < 10000)
+				snprintf(buf, out_max_size, "%06.1f", value); // 1234.4
+			else
+				snprintf(buf, out_max_size, "%05.0f", value); // 12345 (no dp)
 			break;
 	}
 
@@ -1990,14 +2015,12 @@ void draw_screen(void)
 				case LCR_MODE_CAPACITANCE:
 					value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.capacitance : system_data.series.capacitance;
 					break;
+				default:
 				case LCR_MODE_RESISTANCE:
 					value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.resistance : system_data.series.resistance;
 					break;
-				case LCR_MODE_AUTO:
-
-					// TODO: add AUTO mode code
-
-					break;
+//				case LCR_MODE_AUTO:
+//					break;
 			}
 
 			//char unit = unit_conversion(&value, "fpnumkMG");
@@ -2037,6 +2060,7 @@ void draw_screen(void)
 						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
 					break;
 
+				default:
 				case LCR_MODE_RESISTANCE:
 					unit = unit_conversion(&value, "mkMG");
 					if (unit == 'm')
@@ -2052,11 +2076,8 @@ void draw_screen(void)
 						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
 					break;
 
-				case LCR_MODE_AUTO:
-
-					// TODO: add AUTO mode code
-
-					break;
+//				case LCR_MODE_AUTO:
+//					break;
 			}
 
 			// print the DUT value
@@ -2098,6 +2119,7 @@ void draw_screen(void)
 					break;
 				}
 
+				default:
 				case LCR_MODE_RESISTANCE:
 				{
 					if (unit != ' ')
@@ -2119,11 +2141,8 @@ void draw_screen(void)
 					break;
 				}
 
-				case LCR_MODE_AUTO:
-
-					// todo:
-
-					break;
+//				case LCR_MODE_AUTO:
+//					break;
 			}
 		}
 
@@ -2137,6 +2156,7 @@ void draw_screen(void)
 		}
 		#endif
 
+		#if 0
 		{	// show current serial/parallel mode
 			const char *sp[] = {"Rs", "Rp", "R-", "ER"};
 			const char *s = NULL;
@@ -2151,6 +2171,21 @@ void draw_screen(void)
 			ssd1306_SetCursor(SSD1306_WIDTH - (2 * font_8x12.width), LINE3_Y);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
+		#else
+		{	// show the current LCR mode
+			memset(str_buf, 0, 2);
+			switch (settings.lcr_mode)
+			{
+				case LCR_MODE_INDUCTANCE:  str_buf[0] = 'L'; break;
+				case LCR_MODE_CAPACITANCE: str_buf[0] = 'C'; break;
+				case LCR_MODE_RESISTANCE:  str_buf[0] = 'R'; break;
+				case LCR_MODE_AUTO:        str_buf[0] = 'A'; break;
+				default:                   str_buf[0] = '?'; break;
+			}
+			ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width), LINE3_Y);
+			ssd1306_WriteString(str_buf, &font_8x12, White);
+		}
+		#endif
 
 		// ***************************
 		// Line 3
@@ -2250,6 +2285,7 @@ void draw_screen(void)
 
 				break;
 
+			default:
 			case LCR_MODE_RESISTANCE:
 				{	// inductance
 					float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
@@ -2284,11 +2320,8 @@ void draw_screen(void)
 
 				break;
 
-			case LCR_MODE_AUTO:
-
-				// todo:
-
-				break;
+//			case LCR_MODE_AUTO:
+//				break;
 		}
 
 		// ***************************
@@ -3371,8 +3404,8 @@ void process_buttons(void)
 			if (!(settings.flags & SETTING_FLAG_FAST_UPDATES))
 			{
 				uint8_t mode = settings.lcr_mode;
-				//if (++mode > LCR_MODE_AUTO)               // TODO: add AUTO mode code
-				if (++mode > LCR_MODE_RESISTANCE)
+				if (++mode > LCR_MODE_AUTO)               // TEST ONLY
+//				if (++mode > LCR_MODE_RESISTANCE)
 					mode = LCR_MODE_INDUCTANCE;
 				settings.lcr_mode = mode;
 				lcr_mode          = mode;
@@ -3455,6 +3488,8 @@ int send_dut_data(void)
 		const char impedance_unit = unit_conversion(&impedance, "mkMG");
 
 		const unsigned int len = strlen(tx_str);
+
+		//print_sprint(5, value, str_buf, sizeof(str_buf), 1);
 
 		snprintf(tx_str + len, tx_str_size - len,
 			NEWLINE
@@ -3688,11 +3723,15 @@ void process_serial_command(char cmd[], unsigned int len)
 	// **********
 	// process the command
 
+//	wait_tx_dma(500);
+
 	switch (cmd_id)
 	{
 		case CMD_HELP_ID1:
 		case CMD_HELP_ID2:
 		{
+//			wait_tx_dma(500);
+
 			unsigned int cmd_max_len = 0;
 			for (unsigned int i = 0; cmds[i].token != NULL && cmds[i].id != CMD_NONE_ID; i++)
 			{
@@ -3845,9 +3884,9 @@ void process_serial_command(char cmd[], unsigned int len)
 					case LCR_MODE_RESISTANCE:
 						s = lcr[2];
 						break;
-//					case LCR_MODE_AUTO:
-//						s = lcr[3];
-//						break;
+					case LCR_MODE_AUTO:
+						s = lcr[3];
+						break;
 				}
 				printf(NEWLINE "lcr mode %s" NEWLINE, (s != NULL) ? s : "");
 			}
@@ -3955,8 +3994,8 @@ void process_serial_command(char cmd[], unsigned int len)
 			return;
 
 		case CMD_DUT_ID:
-			while (send_dut_data() < 0)
-				__WFI();
+//			wait_tx_dma(500);
+			send_dut_data();
 			return;
 
 		case CMD_HOLD_ID:
@@ -4006,6 +4045,14 @@ void process_serial_command(char cmd[], unsigned int len)
 //
 void process_uart_receive(void)
 {
+	// we will need to respond to any serial commands we receive
+	// so, for now, leave any rx'ed commands in the buffer until we are able to respond (ie, when the uart TX becomes free for use)
+	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
+	{	// still busy sending
+		serial.rx.timer = 0;                     // stop RX timing out until we're ready
+		return;
+	}
+
 	const uint32_t buf_wr = serial.rx.buffer_wr;
 	uint32_t       buf_rd = serial.rx.buffer_rd;
 
@@ -4017,7 +4064,7 @@ void process_uart_receive(void)
 	}
 
 	if (buf_rd == buf_wr)
-		return;                          // no new RX data to process
+		return;                                  // no new RX data to process
 
 	// process the new RX'ed data
 
@@ -4030,7 +4077,7 @@ void process_uart_receive(void)
 		// number of bytes in our RX buffer waiting to be processed
 		uint32_t num = (buf_wr >= buf_rd) ? buf_wr - buf_rd : rx_buf_size - buf_rd;
 		if (num == 0)
-			break;                       // hmm, no new data ??
+			break;                               // hmm, no new data ??
 
 		// limit to fit into our RX text line buffer
 		num = (num > (line_buf_size - line_wr)) ? line_buf_size - line_wr : num;

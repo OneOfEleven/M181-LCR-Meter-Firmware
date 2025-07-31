@@ -36,7 +36,7 @@
 	#define M_PI                     3.14159265358979323846264338327950288
 #endif
 
-#define FW_VERSION                   "1.0b"
+#define FW_VERSION                   "1.0c"
 
 #define NEWLINE                      "\n"
 
@@ -341,7 +341,7 @@ enum {
 	LCR_MODE_INDUCTANCE = 0,
 	LCR_MODE_CAPACITANCE,
 	LCR_MODE_RESISTANCE,
-	LCR_MODE_AUTO                     // TODO: add AUTO mode code
+	LCR_MODE_AUTO
 };
 
 // Series/Parallel mode
