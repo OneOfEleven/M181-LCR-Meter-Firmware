@@ -15,17 +15,19 @@
 <img src="firmware/docs/pcb_finished.png" alt="image" style="width:500px;height:auto;">
 
 ## Main tasks to be completed on this firmware
-- [ ] Auto calibration option
-- [ ] Change some PCB component values to allow a 10kHz option (see LTspice sims)
+- [ ] Track down any remaining bugs (let me know if you spot any)
+- [ ] Auto calibration
+- [ ] Change some PCB component values to add a 10kHz option (see LTspice sims)
+- [ ] Add a menu system (flash space dependant)
 
 ## Buttons ..
 
 - Press HOLD button to toggle display hold/pause
 - Press S/P button to cycle through serial, parallel and auto mode
-- Press RCL button to cycle through the R, L and C modes (inc their fast modes)
+- Press RCL button to cycle through R, L and C modes (inc their fast modes, currently no auto LCR mode)
 -
-- Hold down HOLD button to perform the OPEN    probe calibration
-- Hold down S/P  button to perform the SHORTED probe calibration
+- Hold down HOLD button to perform OPEN    probe calibration
+- Hold down S/P  button to perform SHORTED probe calibration
 - Hold down RCL  button to cycle through the measurement frequencies (currently 100Hz, 1kHz)
 - Hold down S/P  and RCL buttons at the same time to reboot
 - Hold down HOLD and S/P buttons at the same time to clear all settings (inc calibs) and reboot
@@ -45,10 +47,10 @@
 <img src="firmware/docs/LCR_Meter_Program_Setup.jpg" alt="image" style="width:400px;height:auto;">
 
 ## STLinkV2 MCU programming
-- Programmer → STLink-V2 (chinese clone)
-- Interface  → SWD
-- IDE        → VSCode + PlatformIO
-- Framework  → STM32Cube
+- Programmer   → STLink-V2 (chinese clone)
+- Interface    → SWD
+- IDE/Compiler → VSCode + PlatformIO
+- Framework    → STM32Cube
 
 <img src="firmware/docs/LCR_Meter_Program_Setup_STLinkV2.png" alt="image" style="width:400px;height:auto;">
 
@@ -137,7 +139,7 @@ To reduce this leakage/noise level ..
 
 # Beware !
 
-The seller (jyetech guy) of these boards is using a fake/counterfeit MCU (STM32F103C8) on this board.
+The seller (jyetech guy) of these boards is using a fake/counterfeit MCU (STM32F103C8) on this board, we did not know at the time of buying that the seller/designer is a counterfeit peddler :( .. this is a prison sentance in some countries if the person in question is tracked down.
 
 Also, the voltage inverter they are fitting to the board is NOT as stated on the schematic. The device they are fitting is quite different (MUCH lower switching frequency that is causing noise problems).
 
