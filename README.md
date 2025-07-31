@@ -66,6 +66,13 @@
 * ER → Equivalent Series Resistor(ESR)
 * D → Dissipation factor (or) Tan Delta
 
+# STM32F103C8 drop-in replacements with FPU's to improve computation time and increase flash and RAM space ..
+
+- STM32F303CBT6
+- STM32L412CBT6
+- STM32L431CCT6 .. this one also has FIR/IIR (multiply-add) HW
+- STM32L433CBT6
+	
 # New firmware displays
 <img src="firmware/docs/new_firmware.png" alt="image" style="width:500px;height:auto;">
 
