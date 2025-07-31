@@ -297,42 +297,30 @@ void trim_leading_zeros(char buf[])
 	if (i >= len)
 		return;              // no numbers found
 
-	if (buf[i] == '-')
-	{	// negative
+	const uint8_t negative = (buf[i] == '-') ? 1 : 0;
 
-		// remove the '-'
-		buf[i] = ' ';
+	if (negative)
+		buf[i++] = ' ';      // remove the '-'
 
-		// trim leading zeroes
-		for (unsigned int k = i + 1; k < (len - 1); k++)
-		{
-			if (buf[k] != '0')
-				break;
-			if (buf[k + 1] < '0' || buf[k + 1] > '9')  // following character not a number
-				break;
-			buf[k] = ' ';
-		}
+	// trim leading zeroes
+	for (unsigned int k = i; k < (len - 1); k++)
+	{
+		if (buf[k] != '0')
+			break;
+		if (buf[k + 1] < '0' || buf[k + 1] > '9')  // following character not a number
+			break;
+		buf[k] = ' ';
+	}
 
-		// put the '-' back
-		for (unsigned int k = i + 1; k < (len - 1); k++)
+	if (negative)
+	{	// put the '-' back
+		for (unsigned int k = i; k < (len - 1); k++)
 		{
 			if (buf[k] != ' ')
 			{
 				buf[k - 1] = '-';
 				break;
 			}
-		}
-	}
-	else
-	{
-		// trim leading zeroes
-		for (unsigned int k = i; k < (len - 1); k++)
-		{
-			if (buf[k] != '0')
-				break;
-			if (buf[k + 1] < '0' || buf[k + 1] > '9')  // following character not a number
-				break;
-			buf[k] = ' ';
 		}
 	}
 }

@@ -153,11 +153,9 @@ The main seller (jyetech guy) is using a counterfeit MCU (STM32F103C8) on this b
 
 Also, the voltage inverter they are fitting to the board is NOT as stated on the schematic. The device they are fitting is quite different (MUCH lower switching frequency that is causing noise problems).
 
+Such is the way of the 'inhuman' race :(
+
 So if you use the STM32CubeIDE to compile and program the MCU, don't be suprised if it refuses to flash program the MCU - can't blame ST for doing that !
-
-Such is the way of the 'inhuman' race :( .. but then, 'intelligence' is not about our overriding self-important superiority complex, the universe appears to only give a damn about lifeforms that live in harmony with their environment.
-
-- Terra/Earth is in desperate need of another reboot !
 
 # Wiki
 
