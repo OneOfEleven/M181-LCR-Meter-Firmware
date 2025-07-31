@@ -321,6 +321,14 @@
 
 // *******************************
 
+// User push butons
+enum {
+	BUTTON_HOLD = 0,
+	BUTTON_SP,
+	BUTTON_RCL,
+	BUTTON_COUNT
+};
+
 // Operating mode
 enum {
 	OP_MODE_MEASURING = 0,

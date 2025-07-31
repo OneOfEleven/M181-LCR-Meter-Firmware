@@ -41,13 +41,6 @@
 #define TICK_INT_PRIORITY          4
 #define SWI_INT_PRIORITY           5
 
-enum {
-	BUTTON_HOLD = 0,
-	BUTTON_SP,
-	BUTTON_RCL,
-	BUTTON_NUM
-};
-
 typedef struct {
 	GPIO_TypeDef     *gpio_port;       // the GPIO port for the button
 	uint32_t          gpio_pin;        // the GPIO pin for the button
@@ -70,7 +63,7 @@ typedef struct {
 	int32_t afc;
 } t_adc_dma_data_32;
 
-// complex float number
+// complex float
 typedef struct t_complex {
 	float real;
 	float imag;
@@ -94,7 +87,7 @@ typedef struct t_complex {
 	}
 } t_complex;
 
-// serial binary data packet
+// binary data packet
 #pragma pack(push, 1)
 	typedef struct {
 		uint32_t marker;
@@ -102,7 +95,7 @@ typedef struct t_complex {
 		//uint8_t  seq_num;
 		//uint8_t  data_type;
 		//uint16_t data_size;
-		float    data[ADC_DATA_LENGTH * (VI_MODE_COUNT * 2)];
+		float    data[ADC_DATA_LENGTH * VI_MODE_COUNT * 2];
 	} t_packet;
 #pragma pack(pop)
 
@@ -164,17 +157,17 @@ volatile uint32_t     sys_tick = 0;                                   // our own
 
 LL_RCC_ClocksTypeDef  rcc_clocks = {0};                               // various CPU clock frequencies
 
-char                  str_buf[32] = {0};                              // used for various things
+char                  str_buf[64] = {0};                              // used for various things
 
-t_button              button[BUTTON_NUM] = {0};                       // holds each buttons state
-
-uint16_t              measurement_Hz = measurement_table_Hz[1];       // current measurement frequency
+t_button              button[BUTTON_COUNT] = {0};                     // holds each buttons state
 
 uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE] = {0};       // holds look-up data for one complete sine wave cycle (for the DAC)
 
-uint8_t               lcr_mode = LCR_MODE_CAPACITANCE;                // LCR mode we're currently in
-uint8_t               sp_mode  = SP_MODE_SERIES;                      // Series/Parallel mode we're currently in
-uint8_t               op_mode  = OP_MODE_MEASURING;                   // operating mode we're currently in
+uint16_t              measurement_Hz = measurement_table_Hz[1];       // current measurement frequency
+
+uint8_t               lcr_mode = LCR_MODE_CAPACITANCE;                // current LCR mode
+uint8_t               sp_mode  = SP_MODE_SERIES;                      // current Series/Parallel/Auto mode
+uint8_t               op_mode  = OP_MODE_MEASURING;                   // current operating mode
 
 uint8_t               initialising      = 1;                          // set to '1' pauses the ADC buffer processing (ADC keeps going though, it's never stopped)
 unsigned int          display_hold      = 0;                          // set to '1' to hold/pause the display
@@ -183,18 +176,19 @@ uint32_t              draw_screen_count = 0;                          //   "    
 
 // for when the user is running the calibrations (open, short, load)
 struct {
-	unsigned int      index_Hz;                                       // current measurement frequency
+	unsigned int      index_Hz;                                       // measurement frequency index
 	int               count;                                          // number of complete VI meaurements
 	float             mag_sum[VI_MODE_COUNT * 2];                     // for averaging the measurements
 	t_complex         phase_sum[VI_MODE_COUNT * 2];                   //  "       "
 } calibrate = {0};
 
-uint8_t               volt_gain_sel   = 0;                            // voltage V gain path we're using
-uint8_t               amp_gain_sel    = 0;                            // current I gain path we're using
+uint8_t               volt_gain_sel = 0;                              // voltage V gain path we're using
+uint8_t               amp_gain_sel  = 0;                              // current I gain path we're using
 
 uint8_t               gain_changed = 0;                               // just a flag that's set if we change either gain path
 
-float                 high_gain       = 101;                          // HW gain when using the HIGH gain path
+float                 high_gain = 101;                                // HW gain value when using the HIGH gain path
+
 float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse value of the series resistor in series with the DUT (the LOAD cal calibrates this value)
 
 // ADC DMA raw sample buffer
@@ -202,34 +196,33 @@ t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];             // *2 for 
 
 // ADC sample block averaging buffer
 // we take several sample blocks and average them together to reduce noise (bad PCB layout/design)
-t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};          // average summing buffer
-unsigned int          adc_buffer_sum_count            = 0;            // average summing counter
+t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};               // average summing buffer
+unsigned int          adc_buffer_sum_count            = 0;                 // average summing counter
 
 // VI mode sequence order to minimize mode switching time
 // because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins, large DC spike occurs)
-const uint8_t         vi_measure_mode_table[] = {0, 1, 3, 2};         // the VI mode sequennce we use
-volatile uint8_t      vi_measure_index        = 0;                    // current VI stage we're at
+const uint8_t         vi_measure_mode_table[] = {0, 1, 3, 2};              // the VI mode sequennce we use
+volatile uint8_t      vi_measure_index        = 0;                         // current VI stage we're at
 
 #pragma pack(push, 1)
-float                 adc_data[8][ADC_DATA_LENGTH] = {0};             // holds the final averaged/filtered samples from each VI mode
+float                 adc_data[VI_MODE_COUNT * 2][ADC_DATA_LENGTH] = {0};  // holds the final averaged/filtered samples from each VI mode
 #pragma pack(pop)
 
 // set to '1' if waveform clipping/saturation is detected
 // if the HIGH gain waveform is being clipped, then we can't use it, we use the LOW gain samples instead
-uint8_t               adc_data_clipping[VI_MODE_COUNT] = {0};         // temp as we go
-uint8_t               adc_data_clipped[VI_MODE_COUNT]  = {0};         // saved here at the end of the full VI sample cycle
+uint8_t               adc_data_clipping[VI_MODE_COUNT] = {0};              // temp as we go
+uint8_t               adc_data_clipped[VI_MODE_COUNT]  = {0};              // saved here at the end of the full VI sample cycle
 
 // user/system settings are stored in flash area
-volatile int          save_settings_timer = -1;                       // we use a timer to help reduce flash wear (limited write cycles)
-t_settings            settings            = {0};                      // the system/users settings
+volatile int          save_settings_timer = -1;                            // we use a timer to help reduce flash wear (limited write cycles)
+t_settings            settings            = {0};                           // the system/users settings
 
-t_system_data         system_data = {0};                              // various results saved in here
+t_system_data         system_data = {0};                                   // various results saved in here
 
-uint8_t               tmp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];   // buffer must be big enough for whatever uses it
-volatile uint8_t      tmp_buffer_in_use = 0;                             // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
+uint8_t               tmp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];     // buffer must be big enough for whatever uses it
+volatile uint8_t      tmp_buffer_in_use = 0;                               // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
 
-// for TX'ing data via the serial port
-uint8_t               tx_buffer[sizeof(t_packet)];
+uint8_t               tx_buffer[sizeof(t_packet)];                         // for TX'ing data via the serial port, must be big enough for everything that uses it
 
 // serial port stuff
 struct {
@@ -292,8 +285,8 @@ void trim_leading_zeros(char buf[])
 	if (buf == NULL)
 		return;
 
-	if (strchr(buf, '.') == NULL)
-		return;                    // no DP found
+//	if (strchr(buf, '.') == NULL)
+//		return;                    // no decimal point found
 
 	const int len = strlen(buf);
 
@@ -306,7 +299,11 @@ void trim_leading_zeros(char buf[])
 		// trim leading zeroes
 		for (int i = 1; i < (len - 1); i++)
 		{
-			if (buf[i] != '0' || buf[i + 1] == '.')
+			if (buf[i] != '0')
+				break;
+//			if (buf[i + 1] == '.')
+//				break;
+			if (buf[i + 1] < '0' || buf[i + 1] > '9')
 				break;
 			buf[i] = ' ';
 		}
@@ -341,13 +338,13 @@ void trim_trailing_zeros(char buf[])
 		return;
 
 	if (strchr(buf, '.') == NULL)
-		return;                    // no DP found
+		return;                    // no decimal point found
 
 	const unsigned int len = strlen(buf);
 	if (len == 0)
 		return;
 
-	// find the end of the fp number
+	// find the end of the floating point number
 	unsigned int index = len - 1;
 	while (index > 0 && (buf[index] < '0' || buf[index] > '9'))
 		index--;
@@ -360,14 +357,14 @@ void trim_trailing_zeros(char buf[])
 	while (index2 > 0 && buf[index2] == '0')
 		index2--;
 
-	// drop the DP if it's left on it's own
+	// drop the decimal point if it's left on it's own
 	if (buf[index2] == '.')
 		index2--;
 
 	if (++index2 >= index)
 		return;
 
-	// remove trailing zeros (inc the DP if need be)
+	// remove trailing zeros (inc the decimal point if it's all alone)
 	memmove(buf + index2, buf + index, len + 1 - (index - index2));
 }
 
@@ -776,7 +773,7 @@ int goertzel_wrap(const float in_samples[], t_complex out_samples[], const unsig
 		out_samples[k] = t_complex(real * scale, imag * scale);
 
 		// exit if the user presses a button, servicing user input is paramount
-		for (unsigned int i = 0; i < BUTTON_NUM; i++)
+		for (unsigned int i = 0; i < BUTTON_COUNT; i++)
 			if (button[i].pressed_ms > 0 || button[i].released)
 				return -1;
 	}
@@ -3007,7 +3004,7 @@ void SysTick_Handler(void)
 
 		const int debounce_ms = 30;     // 30ms debounce time
 
-		for (unsigned int i = 0; i < BUTTON_NUM; i++)
+		for (unsigned int i = 0; i < BUTTON_COUNT; i++)
 		{
 			t_button *butt = &button[i];
 			if (butt->gpio_port == NULL)
@@ -3205,7 +3202,7 @@ void wait_for_all_button_release(void)
 
 		{	// break if no butt press for >= 200ms
 			const uint32_t tick = sys_tick;
-			for (unsigned int i = 0; i < BUTTON_NUM; i++)
+			for (unsigned int i = 0; i < BUTTON_COUNT; i++)
 				if (button[i].pressed_ms > 0 || button[i].released)
 					butt_tick = tick;
 			if ((tick - butt_tick) >= 200)
@@ -3219,7 +3216,7 @@ void wait_for_all_button_release(void)
 	}
 
 	// clear all butt press info
-	for (unsigned int i = 0; i < BUTTON_NUM; i++)
+	for (unsigned int i = 0; i < BUTTON_COUNT; i++)
 	{
 		button[i].processed  = 0;
 		button[i].debounce   = 0;
@@ -3256,7 +3253,7 @@ void process_buttons(void)
 	{	// busy calibrating
 
 		// ignore any button presses during calibration
-		for (unsigned int i = 0; i < BUTTON_NUM; i++)
+		for (unsigned int i = 0; i < BUTTON_COUNT; i++)
 			button[i].processed = 1;
 
 		return;
@@ -4362,7 +4359,7 @@ int main(void)
 
 				{	// check for any butt press
 					uint8_t pressed = 0;
-					for (unsigned int b = 0; b < BUTTON_NUM && !pressed; b++)
+					for (unsigned int b = 0; b < BUTTON_COUNT && !pressed; b++)
 						if (button[b].pressed_ms > 0 || button[b].released)
 							pressed = 1;
 					if (pressed)
