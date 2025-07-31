@@ -20,19 +20,19 @@
 
 ## Buttons ..
 
-- Press the HOLD button to toggle display hold/pause
-- Press the S/P to toggle between serial and parallel mode
-- Press the RCL button to cycle through the R, L and C modes (inc their fast modes)
+- Press HOLD button to toggle display hold/pause
+- Press S/P button to cycle through serial, parallel and auto mode
+- Press RCL button to cycle through the R, L and C modes (inc their fast modes)
 -
 - Hold down HOLD button to perform the OPEN    probe calibration
-- Hold down S/P  button to perform the SHORTED probe calibration (not yet used)
-- Hold down RCL  button to cycle through the measurement frequencies (currently 100Hz, 300Hz and 1kHz)
+- Hold down S/P  button to perform the SHORTED probe calibration
+- Hold down RCL  button to cycle through the measurement frequencies (currently 100Hz, 1kHz)
 - Hold down S/P  and RCL buttons at the same time to reboot
 - Hold down HOLD and S/P buttons at the same time to clear all settings (inc calibs) and reboot
 
 ## Serial commands
 
-- For a list of commands so far implemented and what they do, just send (on the serial link) '?' or 'help' (followed by line feed)
+- For a list of commands so far implemented and what they do, just send (on the serial link) '?' or 'help' followed by line feed (or cr/lf, lf/cr or cr). What you get back though is defaulted to just LF line terminations.
 
 # System Overview ..
 
@@ -45,9 +45,9 @@
 <img src="firmware/docs/LCR_Meter_Program_Setup.jpg" alt="image" style="width:400px;height:auto;">
 
 ## STLinkV2 MCU programming
-- Programmer → STLink-V2
+- Programmer → STLink-V2 (chinese clone)
 - Interface  → SWD
-- IDE        → PlatformIO
+- IDE        → VSCode + PlatformIO
 - Framework  → STM32Cube
 
 <img src="firmware/docs/LCR_Meter_Program_Setup_STLinkV2.png" alt="image" style="width:400px;height:auto;">
