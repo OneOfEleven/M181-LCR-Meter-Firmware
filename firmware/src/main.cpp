@@ -1664,7 +1664,8 @@ void process_data(void)
 	{
 		if (settings.lcr_mode == LCR_MODE_AUTO)
 		{
-			// TEST ONLY
+			// TODO: need to do better than a hard threshold check, maybe add some hysteresis
+			//
 			if (system_data.vi_phase_deg < -1.5f)
 				lcr_mode = LCR_MODE_INDUCTANCE;
 			else
@@ -1682,11 +1683,30 @@ void process_data(void)
 				else
 				if (system_data.impedance >= SP_AUTO_HIGH_OHMS_THRESHOLD)
 					sp_mode = SP_MODE_PARALLEL;
-			#else
+			#elif 0
 				if (system_data.series.esr <= SP_AUTO_LOW_OHMS_THRESHOLD)
 					sp_mode = SP_MODE_SERIES;
 				else
 				if (system_data.series.esr >= SP_AUTO_HIGH_OHMS_THRESHOLD)
+					sp_mode = SP_MODE_PARALLEL;
+			#elif 0
+				if (system_data.vi_phase_deg > -5.0f && system_data.vi_phase_deg < 5.0f)
+					sp_mode = SP_MODE_PARALLEL;
+				else
+				if (system_data.series.esr <= SP_AUTO_LOW_OHMS_THRESHOLD)
+					sp_mode = SP_MODE_SERIES;
+				else
+				if (system_data.series.esr >= SP_AUTO_HIGH_OHMS_THRESHOLD)
+					sp_mode = SP_MODE_PARALLEL;
+			#else
+				if (system_data.vi_phase_deg > -5.0f && system_data.vi_phase_deg < 5.0f)
+//					sp_mode = SP_MODE_PARALLEL;
+					sp_mode = SP_MODE_SERIES;
+				else
+				if (system_data.impedance <= SP_AUTO_LOW_OHMS_THRESHOLD)
+					sp_mode = SP_MODE_SERIES;
+				else
+				if (system_data.impedance >= SP_AUTO_HIGH_OHMS_THRESHOLD)
 					sp_mode = SP_MODE_PARALLEL;
 			#endif
 		}
