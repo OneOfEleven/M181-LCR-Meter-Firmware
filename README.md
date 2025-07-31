@@ -149,11 +149,14 @@ To reduce this leakage/noise level ..
 
 # BEWARE !
 
-The seller (jyetech guy) is using a counterfeit MCU (STM32F103C8) on this board, we did not know at the time of buying :( .. selling counterfeit parts is a prison sentance in some countries.
+The main seller (jyetech guy) is using a counterfeit MCU (STM32F103C8) on this board, we did not know at the time of buying :( .. selling counterfeit parts is a prison sentance in some countries.
 
 Also, the voltage inverter they are fitting to the board is NOT as stated on the schematic. The device they are fitting is quite different (MUCH lower switching frequency that is causing noise problems).
 
 So if you use the STM32CubeIDE to compile and program the MCU, don't be suprised if it refuses to flash program the MCU - can't blame ST for doing that !
+
+Welcome to the 'inhuman' race :( .. but then, 'intelligence' has nothing to do with having a self-important superiority complex, the universe only gives a damn about lifeforms that live in harmony with their environment.
+Earth requires another reboot !
 
 # Wiki
 
