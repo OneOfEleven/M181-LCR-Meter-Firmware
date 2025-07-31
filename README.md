@@ -156,7 +156,8 @@ Also, the voltage inverter they are fitting to the board is NOT as stated on the
 So if you use the STM32CubeIDE to compile and program the MCU, don't be suprised if it refuses to flash program the MCU - can't blame ST for doing that !
 
 Welcome to the 'inhuman' race :( .. but then, 'intelligence' has nothing to do with having a self-important superiority complex, the universe only gives a damn about lifeforms that live in harmony with their environment.
-Earth requires another reboot !
+
+- Terra/Earth is desperate for another reboot !
 
 # Wiki
 
