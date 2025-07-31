@@ -91,6 +91,10 @@
 
 #define CALIBRATE_COUNT              4              // number of results to average when doing the open/short calibration
 
+#define LCR_AUTO_PHASE_THRESHOLD     2.5f
+
+#define SP_AUTO_PHASE_THRESHOLD      5.0f
+
 #define VOLTAGE_OPEN_CAL_THRESHOLD   900.0f         // RMS ADC value
 #define CURRENT_OPEN_CAL_THRESHOLD   0.000050f      // RMS ADC value
 

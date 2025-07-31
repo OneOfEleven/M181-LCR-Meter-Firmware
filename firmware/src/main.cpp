@@ -1092,7 +1092,6 @@ int process_Goertzel(void)
 
 			{	// compute waveform phase using a single Goertzel DFT on the unfiltered waveform
 				const t_complex g = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
-//				system_data.phase_deg[buf_index] = (g.real != 0) ? fmodf((atan2f(g.imag, g.real) * RAD_TO_DEG) + 270, 360) : NAN;
 				system_data.phase_deg[buf_index] = (g.real != 0) ? atan2f(g.imag, g.real) * RAD_TO_DEG : NAN;
 			}
 		}
@@ -1128,7 +1127,6 @@ int process_Goertzel(void)
 			#ifndef AVERAGE_PHASE
 			{	// compute waveform phase using a single Goertzel DFT on the filtered waveform
 				const t_complex s = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
-//				system_data.phase_deg[buf_index] = (s.real != 0) ? fmodf((atan2f(s.imag, s.real) * RAD_TO_DEG) + 270, 360) : NAN;
 				system_data.phase_deg[buf_index] = (s.real != 0) ? atan2f(s.imag, s.real) * RAD_TO_DEG : NAN;
 			}
 			#else
@@ -1146,7 +1144,6 @@ int process_Goertzel(void)
 					sum.real += s.real;
 					sum.imag += s.imag;
 				}
-//				system_data.phase_deg[buf_index] = (sum.real != 0) ? fmodf((atan2f(sum.imag, sum.real) * RAD_TO_DEG) + 270, 360) : NAN;
 				system_data.phase_deg[buf_index] = (sum.real != 0) ? atan2f(sum.imag, sum.real) * RAD_TO_DEG : NAN;
 			}
 			#endif
@@ -1666,10 +1663,10 @@ void process_data(void)
 		{
 			// TODO: need to do better than a hard threshold check, maybe add some hysteresis
 			//
-			if (system_data.vi_phase_deg < -1.5f)
+			if (system_data.vi_phase_deg < -LCR_AUTO_PHASE_THRESHOLD)
 				lcr_mode = LCR_MODE_INDUCTANCE;
 			else
-			if (system_data.vi_phase_deg >  1.5f)
+			if (system_data.vi_phase_deg >  LCR_AUTO_PHASE_THRESHOLD)
 				lcr_mode = LCR_MODE_CAPACITANCE;
 			else
 				lcr_mode = LCR_MODE_RESISTANCE;
@@ -1690,7 +1687,7 @@ void process_data(void)
 				if (system_data.series.esr >= SP_AUTO_HIGH_OHMS_THRESHOLD)
 					sp_mode = SP_MODE_PARALLEL;
 			#elif 0
-				if (system_data.vi_phase_deg > -5.0f && system_data.vi_phase_deg < 5.0f)
+				if (fabsf(system_data.vi_phase_deg) < SP_AUTO_PHASE_THRESHOLD)
 					sp_mode = SP_MODE_PARALLEL;
 				else
 				if (system_data.series.esr <= SP_AUTO_LOW_OHMS_THRESHOLD)
@@ -1699,7 +1696,7 @@ void process_data(void)
 				if (system_data.series.esr >= SP_AUTO_HIGH_OHMS_THRESHOLD)
 					sp_mode = SP_MODE_PARALLEL;
 			#else
-				if (system_data.vi_phase_deg > -5.0f && system_data.vi_phase_deg < 5.0f)
+				if (fabsf(system_data.vi_phase_deg) < SP_AUTO_PHASE_THRESHOLD)
 //					sp_mode = SP_MODE_PARALLEL;
 					sp_mode = SP_MODE_SERIES;
 				else
