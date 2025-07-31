@@ -1018,16 +1018,17 @@ int process_Goertzel(void)
 
 	// the STM32F103 MCU doesn't have a HW FPU, so full length filtering takes quite a time :(
 	//
-	// the cheap ass seller even uses a fake STM32F103, that's the chinese for you :(
+	// the cheap ass seller/designer also uses a counterfiet STM32F103 on the PCB :(
 	//
 	// a better (drop in replacement) MCU to use would be the STM32F303CBT6 (or others), it has a HW FPU which greatly speeds up FP op's
 	// it also has a dual 12-DAC, but the two pins it outputs on can't be used for DAC output without modding the m181 PCB
 	// even so, the FPU alone would be a huge gain in FP computation speed
 	//
 	// STM32F103CBT6 drop-in replacements with FPU's ..
+	//
 	//      STM32F303CBT6
 	//      STM32L412CBT6
-	//      STM32L431CCT6  .. this one also has FIR/IIR (multiply-add) HW
+	//      STM32L431CCT6 .. this one also has FIR/IIR (multiply-add) HW
 	//      STM32L433CBT6
 
 	#ifdef AVERAGE_PHASE
@@ -1212,6 +1213,12 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 #if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
 
+	struct {
+		int   buffer_index;
+		float mag_rms_buffer[ARRAY_SIZE(system_data.mag_rms)][MEDIAN_SIZE];
+		float phase_deg_buffer[ARRAY_SIZE(system_data.phase_deg)][MEDIAN_SIZE];
+	} median = {0};
+
 	// qsort compare function
 	//
 	int compare_float(const void *a, const void *b)
@@ -1223,12 +1230,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 	//
 	void median_filter(void)
 	{
-		static int median_buffer_index = -1;
-
-		static float mag_rms_median_buffer[ARRAY_SIZE(system_data.mag_rms)][MEDIAN_SIZE];
-		static float phase_deg_median_buffer[ARRAY_SIZE(system_data.phase_deg)][MEDIAN_SIZE];
-
-		if (!gain_changed && median_buffer_index >= 0)
+		if (!gain_changed && median.buffer_index >= 0)
 		{	// median filters
 
 			for (unsigned int m = 0; m < ARRAY_SIZE(system_data.mag_rms); m++)
@@ -1237,11 +1239,11 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 				{	// mag_rms median
 
-					// add new value into the input buffer
-					mag_rms_median_buffer[m][median_buffer_index] = system_data.mag_rms[m];
+					// add new value into the input circular buffer
+					median.mag_rms_buffer[m][median.buffer_index] = system_data.mag_rms[m];
 
 					// sort
-					memcpy(sort_buffer, mag_rms_median_buffer[m], sizeof(sort_buffer));
+					memcpy(sort_buffer, median.mag_rms_buffer[m], sizeof(sort_buffer));
 					qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
 
 					// save the median
@@ -1252,39 +1254,39 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 					const float deg = system_data.phase_deg[m];
 
-					// add new value into the input buffer
-					phase_deg_median_buffer[m][median_buffer_index] = deg;
+					// add new value into the input circular buffer
+					median.phase_deg_buffer[m][median.buffer_index] = deg;
 
 					// sort - has to take into account that angles wrap-a-round 0-360/360-0
 					for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
-						sort_buffer[i] = phase_diff(deg, phase_deg_median_buffer[m][i]);
+						sort_buffer[i] = phase_diff(deg, median.phase_deg_buffer[m][i]);
 					qsort(sort_buffer, MEDIAN_SIZE, sizeof(sort_buffer[0]), compare_float);
 
 					// save the median
 					system_data.phase_deg[m] = deg + sort_buffer[MEDIAN_SIZE / 2];
 				}
-
-				// update buffer 'write' index
-				if (++median_buffer_index >= (int)MEDIAN_SIZE)
-					median_buffer_index = 0;
 			}
+
+			// update circular buffer 'write' index
+			if (++median.buffer_index >= (int)MEDIAN_SIZE)
+				median.buffer_index = 0;
 		}
 		else
 		{	// reset input buffers
-			median_buffer_index = 0;
+			median.buffer_index = 0;
 
 			for (unsigned int m = 0; m < ARRAY_SIZE(system_data.mag_rms); m++)
 			{
 				const float mag = system_data.mag_rms[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
-					mag_rms_median_buffer[m][i] = mag;
+					median.mag_rms_buffer[m][i] = mag;
 			}
 
 			for (unsigned int m = 0; m < ARRAY_SIZE(system_data.phase_deg); m++)
 			{
 				const float deg = system_data.phase_deg[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
-					phase_deg_median_buffer[m][i] = deg;
+					median.phase_deg_buffer[m][i] = deg;
 			}
 		}
 	}
@@ -4287,6 +4289,10 @@ int main(void)
 	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
 	settings.sp_mode        = SP_MODE_AUTO;
 	settings.data_mode      = DATA_MODE_NONE;
+
+	#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
+		median.buffer_index = -1;
+	#endif
 
 	DWT_Delay_Init();
 	HAL_Init();

@@ -66,17 +66,17 @@
 * ER → Equivalent Series Resistor(ESR)
 * D → Dissipation factor (or) Tan Delta
 
-# STM32F103C8 drop-in replacements with FPU's to improve computation time and increase flash and RAM space ..
+## STM32F103C8 drop-in replacements with FPU's to improve computation time and increase flash/RAM space ..
 
 - STM32F303CBT6
 - STM32L412CBT6
 - STM32L431CCT6 .. this one also has FIR/IIR (multiply-add) HW
 - STM32L433CBT6
-	
-# New firmware displays
+
+## New firmware displays
 <img src="firmware/docs/new_firmware.png" alt="image" style="width:500px;height:auto;">
 
-# Windows test GUI
+## Windows test GUI
 
 - streamed uart data from the M181 to the windows test GUI (compiled with Borland c++ builder v6) ..
 
@@ -118,7 +118,7 @@ This is the cause for the DC shift/spike, the transcondutance OPAMP stage has a 
 
 <img src="firmware/docs/DC_shift_cause.png" alt="image" style="width:600px;height:auto;">
 
-# Original (the seller) firmware mode scanning
+## Original (the seller) firmware mode scanning
 
 The author only fully scans all modes if need be (makes perfect sense) ..
 
@@ -144,13 +144,13 @@ To reduce this leakage/noise level ..
 
 <img src="firmware/docs/19kHz_leakage_reduction_2.png" alt="image" style="width:600px;height:auto;">
 
-# Beware !
+# BEWARE !
 
-The seller (jyetech guy) of these boards is using a fake/counterfeit MCU (STM32F103C8) on this board, we did not know at the time of buying that the seller/designer is a counterfeit peddler :( .. this is a prison sentance in some countries if the person in question is tracked down.
+The seller (jyetech guy) of these boards is using a fake/counterfeit MCU (STM32F103C8) on this board, we did not know at the time of buying that the guy is peddling counterfeit components :( .. this is a prison sentance in some countries if the person in question is tracked down.
 
 Also, the voltage inverter they are fitting to the board is NOT as stated on the schematic. The device they are fitting is quite different (MUCH lower switching frequency that is causing noise problems).
 
-So if you use the STM32CubeIDE to compile and program the MCU, don't be suprised if it refuses to flash program the MCU - can't blame ST for adding that !
+So if you use the STM32CubeIDE to compile and program the MCU, don't be suprised if it refuses to flash program the MCU - can't blame ST for doing that !
 
 # Wiki
 
