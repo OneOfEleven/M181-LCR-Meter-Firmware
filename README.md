@@ -14,6 +14,9 @@
 <img src="firmware/docs/pcb.png" alt="image" style="width:500px;height:auto;">
 <img src="firmware/docs/pcb_finished.png" alt="image" style="width:500px;height:auto;">
 
+- Note, you WILL eventually pull/lift the two probe jack sockets off the PCB, this is a serious HW design flaw made by beginners/non-experienced. I see it all the time these days :(
+- ALL terminating connectors to the outside world must always be secured by through-hole methods (ie through pins etc). PCB SMD alone will neever be strong enough for this.
+
 ## Main tasks to be completed on this firmware
 - [ ] Track down any remaining bugs (let me know if you spot any)
 - [ ] Auto calibration
