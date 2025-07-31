@@ -75,7 +75,7 @@
 #define SP_AUTO_LOW_OHMS_THRESHOLD   1000           // impedance <= this we switch to SERIES mode
 #define SP_AUTO_HIGH_OHMS_THRESHOLD  10000          // impedance >= this we switch to PARELLEL mode
 
-#define SERIES_RESISTOR_OHMS         1000           // the value of the resistor in series with the DUT
+#define SERIES_RESISTOR_OHMS         1000           // the value of the resistor in series with the DUT - needs calibrating
 
 //#define HISTOGRAM_CLIP_DET                        // uncomment to use histogram clip detector, comment out for faster/simple threshold clip detector
 
@@ -172,15 +172,6 @@
 
 #define BUTT_RCL_Pin                 LL_GPIO_PIN_15
 #define BUTT_RCL_GPIO_Port           GPIOB
-
-#ifndef NVIC_PRIORITYGROUP_0
-	#define NVIC_PRIORITYGROUP_0   ((uint32_t)0x00000007)   // 0 bit  for pre-emption priority, 4 bits for subpriority
-	#define NVIC_PRIORITYGROUP_1   ((uint32_t)0x00000006)   // 1 bit  for pre-emption priority, 3 bits for subpriority
-	#define NVIC_PRIORITYGROUP_2   ((uint32_t)0x00000005)   // 2 bits for pre-emption priority, 2 bits for subpriority
-	#define NVIC_PRIORITYGROUP_3   ((uint32_t)0x00000004)   // 3 bits for pre-emption priority, 1 bit  for subpriority
-	#define NVIC_PRIORITYGROUP_4   ((uint32_t)0x00000003)   // 4 bits for pre-emption priority, 0 bit  for subpriority
-#endif
-
 
 // *******************************
 
@@ -358,10 +349,10 @@ enum {
 	VI_MODE_AMP_LO_GAIN,
 	VI_MODE_VOLT_HI_GAIN,
 	VI_MODE_AMP_HI_GAIN,
-	VI_MODE_DONE
+	VI_MODE_COUNT                     // number of differebt modes
 };
 
-// serial data mode
+// Serial/Uart data mode
 enum {
 	DATA_MODE_NONE = 0,
 	DATA_MODE_ASCII,
@@ -369,45 +360,45 @@ enum {
 	DATA_MODE_DUT
 };
 
-#define SETTING_FLAG_FAST_UPDATES   (1u << 0)   // set if the user wants faster screen updates
+#define SETTING_FLAG_FAST_UPDATES   (1u << 0)   // set if the user wants faster screen updates (but more noisy)
 
 // this settings structure will be stored in flash (emulated EEPROM)
 //
 #pragma pack(push, 1)
 typedef struct t_settings {
-	uint32_t     marker;              // settings marker - so we can find this saved block in flash area
+	uint32_t     marker;                        // settings marker - so we can find this saved block in flash area
 
-	float        series_ohms;         // the exact value of the series resistor
-	uint32_t     baudrate;            // uart baud rate
-	uint16_t     measurement_Hz;      // the sine wave measurement frequency the user is using
-	uint8_t      lcr_mode;            // the LCR mode the user has selected
-	uint8_t      sp_mode;             // the series/parallel mode the user has selected
-	uint8_t      data_mode;           // type of data we're sending via the serial port
-	uint8_t      flags;               // various 'flags'
-	uint8_t      padding1[2];         // maintain 32-bit alignment
+	float        series_ohms;                   // the exact value of the series resistor
+	uint32_t     baudrate;                      // uart baud rate
+	uint16_t     measurement_Hz;                // the sine wave measurement frequency the user is using
+	uint8_t      lcr_mode;                      // the LCR mode the user has selected
+	uint8_t      sp_mode;                       // the series/parallel mode the user has selected
+	uint8_t      data_mode;                     // type of data we're sending via the serial port
+	uint8_t      flags;                         // various 'flags'
+	uint8_t      padding1[2];                   // maintain 32-bit alignment
 
 	struct {
-		float    adc[4];              // ADC input DC offset
-		float    afc[4];              // AFC input DC offset
+		float    adc[VI_MODE_COUNT];            // ADC input DC offset
+		float    afc[VI_MODE_COUNT];            // AFC input DC offset
 	} input_offset;
 
 	struct {
-		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
-		float    phase_deg[8];        // averaged phase values for each VI mode
-		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];          // maintain 32-bit alignment
-	} open_probe_calibration[2];      // 100Hz and 1kHz results
+		float    mag_rms[VI_MODE_COUNT * 2];    // averaged RMS magnitude values for each VI mode
+		float    phase_deg[VI_MODE_COUNT * 2];  // averaged phase values for each VI mode
+		uint8_t  done;                          // set to '1' after the user has done this calibration step, otherwise '0'
+		uint8_t  padding[3];                    // maintain 32-bit alignment
+	} open_probe_calibration[2];                // 100Hz and 1kHz results
 
 	struct {
-		float    mag_rms[8];          // averaged RMS magnitude values for each VI mode
-		float    phase_deg[8];        // averaged phase values for each VI mode
-		uint8_t  done;                // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];          // maintain 32-bit alignment
-	} shorted_probe_calibration[2];   // 100Hz and 1kHz results
+		float    mag_rms[VI_MODE_COUNT * 2];    // averaged RMS magnitude values for each VI mode
+		float    phase_deg[VI_MODE_COUNT * 2];  // averaged phase values for each VI mode
+		uint8_t  done;                          // set to '1' after the user has done this calibration step, otherwise '0'
+		uint8_t  padding[3];                    // maintain 32-bit alignment
+	} shorted_probe_calibration[2];             // 100Hz and 1kHz results
 
-	uint8_t      padding2[2];         // maintain 32-bit alignment
+	uint8_t      padding2[2];                   // maintain 32-bit alignment
 
-	uint16_t     crc;                 // CRC value for the entire structure. CRC computed with this set to '0'
+	uint16_t     crc;                           // CRC value for the entire structure. CRC computed with this set to '0'
 } t_settings;
 #pragma pack(pop)
 
@@ -415,8 +406,8 @@ typedef struct t_system_data {
 	unsigned int vi_measure_mode;
 
 	// the final computed waveform magnitudes and phases - these are what's used to compute all the DUT parameters
-	float     mag_rms[8];
-	float     phase_deg[8];
+	float     mag_rms[VI_MODE_COUNT * 2];
+	float     phase_deg[VI_MODE_COUNT * 2];
 
 	// the computed DUT parameters
 

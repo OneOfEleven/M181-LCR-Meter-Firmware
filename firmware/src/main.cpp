@@ -102,7 +102,7 @@ typedef struct t_complex {
 		//uint8_t  seq_num;
 		//uint8_t  data_type;
 		//uint16_t data_size;
-		float    data[ADC_DATA_LENGTH * 8];
+		float    data[ADC_DATA_LENGTH * (VI_MODE_COUNT * 2)];
 	} t_packet;
 #pragma pack(pop)
 
@@ -185,8 +185,8 @@ uint32_t              draw_screen_count = 0;                          //   "    
 struct {
 	unsigned int      index_Hz;                                       // current measurement frequency
 	int               count;                                          // number of complete VI meaurements
-	float             mag_sum[8];                                     // for averaging the measurements
-	t_complex         phase_sum[8];                                   //  "       "
+	float             mag_sum[VI_MODE_COUNT * 2];                     // for averaging the measurements
+	t_complex         phase_sum[VI_MODE_COUNT * 2];                   //  "       "
 } calibrate = {0};
 
 uint8_t               volt_gain_sel   = 0;                            // voltage V gain path we're using
@@ -216,8 +216,8 @@ float                 adc_data[8][ADC_DATA_LENGTH] = {0};             // holds t
 
 // set to '1' if waveform clipping/saturation is detected
 // if the HIGH gain waveform is being clipped, then we can't use it, we use the LOW gain samples instead
-uint8_t               adc_data_clipping[4] = {0};                     // temp as we go
-uint8_t               adc_data_clipped[4]  = {0};                     // saved here at the end of the full VI sample cycle
+uint8_t               adc_data_clipping[VI_MODE_COUNT] = {0};         // temp as we go
+uint8_t               adc_data_clipped[VI_MODE_COUNT]  = {0};         // saved here at the end of the full VI sample cycle
 
 // user/system settings are stored in flash area
 volatile int          save_settings_timer = -1;                       // we use a timer to help reduce flash wear (limited write cycles)
@@ -1047,7 +1047,7 @@ int process_Goertzel(void)
 	// tell DMA not to use the temp buffer, we need it for a short while
 	tmp_buffer_in_use = 1;
 
-	for (unsigned int buf_index = 0; buf_index < 8; buf_index++)
+	for (unsigned int buf_index = 0; buf_index < (VI_MODE_COUNT * 2); buf_index++)
 	{
 		const unsigned int vi_mode = buf_index >> 1;
 
@@ -1172,7 +1172,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 	float        sum_rms   = 0;
 	t_complex       sum_phase = {0, 0};
 
-	for (unsigned int mode = 0; mode < 8; mode += 2)
+	for (unsigned int mode = 0; mode < (VI_MODE_COUNT * 2); mode += 2)
 	{
 		if (op_mode == OP_MODE_MEASURING)
 		{
@@ -1215,8 +1215,8 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 	struct {
 		int   buffer_index;
-		float mag_rms_buffer[ARRAY_SIZE(system_data.mag_rms)][MEDIAN_SIZE];
-		float phase_deg_buffer[ARRAY_SIZE(system_data.phase_deg)][MEDIAN_SIZE];
+		float mag_rms_buffer[VI_MODE_COUNT * 2][MEDIAN_SIZE];
+		float phase_deg_buffer[VI_MODE_COUNT * 2][MEDIAN_SIZE];
 	} median = {0};
 
 	// qsort compare function
@@ -1233,7 +1233,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 		if (!gain_changed && median.buffer_index >= 0)
 		{	// median filters
 
-			for (unsigned int m = 0; m < ARRAY_SIZE(system_data.mag_rms); m++)
+			for (unsigned int m = 0; m < (VI_MODE_COUNT * 2); m++)
 			{
 				float sort_buffer[MEDIAN_SIZE];
 
@@ -1275,14 +1275,14 @@ void combine_afc(float *avg_rms, float *avg_deg)
 		{	// reset input buffers
 			median.buffer_index = 0;
 
-			for (unsigned int m = 0; m < ARRAY_SIZE(system_data.mag_rms); m++)
+			for (unsigned int m = 0; m < (VI_MODE_COUNT * 2); m++)
 			{
 				const float mag = system_data.mag_rms[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
 					median.mag_rms_buffer[m][i] = mag;
 			}
 
-			for (unsigned int m = 0; m < ARRAY_SIZE(system_data.phase_deg); m++)
+			for (unsigned int m = 0; m < (VI_MODE_COUNT * 2); m++)
 			{
 				const float deg = system_data.phase_deg[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
@@ -1302,7 +1302,7 @@ void process_ADC_DMA(const void *buffer, const unsigned int size)
 	if (buffer == NULL || size == 0 || initialising || tmp_buffer_in_use != 0)
 		return;                                       // the temp buffer is not available for use, drop this sample block
 
-	if (vi_measure_index >= VI_MODE_DONE)
+	if (vi_measure_index >= VI_MODE_COUNT)
 		return;                                       // wait till the exec is ready for more sample blocks
 
 	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);     // TEST only, LED on
@@ -1720,7 +1720,7 @@ void process_ADC(void)
 	unsigned int vi_index = vi_measure_index;
 
 	// ignore this sample block if we've completed the full VI measurement run
-	if (vi_index >= VI_MODE_DONE)
+	if (vi_index >= VI_MODE_COUNT)
 	{
 		tmp_buffer_in_use = 0;
 		return;
@@ -1796,7 +1796,7 @@ void process_ADC(void)
 	// save the new VI mode for the next measurement run
 	vi_measure_index = vi_index;
 
-	if (vi_index < VI_MODE_DONE)
+	if (vi_index < VI_MODE_COUNT)
 		return;    // not yet gone through all the modes
 
 
@@ -3404,7 +3404,7 @@ int send_ascii_data(void)
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
 		return -1;     // uart DMA is still busy sending
 
-	const unsigned int cols = 8;
+	const unsigned int cols = VI_MODE_COUNT * 2;
 
 	printf(NEWLINE);
 	for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
@@ -4424,7 +4424,7 @@ int main(void)
 		const unsigned int prev_vi_measure_mode = system_data.vi_measure_mode;
 		system_data.vi_measure_mode = vi_measure_mode_table[vi_measure_index];
 
-		if (vi_measure_index >= VI_MODE_DONE)
+		if (vi_measure_index >= VI_MODE_COUNT)
 		{	// completed another full measurement cycle
 			process_op_mode();
 			send_sample_data();
