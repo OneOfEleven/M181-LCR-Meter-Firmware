@@ -278,42 +278,47 @@ void stop(uint32_t ms = 0)
 	}
 }
 
-// remove any leading zeros from a float string
+// remove any leading zeros
 //
 void trim_leading_zeros(char buf[])
 {
 	if (buf == NULL)
 		return;
 
-//	if (strchr(buf, '.') == NULL)
-//		return;                    // no decimal point found
+	const unsigned int len = strlen(buf);
+	if (len == 0)
+		return;
 
-	const int len = strlen(buf);
+	// skip over leading non-number characters
+	unsigned int i = 0;
+	while (i < len && buf[i] != '-' && (buf[i] < '0' || buf[i] > '9'))
+		i++;
 
-	if (buf[0] == '-')
+	if (i >= len)
+		return;              // no numbers found
+
+	if (buf[i] == '-')
 	{	// negative
 
 		// remove the '-'
-		buf[0] = ' ';
+		buf[i] = ' ';
 
 		// trim leading zeroes
-		for (int i = 1; i < (len - 1); i++)
+		for (unsigned int k = i + 1; k < (len - 1); k++)
 		{
-			if (buf[i] != '0')
+			if (buf[k] != '0')
 				break;
-//			if (buf[i + 1] == '.')
-//				break;
-			if (buf[i + 1] < '0' || buf[i + 1] > '9')
+			if (buf[k + 1] < '0' || buf[k + 1] > '9')  // following character not a number
 				break;
-			buf[i] = ' ';
+			buf[k] = ' ';
 		}
 
 		// put the '-' back
-		for (int i = 1; i < (len - 1); i++)
+		for (unsigned int k = i + 1; k < (len - 1); k++)
 		{
-			if (buf[i] != ' ')
+			if (buf[k] != ' ')
 			{
-				buf[i - 1] = '-';
+				buf[k - 1] = '-';
 				break;
 			}
 		}
@@ -321,11 +326,13 @@ void trim_leading_zeros(char buf[])
 	else
 	{
 		// trim leading zeroes
-		for (int i = 0; i < (len - 1); i++)
+		for (unsigned int k = i; k < (len - 1); k++)
 		{
-			if (buf[i] != '0' || buf[i + 1] == '.')
+			if (buf[k] != '0')
 				break;
-			buf[i] = ' ';
+			if (buf[k + 1] < '0' || buf[k + 1] > '9')  // following character not a number
+				break;
+			buf[k] = ' ';
 		}
 	}
 }
