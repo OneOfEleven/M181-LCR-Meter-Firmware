@@ -371,45 +371,43 @@ enum {
 	DATA_MODE_DUT
 };
 
-#define SETTING_FLAG_FAST_UPDATES   (1u << 0)   // set if the user wants faster screen updates (but more noisy)
+#define SETTING_FLAG_FAST_UPDATES      (1u << 0)   // set if the user wants faster screen updates (but more noisy)
+#define SETTING_FLAG_OPEN_CAL_DONE     (1u << 1)   // set if the has done the open calibration
+#define SETTING_FLAG_SHORTED_CAL_DONE  (1u << 2)   // set if the has done the shorted calibration
 
 // this settings structure will be stored in flash (emulated EEPROM)
 //
 #pragma pack(push, 1)
 typedef struct t_settings {
-	uint32_t     marker;                        // settings marker - so we can find this saved block in flash area
+	uint32_t     marker;                           // settings marker - so we can find this saved block in flash area
 
-	float        series_ohms;                   // the exact value of the series resistor
-	uint32_t     baudrate;                      // uart baud rate
-	uint16_t     measurement_Hz;                // the sine wave measurement frequency the user is using
-	uint8_t      lcr_mode;                      // the LCR mode the user has selected
-	uint8_t      sp_mode;                       // the series/parallel mode the user has selected
-	uint8_t      data_mode;                     // type of data we're sending via the serial port
-	uint8_t      flags;                         // various 'flags'
-	uint8_t      padding1[2];                   // maintain 32-bit alignment
+	float        series_ohms;                      // the exact value of the series resistor
+	uint32_t     baudrate;                         // uart baud rate
+	uint16_t     measurement_Hz;                   // the sine wave measurement frequency the user is using
+	uint8_t      lcr_mode;                         // the LCR mode the user has selected
+	uint8_t      sp_mode;                          // the series/parallel mode the user has selected
+	uint8_t      data_mode;                        // type of data we're sending via the serial port
+	uint8_t      flags;                            // various 'flags'
+	uint8_t      padding1[2];                      // maintain 32-bit alignment
 
 	struct {
-		float    adc[VI_MODE_COUNT];            // ADC input DC offset
-		float    afc[VI_MODE_COUNT];            // AFC input DC offset
+		float    adc[VI_MODE_COUNT];               // ADC input DC offset
+		float    afc[VI_MODE_COUNT];               // AFC input DC offset
 	} input_offset;
 
 	struct {
-		float    mag_rms[VI_MODE_COUNT * 2];    // averaged RMS magnitude values for each VI mode
-		float    phase_deg[VI_MODE_COUNT * 2];  // averaged phase values for each VI mode
-		uint8_t  done;                          // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];                    // maintain 32-bit alignment
-	} open_probe_calibration[2];                // 100Hz and 1kHz results
+		float    mag_rms[VI_MODE_COUNT * 2];       // averaged RMS magnitude values for each VI mode
+		float    phase_deg[VI_MODE_COUNT * 2];     // averaged phase values for each VI mode
+	} open_probe_calibration[2];                   // 100Hz and 1kHz results
 
 	struct {
-		float    mag_rms[VI_MODE_COUNT * 2];    // averaged RMS magnitude values for each VI mode
-		float    phase_deg[VI_MODE_COUNT * 2];  // averaged phase values for each VI mode
-		uint8_t  done;                          // set to '1' after the user has done this calibration step, otherwise '0'
-		uint8_t  padding[3];                    // maintain 32-bit alignment
-	} shorted_probe_calibration[2];             // 100Hz and 1kHz results
+		float    mag_rms[VI_MODE_COUNT * 2];       // averaged RMS magnitude values for each VI mode
+		float    phase_deg[VI_MODE_COUNT * 2];     // averaged phase values for each VI mode
+	} shorted_probe_calibration[2];                // 100Hz and 1kHz results
 
-	uint8_t      padding2[2];                   // maintain 32-bit alignment
+	uint8_t      padding[2];                       // maintain 32-bit alignment
 
-	uint16_t     crc;                           // CRC value for the entire structure. CRC computed with this set to '0'
+	uint16_t     crc;                              // CRC value for the entire structure. CRC computed with this set to '0'
 } t_settings;
 #pragma pack(pop)
 

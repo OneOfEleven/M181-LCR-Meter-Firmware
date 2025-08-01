@@ -1554,14 +1554,14 @@ void process_data(void)
 			float zo = 0;
 			float zs = 0;
 
-			if (settings.open_probe_calibration->done)
+			if (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)
 			{	// apply open probe calibration
 				const float v_cal_rms = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_VOLT_LO_GAIN * 2];
 				const float i_cal_rms = settings.open_probe_calibration[freq_index].mag_rms[VI_MODE_AMP_HI_GAIN  * 2] * inv_series_ohms * high_scale;
 			 	zo = v_cal_rms / i_cal_rms;
 			}
 
-			if (settings.shorted_probe_calibration->done)
+			if (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE)
 			{	// apply shorted probe calibration
 				const float v_cal_rms = settings.shorted_probe_calibration[freq_index].mag_rms[VI_MODE_VOLT_HI_GAIN * 2] * high_scale;
 				const float i_cal_rms = settings.shorted_probe_calibration[freq_index].mag_rms[VI_MODE_AMP_LO_GAIN  * 2] * inv_series_ohms;
@@ -1573,12 +1573,12 @@ void process_data(void)
 
 			const float zxm = system_data.impedance;
 
-			if (settings.open_probe_calibration->done && settings.shorted_probe_calibration->done)
+			if ((settings.flags & SETTING_FLAG_OPEN_CAL_DONE) && (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE))
 				//system_data.impedance = zstd * (((zs - zxm) * (zsm - zo)) / ((zxm - zo) * (zs - zsm)));   // page 136 Keysight-Technologies-impedance-measurement-handbook.pdf
 //				system_data.impedance = (zo * (zxm - zs)) / (zo - (zxm - zs));
 				system_data.impedance = zo * ((zs - zxm) / (zxm - zo));                                     // page 135 Keysight-Technologies-impedance-measurement-handbook.pdf
 			else
-			if (settings.open_probe_calibration->done)
+			if (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)
 				system_data.impedance = (zo * zxm) / (zo - zxm);
 			//else
 			//if (settings.shorted_probe_calibration->done)
@@ -1998,8 +1998,8 @@ void draw_screen(void)
 			const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;
 			unsigned int i = 0;
 			memset(str_buf, 0, sizeof(str_buf));
-			str_buf[i++] = settings.open_probe_calibration[index].done    ? 'O' : '-';
-			str_buf[i++] = settings.shorted_probe_calibration[index].done ? 'S' : '-';
+			str_buf[i++] = (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-';
+			str_buf[i++] = (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-';
 			ssd1306_SetCursor(SSD1306_WIDTH - ((2 + 1 + 4) * font_8x12.width), 0);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
@@ -3539,6 +3539,10 @@ int send_dut_data(void)
 		n_sprintf(5, rms_current, i_str, sizeof(i_str), 1);
 		n_sprintf(5, impedance, z_str, sizeof(z_str), 1);
 
+		char cal_str[3] = {0};
+		cal_str[0] = (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-';
+		cal_str[1] = (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-';
+
 		char m_str[4] = {0};
 		switch (lcr_mode)
 		{
@@ -3562,12 +3566,14 @@ int send_dut_data(void)
 		snprintf(tx_str + len, tx_str_size - len,
 			NEWLINE
 			"DUT:" NEWLINE
+			"  Cal %s" NEWLINE
 			" Mode %s" NEWLINE
-			" Freq %u Hz" NEWLINE
-			"    V %s %cV rms" NEWLINE
-			"    I %s %cA rms" NEWLINE
+			" Freq %u" NEWLINE
+			"    V %s %c rms" NEWLINE
+			"    I %s %c rms" NEWLINE
 			"  Phi %0.3f deg" NEWLINE
 			"    Z %s %c" NEWLINE,
+			cal_str,
 			m_str,
 			measurement_Hz,
 			v_str, rms_voltage_unit,
@@ -3615,8 +3621,8 @@ int send_dut_data(void)
 		const unsigned int len = strlen(tx_str);
 
 		snprintf(tx_str + len, tx_str_size - len,
-			"   L%c %s %cH" NEWLINE
-			"   C%c %s %cF" NEWLINE
+			"   L%c %s %c" NEWLINE
+			"   C%c %s %c" NEWLINE
 			"   R%c %s %c" NEWLINE
 			" ESR%c %s %c" NEWLINE
 			"   D%c %s %c" NEWLINE
@@ -4229,9 +4235,6 @@ void process_op_mode(void)
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 					settings.open_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].real != 0) ? atan2f(calibrate.phase_sum[i].imag, calibrate.phase_sum[i].real) * RAD_TO_DEG : NAN;
 
-				// set flag to say "open calibration done"
-				settings.open_probe_calibration[index].done = 1;
-
 				if (++index < ARRAY_SIZE(measurement_table_Hz))
 				{	// do the same again but at the next measurement frequency
 
@@ -4241,6 +4244,10 @@ void process_op_mode(void)
 				}
 				else
 				{	// done
+
+					// set flag to say "open calibration done"
+					settings.flags |= SETTING_FLAG_OPEN_CAL_DONE;
+
 					printf(NEWLINE "open probe calibration done" NEWLINE);
 
 					// back to normal measurement mode
@@ -4286,9 +4293,6 @@ void process_op_mode(void)
 				for (unsigned int i = 0; i < ARRAY_SIZE(calibrate.phase_sum); i++)
 					settings.shorted_probe_calibration[index].phase_deg[i] = (calibrate.phase_sum[i].real != 0) ? atan2f(calibrate.phase_sum[i].imag, calibrate.phase_sum[i].real) * RAD_TO_DEG : NAN;
 
-				// set flag to say "shorted calibration done"
-				settings.shorted_probe_calibration[index].done = 1;
-
 				if (++index < ARRAY_SIZE(measurement_table_Hz))
 				{	// do the same again but at the next measurement frequency
 
@@ -4298,6 +4302,10 @@ void process_op_mode(void)
 				}
 				else
 				{	// done
+
+					// set flag to say "open calibration done"
+					settings.flags |= SETTING_FLAG_SHORTED_CAL_DONE;
+
 					printf(NEWLINE "shorted probe calibration done" NEWLINE);
 
 					// back to normal measurement mode
@@ -4376,7 +4384,7 @@ int main(void)
 	settings.series_ohms    = SERIES_RESISTOR_OHMS;      // this can be calibrated using a DUT with a known resistance value
 	settings.baudrate       = DEFAULT_UART_BAUDRATE;
 	settings.measurement_Hz = measurement_table_Hz[1];
-	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
+	settings.lcr_mode       = LCR_MODE_AUTO;
 	settings.sp_mode        = SP_MODE_AUTO;
 	settings.data_mode      = DATA_MODE_NONE;
 
