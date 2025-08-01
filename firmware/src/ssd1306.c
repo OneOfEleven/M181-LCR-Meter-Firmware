@@ -107,7 +107,6 @@ void ssd1306_Fill(SSD1306_COLOR color)
 
 //  Write the screenbuffer with changed to the screen
 //
-// void ssd1306_UpdateScreen(I2C_HandleTypeDef *hi2c)
 void ssd1306_UpdateScreen(void)
 {
 	uint8_t txBuffer[SSD1306_WIDTH + 1]; // +1 for control byte
@@ -119,11 +118,7 @@ void ssd1306_UpdateScreen(void)
 		ssd1306_WriteCommand(0xB0 + i);
 		ssd1306_WriteCommand(0x00);
 		ssd1306_WriteCommand(0x10);
-
-		// Copy display data for the current page into txBuffer
 		memcpy(&txBuffer[1], &SSD1306_Buffer[SSD1306_WIDTH * i], SSD1306_WIDTH);
-
-		// Use I2C_transmit to send the data buffer
 		I2C_transmit(SSD1306_I2C_ADDR, txBuffer, SSD1306_WIDTH + 1);
 		// HAL_I2C_Mem_Write(hi2c, SSD1306_I2C_ADDR, 0x40, 1, &SSD1306_Buffer[SSD1306_WIDTH * i], SSD1306_WIDTH, 100);
 	}
@@ -142,8 +137,8 @@ void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR
 		color = !color;
 
 	#ifdef USE_LINE_TABLE
-		register const unsigned int m = line_table[y] + x;
-		register const unsigned int p = line_table_pixel[y];
+		const unsigned int m = line_table[y] + x;
+		const unsigned int p = line_table_pixel[y];
 		if (color == White)
 			SSD1306_Buffer[m] |=  p;
 		else

@@ -136,7 +136,7 @@ static const uint16_t omega_13x18[] = {
 
 // measure frequencies
 const uint16_t measurement_table_Hz[2] = {100, 1000};            // standard
-//const uint16_t measurement_table_Hz[3] = {100, 1000, 10000};   // this one after we have updated the HW PCB compnents to pass 10kHz
+//const uint16_t measurement_table_Hz[3] = {100, 1000, 10000};   // this one after we've updated the PCB compnents to pass 10kHz
 
 struct {
 	uint8_t por;
@@ -157,7 +157,7 @@ volatile uint32_t     sys_tick = 0;                                   // our own
 
 LL_RCC_ClocksTypeDef  rcc_clocks = {0};                               // various CPU clock frequencies
 
-char                  str_buf[64] = {0};                              // used for various things
+char                  str_buf[32] = {0};                              // used for various things
 
 t_button              button[BUTTON_COUNT] = {0};                     // holds each buttons state
 
@@ -199,7 +199,7 @@ t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];             // *2 for 
 t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};               // average summing buffer
 unsigned int          adc_buffer_sum_count            = 0;                 // average summing counter
 
-float                 adc_input_dc_offset[VI_MODE_COUNT * 2] = {0};        // averaged ADC input DC offset
+float                 adc_dc_offset[VI_MODE_COUNT * 2] = {0};              // ADC input DC offset
 
 // VI mode sequence order to minimize mode switching time
 // because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins, large DC spike occurs)
@@ -221,8 +221,8 @@ t_settings            settings            = {0};                           // th
 
 t_system_data         system_data = {0};                                   // various results saved in here
 
-uint8_t               tmp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];     // buffer must be big enough for whatever uses it
-volatile uint8_t      tmp_buffer_in_use = 0;                               // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
+uint8_t               temp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];    // buffer must be big enough for whatever uses it
+volatile uint8_t      temp_buffer_in_use = 0;                              // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
 
 uint8_t               tx_buffer[sizeof(t_packet)];                         // for TX'ing data via the serial port, must be big enough for everything that uses it
 
@@ -388,17 +388,17 @@ int start_tx_dma(const void *data, const unsigned int size)
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
 		return -3;      // still busy sending
 
-	// clear all TX DMA flags
-	LL_DMA_ClearFlag_GI4(DMA1);
-
 	// give the DMA the data and data size details
 	LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_4, (uint32_t)data, LL_USART_DMA_GetRegAddr(USART1), LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
 	LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_4, size);
 
+	// ensure all TX DMA flags are cleared
+	LL_DMA_ClearFlag_GI4(DMA1);
+
 	// start sending
 	LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_4);
 
-	return 0;    // OK
+	return 0;           // OK
 }
 
 // intercept printf, dprintf etc
@@ -923,7 +923,7 @@ void start_measuring(void)
 	set_measurement_frequency(settings.measurement_Hz);
 	adc_buffer_sum_count = 0;
 	vi_measure_index     = 0;
-	tmp_buffer_in_use    = 0;
+	temp_buffer_in_use   = 0;
 	frames               = 0;
 	initialising         = 0;
 }
@@ -938,7 +938,7 @@ void start_probe_open_cal(void)
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
 	adc_buffer_sum_count = 0;
 	vi_measure_index     = 0;
-	tmp_buffer_in_use    = 0;
+	temp_buffer_in_use   = 0;
 	frames               = 0;
 	initialising         = 0;
 }
@@ -953,7 +953,7 @@ void start_probe_short_cal(void)
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
 	adc_buffer_sum_count = 0;
 	vi_measure_index     = 0;
-	tmp_buffer_in_use    = 0;
+	temp_buffer_in_use   = 0;
 	frames               = 0;
 	initialising         = 0;
 }
@@ -1028,7 +1028,7 @@ int process_Goertzel(void)
 	#ifdef AVERAGE_PHASE
 		if (!phi_table_ready)
 		{	// create one time sample phase offset look-up table
-			const float phi_step = M_PI / (SAMPLES_PER_SINE_CYCLE * 2);            // todo: ensure this is correct
+			const float phi_step = M_PI / (SAMPLES_PER_SINE_CYCLE * 2);            // TODO: ensure this is correct
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			{
 				const float phi = phi_step * i;
@@ -1039,7 +1039,7 @@ int process_Goertzel(void)
 	#endif
 
 	// tell DMA not to use the temp buffer, we need it for a short while
-	tmp_buffer_in_use = 1;
+	temp_buffer_in_use = 1;
 
 	for (unsigned int buf_index = 0; buf_index < (VI_MODE_COUNT * 2); buf_index++)
 	{
@@ -1103,14 +1103,14 @@ int process_Goertzel(void)
 			// compute waveform phase
 
 			// point to an output buffer for the Goertzel filter to save into
-			t_complex *tmp_buf = (t_complex *)tmp_buffer;
+			t_complex *temp_buf = (t_complex *)temp_buffer;
 
 			float *buf = adc_data[buf_index];
 
 			// filter the entire waveform using many Goertzel DFTs
-			if (goertzel_wrap(buf, tmp_buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
+			if (goertzel_wrap(buf, temp_buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
 			{	// their was a key press whilst doing it, drop everthing (on this run) to immediately process the users input
-				tmp_buffer_in_use = 0;
+				temp_buffer_in_use = 0;
 				return -1;
 			}
 
@@ -1118,7 +1118,7 @@ int process_Goertzel(void)
 				float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
-					const t_complex samp = tmp_buf[k];           // fetch filtered waveform sample
+					const t_complex samp = temp_buf[k];          // fetch filtered waveform sample
 					sum += SQR(samp.real) + SQR(samp.imag);      // sum it (for computing the average)
 					buf[k] = samp.real;                          // save the Goertzel filtered sample
 				}
@@ -1139,7 +1139,7 @@ int process_Goertzel(void)
 				{
 					// remove the phase offset from this sample position in the buffer
 					const t_complex p = phi_table[k];   // fetch sample phase in the buffer
-					      t_complex s = tmp_buf[k];     // fetch filtered waveform sample
+					      t_complex s = temp_buf[k];     // fetch filtered waveform sample
 					// conj multiply
 					s = t_complex((p.real * s.real) + (p.imag * s.imag), (p.real * s.imag) - (p.imag * s.real));  // phase difference
 
@@ -1153,7 +1153,7 @@ int process_Goertzel(void)
 	}
 
 	// free up the temp buffer
-	tmp_buffer_in_use = 0;
+	temp_buffer_in_use = 0;
 
 	return 0;
 }
@@ -1293,7 +1293,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 //
 void process_ADC_DMA(const void *buffer, const unsigned int size)
 {
-	if (buffer == NULL || size == 0 || initialising || tmp_buffer_in_use)
+	if (buffer == NULL || size == 0 || initialising || temp_buffer_in_use)
 		return;                                       // the temp buffer is not available for use, drop this sample block
 
 	if (vi_measure_index >= VI_MODE_COUNT)
@@ -1302,8 +1302,8 @@ void process_ADC_DMA(const void *buffer, const unsigned int size)
 	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);     // TEST only, LED on
 
 	// copy the new ADC sample block as quickly as possible so as not to hold up the DMA
-	memcpy(tmp_buffer, buffer, size);
-	tmp_buffer_in_use = 1;                            // let the exec know their is a new sample block ready and waiting
+	memcpy(temp_buffer, buffer, size);
+	temp_buffer_in_use = 1;                           // let the exec know their is a new sample block ready and waiting
 
 	// generate an SWI to further process these new samples
 	if (LL_EXTI_IsEnabledIT_0_31(LL_EXTI_LINE_4))
@@ -1318,7 +1318,7 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 		return;
 
 	// point to the new ADC sample block from the DMA
-	const t_adc_dma_data_16 *adc_buffer = (t_adc_dma_data_16 *)tmp_buffer;
+	const t_adc_dma_data_16 *adc_buffer = (t_adc_dma_data_16 *)temp_buffer;
 
 	// invert the current (I) ADC waveform to counter-act the inverting transimpedance OP-AMP stage
 	// AFC samples are never inverted
@@ -1446,12 +1446,12 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 
 			// smooth the DC offset value (LPF)
 //			if (!adc_data_clipping[vi_mode])
-				adc_input_dc_offset[buf_index] = ((1.0f - coeff) * adc_input_dc_offset[buf_index]) + (coeff * sum);
+				adc_dc_offset[buf_index] = ((1.0f - coeff) * adc_dc_offset[buf_index]) + (coeff * sum);
 
 			if (!display_hold || calibrating)
 			{	// subtract/remove the DC offset
 //				if (!adc_data_clipping[vi_mode])
-					sum = adc_input_dc_offset[buf_index];
+					sum = adc_dc_offset[buf_index];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_adc[i] -= sum;
 			}
@@ -1466,11 +1466,11 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 			sum *= 1.0f / ADC_DATA_LENGTH;
 
 			// smooth the DC offset value (LPF)
-			adc_input_dc_offset[buf_index] = ((1.0f - coeff) * adc_input_dc_offset[buf_index]) + (coeff * sum);
+			adc_dc_offset[buf_index] = ((1.0f - coeff) * adc_dc_offset[buf_index]) + (coeff * sum);
 
 			if (!display_hold || calibrating)
 			{	// subtract/remove the DC offset
-				sum = adc_input_dc_offset[buf_index];
+				sum = adc_dc_offset[buf_index];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_afc[i] -= sum;
 			}
@@ -1734,7 +1734,7 @@ void process_data(void)
 //
 void process_ADC(void)
 {
-	if (initialising || !tmp_buffer_in_use)
+	if (initialising || !temp_buffer_in_use)
 		return;                      // ADC DMA hasn't yet given us anything
 
 	// current VI mode index
@@ -1743,7 +1743,7 @@ void process_ADC(void)
 	// ignore this sample block if we've completed the full VI measurement run
 	if (vi_index >= VI_MODE_COUNT)
 	{
-		tmp_buffer_in_use = 0;
+		temp_buffer_in_use = 0;
 		return;
 	}
 
@@ -1772,7 +1772,7 @@ void process_ADC(void)
 	add_ADC_to_average(vi_mode, skip_block_count);
 
 	// free up the temporary buffer, the DMA needs it back
-	tmp_buffer_in_use = 0;
+	temp_buffer_in_use = 0;
 
 	// decide which modes are useful (or not)
 	//
@@ -2048,8 +2048,6 @@ void draw_screen(void)
 				case LCR_MODE_RESISTANCE:
 					value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.resistance : system_data.series.resistance;
 					break;
-//				case LCR_MODE_AUTO:
-//					break;
 			}
 
 			//char unit = unit_conversion(&value, "fpnumkMG");
@@ -2104,9 +2102,6 @@ void draw_screen(void)
 					else
 						n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
 					break;
-
-//				case LCR_MODE_AUTO:
-//					break;
 			}
 
 			// print the DUT value
@@ -2169,9 +2164,6 @@ void draw_screen(void)
 
 					break;
 				}
-
-//				case LCR_MODE_AUTO:
-//					break;
 			}
 		}
 
@@ -2373,9 +2365,6 @@ void draw_screen(void)
 				}
 
 				break;
-
-//			case LCR_MODE_AUTO:
-//				break;
 		}
 
 		// ***************************
@@ -2470,7 +2459,7 @@ void draw_screen(void)
 			default:               str_buf[0] = 'E'; break;
 		}
 		str_buf[1] = '\0';
-		ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width) + 1, SSD1306_HEIGHT - 1 - font_8x12.height);
+		ssd1306_SetCursor(SSD1306_WIDTH - (strlen(str_buf) * font_8x12.width) + 1, SSD1306_HEIGHT - 1 - font_8x12.height);
 		ssd1306_WriteString(str_buf, &font_8x12, White);
 	}
 	#endif
@@ -2553,11 +2542,6 @@ void MX_SWI_Init(void)
 
 void MX_ADC_Init(void)
 {
-	LL_ADC_InitTypeDef       ADC_InitStruct       = {0};
-	LL_ADC_CommonInitTypeDef ADC_CommonInitStruct = {0};
-	LL_ADC_REG_InitTypeDef   ADC_REG_InitStruct   = {0};
-//	LL_GPIO_InitTypeDef      GPIO_InitStruct      = {0};
-
 	LL_TIM_DisableCounter(TIM3);
 
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOA);
@@ -2603,47 +2587,65 @@ void MX_ADC_Init(void)
 			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
 		}
 
-		ADC_InitStruct.DataAlignment      = LL_ADC_DATA_ALIGN_RIGHT;
-		ADC_InitStruct.SequencersScanMode = LL_ADC_SEQ_SCAN_DISABLE;
-		LL_ADC_Init(ADC1, &ADC_InitStruct);
+		{
+			LL_ADC_InitTypeDef ADC_InitStruct = {0};
+			ADC_InitStruct.DataAlignment      = LL_ADC_DATA_ALIGN_RIGHT;
+			ADC_InitStruct.SequencersScanMode = LL_ADC_SEQ_SCAN_DISABLE;
+			LL_ADC_Init(ADC1, &ADC_InitStruct);
+		}
 
-		ADC_CommonInitStruct.Multimode = LL_ADC_MULTI_DUAL_REG_SIM_INJ_SIM;
-		LL_ADC_CommonInit(__LL_ADC_COMMON_INSTANCE(ADC1), &ADC_CommonInitStruct);
+		{
+			LL_ADC_CommonInitTypeDef ADC_CommonInitStruct = {0};
+			ADC_CommonInitStruct.Multimode = LL_ADC_MULTI_DUAL_REG_SIM_INJ_SIM;
+			LL_ADC_CommonInit(__LL_ADC_COMMON_INSTANCE(ADC1), &ADC_CommonInitStruct);
+		}
 
-		ADC_REG_InitStruct.TriggerSource    = LL_ADC_REG_TRIG_EXT_TIM3_TRGO;
-		ADC_REG_InitStruct.SequencerLength  = LL_ADC_REG_SEQ_SCAN_DISABLE;
-		ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
-		ADC_REG_InitStruct.ContinuousMode   = LL_ADC_REG_CONV_SINGLE;
-		ADC_REG_InitStruct.DMATransfer      = LL_ADC_REG_DMA_TRANSFER_UNLIMITED;
-		LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
+		{
+			LL_ADC_REG_InitTypeDef ADC_REG_InitStruct = {0};
+			ADC_REG_InitStruct.TriggerSource    = LL_ADC_REG_TRIG_EXT_TIM3_TRGO;
+			ADC_REG_InitStruct.SequencerLength  = LL_ADC_REG_SEQ_SCAN_DISABLE;
+			ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
+			ADC_REG_InitStruct.ContinuousMode   = LL_ADC_REG_CONV_SINGLE;
+			ADC_REG_InitStruct.DMATransfer      = LL_ADC_REG_DMA_TRANSFER_UNLIMITED;
+			LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
+		}
 
-		// LL_ADC_SAMPLINGTIME_1CYCLES_5            1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
-		// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
-		// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
-		// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
-		// LL_ADC_SAMPLINGTIME_41CYCLES_5          41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max  222kHz sample rate
-		// LL_ADC_SAMPLINGTIME_55CYCLES_5          55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max  176kHz sample rate
-		// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
-		// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
+		{
+			// LL_ADC_SAMPLINGTIME_1CYCLES_5            1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
+			// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
+			// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
+			// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
+			// LL_ADC_SAMPLINGTIME_41CYCLES_5          41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max  222kHz sample rate
+			// LL_ADC_SAMPLINGTIME_55CYCLES_5          55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max  176kHz sample rate
+			// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
+			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
 
-		LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
-		LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_71CYCLES_5);
+			LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
+			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_71CYCLES_5);
+		}
 
 		// *********************************
 		// ADC2
 
 		LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_ADC2);
 
-		ADC_InitStruct.DataAlignment      = LL_ADC_DATA_ALIGN_RIGHT;
-		ADC_InitStruct.SequencersScanMode = LL_ADC_SEQ_SCAN_DISABLE;
-		LL_ADC_Init(ADC2, &ADC_InitStruct);
+		{
+			LL_ADC_InitTypeDef ADC_InitStruct = {0};
 
-		ADC_REG_InitStruct.TriggerSource    = LL_ADC_REG_TRIG_SOFTWARE;
-		ADC_REG_InitStruct.SequencerLength  = LL_ADC_REG_SEQ_SCAN_DISABLE;
-		ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
-		ADC_REG_InitStruct.ContinuousMode   = LL_ADC_REG_CONV_CONTINUOUS;
-		ADC_REG_InitStruct.DMATransfer      = LL_ADC_REG_DMA_TRANSFER_NONE;
-		LL_ADC_REG_Init(ADC2, &ADC_REG_InitStruct);
+			ADC_InitStruct.DataAlignment      = LL_ADC_DATA_ALIGN_RIGHT;
+			ADC_InitStruct.SequencersScanMode = LL_ADC_SEQ_SCAN_DISABLE;
+			LL_ADC_Init(ADC2, &ADC_InitStruct);
+		}
+
+		{
+			LL_ADC_REG_InitTypeDef ADC_REG_InitStruct = {0};
+			ADC_REG_InitStruct.TriggerSource    = LL_ADC_REG_TRIG_SOFTWARE;
+			ADC_REG_InitStruct.SequencerLength  = LL_ADC_REG_SEQ_SCAN_DISABLE;
+			ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
+			ADC_REG_InitStruct.ContinuousMode   = LL_ADC_REG_CONV_CONTINUOUS;
+			ADC_REG_InitStruct.DMATransfer      = LL_ADC_REG_DMA_TRANSFER_NONE;
+			LL_ADC_REG_Init(ADC2, &ADC_REG_InitStruct);
+		}
 
 		LL_ADC_REG_SetSequencerRanks( ADC2, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_1);
 		LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_71CYCLES_5);
@@ -2705,34 +2707,45 @@ void MX_ADC_Init(void)
 			NVIC_EnableIRQ(  DMA1_Channel1_IRQn);
 		}
 
-		ADC_InitStruct.DataAlignment      = LL_ADC_DATA_ALIGN_RIGHT;
-		ADC_InitStruct.SequencersScanMode = LL_ADC_SEQ_SCAN_ENABLE;
-		LL_ADC_Init(ADC1, &ADC_InitStruct);
+		{
+			LL_ADC_InitTypeDef ADC_InitStruct = {0};
+			ADC_InitStruct.DataAlignment      = LL_ADC_DATA_ALIGN_RIGHT;
+			ADC_InitStruct.SequencersScanMode = LL_ADC_SEQ_SCAN_ENABLE;
+			LL_ADC_Init(ADC1, &ADC_InitStruct);
+		}
 
-		ADC_CommonInitStruct.Multimode = LL_ADC_MULTI_INDEPENDENT;
-		LL_ADC_CommonInit(__LL_ADC_COMMON_INSTANCE(ADC1), &ADC_CommonInitStruct);
+		{
+			LL_ADC_CommonInitTypeDef ADC_CommonInitStruct = {0};
+			ADC_CommonInitStruct.Multimode = LL_ADC_MULTI_INDEPENDENT;
+			LL_ADC_CommonInit(__LL_ADC_COMMON_INSTANCE(ADC1), &ADC_CommonInitStruct);
+		}
 
-		ADC_REG_InitStruct.TriggerSource    = LL_ADC_REG_TRIG_EXT_TIM3_TRGO;
-		ADC_REG_InitStruct.SequencerLength  = LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS;
-		ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
-		ADC_REG_InitStruct.ContinuousMode   = LL_ADC_REG_CONV_SINGLE;
-		ADC_REG_InitStruct.DMATransfer      = LL_ADC_REG_DMA_TRANSFER_UNLIMITED;
-		LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
+		{
+			LL_ADC_REG_InitTypeDef ADC_REG_InitStruct = {0};
+			ADC_REG_InitStruct.TriggerSource    = LL_ADC_REG_TRIG_EXT_TIM3_TRGO;
+			ADC_REG_InitStruct.SequencerLength  = LL_ADC_REG_SEQ_SCAN_ENABLE_2RANKS;
+			ADC_REG_InitStruct.SequencerDiscont = LL_ADC_REG_SEQ_DISCONT_DISABLE;
+			ADC_REG_InitStruct.ContinuousMode   = LL_ADC_REG_CONV_SINGLE;
+			ADC_REG_InitStruct.DMATransfer      = LL_ADC_REG_DMA_TRANSFER_UNLIMITED;
+			LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
+		}
 
-		// LL_ADC_SAMPLINGTIME_1CYCLES_5            1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
-		// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
-		// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
-		// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
-		// LL_ADC_SAMPLINGTIME_41CYCLES_5          41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max  222kHz sample rate
-		// LL_ADC_SAMPLINGTIME_55CYCLES_5          55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max  176kHz sample rate
-		// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
-		// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
+		{
+			// LL_ADC_SAMPLINGTIME_1CYCLES_5            1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
+			// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
+			// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
+			// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
+			// LL_ADC_SAMPLINGTIME_41CYCLES_5          41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max  222kHz sample rate
+			// LL_ADC_SAMPLINGTIME_55CYCLES_5          55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max  176kHz sample rate
+			// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
+			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
 
-		LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
-		LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_41CYCLES_5);
+			LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
+			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_41CYCLES_5);
 
-		LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_2, LL_ADC_CHANNEL_1);
-		LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_41CYCLES_5);
+			LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_2, LL_ADC_CHANNEL_1);
+			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_41CYCLES_5);
+		}
 
 		#if 1
 		{	// calibrate the ADC
@@ -2832,22 +2845,23 @@ void MX_TIM3_Init(void)
 //
 void MX_USART1_UART_Init(void)
 {
-	LL_USART_InitTypeDef USART_InitStruct = {0};
-	LL_GPIO_InitTypeDef  GPIO_InitStruct  = {0};
-
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_USART1);
 	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_GPIOA);
 
-	GPIO_InitStruct.Pin        = UART1_TXD_Pin;
-	GPIO_InitStruct.Mode       = LL_GPIO_MODE_ALTERNATE;
-	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_LOW;
-	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-	LL_GPIO_Init(UART1_TXD_GPIO_Port, &GPIO_InitStruct);
+	{
+		LL_GPIO_InitTypeDef  GPIO_InitStruct  = {0};
 
-	GPIO_InitStruct.Pin        = UART1_RXD_Pin;
-	GPIO_InitStruct.Mode       = LL_GPIO_MODE_INPUT;
-	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
-	LL_GPIO_Init(UART1_RXD_GPIO_Port, &GPIO_InitStruct);
+		GPIO_InitStruct.Pin        = UART1_TXD_Pin;
+		GPIO_InitStruct.Mode       = LL_GPIO_MODE_ALTERNATE;
+		GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_LOW;
+		GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+		LL_GPIO_Init(UART1_TXD_GPIO_Port, &GPIO_InitStruct);
+
+		GPIO_InitStruct.Pin        = UART1_RXD_Pin;
+		GPIO_InitStruct.Mode       = LL_GPIO_MODE_INPUT;
+		GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
+		LL_GPIO_Init(UART1_RXD_GPIO_Port, &GPIO_InitStruct);
+	}
 
 	{	// TX DMA
 
@@ -2872,14 +2886,17 @@ void MX_USART1_UART_Init(void)
 		NVIC_EnableIRQ(DMA1_Channel4_IRQn);
 	}
 
-	USART_InitStruct.BaudRate            = settings.baudrate;
-	USART_InitStruct.DataWidth           = LL_USART_DATAWIDTH_8B;
-	USART_InitStruct.StopBits            = LL_USART_STOPBITS_1;
-	USART_InitStruct.Parity              = LL_USART_PARITY_NONE;
-	USART_InitStruct.TransferDirection   = LL_USART_DIRECTION_TX_RX;
-	USART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
-	USART_InitStruct.OverSampling        = LL_USART_OVERSAMPLING_16;
-	LL_USART_Init(USART1, &USART_InitStruct);
+	{
+		LL_USART_InitTypeDef USART_InitStruct = {0};
+		USART_InitStruct.BaudRate            = settings.baudrate;
+		USART_InitStruct.DataWidth           = LL_USART_DATAWIDTH_8B;
+		USART_InitStruct.StopBits            = LL_USART_STOPBITS_1;
+		USART_InitStruct.Parity              = LL_USART_PARITY_NONE;
+		USART_InitStruct.TransferDirection   = LL_USART_DIRECTION_TX_RX;
+		USART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
+		USART_InitStruct.OverSampling        = LL_USART_OVERSAMPLING_16;
+		LL_USART_Init(USART1, &USART_InitStruct);
+	}
 
 	LL_USART_ConfigAsyncMode(USART1);
 
@@ -3159,25 +3176,17 @@ void DMA1_Channel1_IRQHandler(void)
 {
 	// pass the ADC sample blocks over to the routine that does something with them
 
-	if (LL_DMA_IsActiveFlag_TE1(DMA1))
-	{	// error
-
-		LL_DMA_ClearFlag_TE1(DMA1);
-	}
+//	if (LL_DMA_IsActiveFlag_TE1(DMA1))
+//	{	// error
+//	}
 
 	if (LL_DMA_IsActiveFlag_HT1(DMA1))
-	{	// half transfer complete
-
 		process_ADC_DMA(&adc_dma_buffer[0], sizeof(adc_dma_buffer[0]));  // lower half of ADC buffer
-		LL_DMA_ClearFlag_HT1(DMA1);
-	}
 
 	if (LL_DMA_IsActiveFlag_TC1(DMA1))
-	{	// full transfer complete
-
 		process_ADC_DMA(&adc_dma_buffer[1], sizeof(adc_dma_buffer[0]));  // upper half of ADC buffer
-		LL_DMA_ClearFlag_TC1(DMA1);
-	}
+
+	LL_DMA_ClearFlag_GI1(DMA1);
 }
 
 // UART TX DMA
@@ -3188,9 +3197,7 @@ void DMA1_Channel4_IRQHandler(void)
 //	if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
 	{
 		LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
-		LL_DMA_ClearFlag_TE4(DMA1);
-		LL_DMA_ClearFlag_HT4(DMA1);
-		LL_DMA_ClearFlag_TC4(DMA1);
+		LL_DMA_ClearFlag_GI4(DMA1);
 	}
 }
 
@@ -3211,7 +3218,7 @@ void USART1_IRQHandler(void)
 			wr = (++wr >= sizeof(serial.rx.buffer)) ? 0 : wr;          // update write index
 			serial.rx.buffer_wr = wr;                                  // save it
 
-			serial.rx.timer     = 0;                                   // reset RX time-out timer
+			serial.rx.timer = 0;                                       // reset RX time-out timer
 
 			if (wr == serial.rx.buffer_rd)
 			{	// RX buffer overrun
@@ -3424,7 +3431,7 @@ void process_buttons(void)
 
 			// cycle the frequency
 			//
-			// todo: use measurement_table_Hz[]
+			// TODO: use measurement_table_Hz[]
 			//
 			switch (settings.measurement_Hz)
 			{
