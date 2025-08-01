@@ -135,8 +135,8 @@ static const uint16_t omega_13x18[] = {
 };
 
 // measure frequencies
-static const uint16_t measurement_table_Hz[] = {100, 1000};            // standard
-//static const uint16_t measurement_table_Hz[] = {100, 1000, 10000};   // this one after we have updated the HW PCB compnents to pass 10kHz
+const uint16_t measurement_table_Hz[2] = {100, 1000};            // standard
+//const uint16_t measurement_table_Hz[3] = {100, 1000, 10000};   // this one after we have updated the HW PCB compnents to pass 10kHz
 
 struct {
 	uint8_t por;
@@ -198,6 +198,8 @@ t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];             // *2 for 
 // we take several sample blocks and average them together to reduce noise (bad PCB layout/design)
 t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};               // average summing buffer
 unsigned int          adc_buffer_sum_count            = 0;                 // average summing counter
+
+float                 adc_input_dc_offset[VI_MODE_COUNT * 2] = {0};        // averaged ADC input DC offset
 
 // VI mode sequence order to minimize mode switching time
 // because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins, large DC spike occurs)
@@ -1442,12 +1444,12 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 
 			// smooth the DC offset value (LPF)
 			if (!adc_data_clipping[vi_mode])
-				settings.input_offset.adc[vi_mode] = ((1.0f - coeff) * settings.input_offset.adc[vi_mode]) + (coeff * sum);
+				adc_input_dc_offset[buf_index] = ((1.0f - coeff) * adc_input_dc_offset[buf_index]) + (coeff * sum);
 
 			if (!display_hold)                                            // don't bother removing DC offset if display HOLD is active
 			{	// subtract/remove the DC offset
 				if (!adc_data_clipping[vi_mode])
-					sum = settings.input_offset.adc[vi_mode];
+					sum = adc_input_dc_offset[buf_index];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_adc[i] -= sum;
 			}
@@ -1462,11 +1464,11 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 			sum *= 1.0f / ADC_DATA_LENGTH;
 
 			// smooth the DC offset value (LPF)
-			settings.input_offset.afc[vi_mode] = ((1.0f - coeff) * settings.input_offset.afc[vi_mode]) + (coeff * sum);
+			adc_input_dc_offset[buf_index] = ((1.0f - coeff) * adc_input_dc_offset[buf_index]) + (coeff * sum);
 
 			if (!display_hold)                                            // don't bother removing DC offset if display HOLD is active
 			{	// subtract/remove the DC offset
-				sum = settings.input_offset.afc[vi_mode];
+				sum = adc_input_dc_offset[buf_index];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_afc[i] -= sum;
 			}
@@ -1995,7 +1997,6 @@ void draw_screen(void)
 		ssd1306_WriteString(str_buf, &font_8x12, White);
 
 		{	// open/short calibration
-			const unsigned int index = (measurement_Hz <= 300) ? 0 : 1;
 			unsigned int i = 0;
 			memset(str_buf, 0, sizeof(str_buf));
 			str_buf[i++] = (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-';
