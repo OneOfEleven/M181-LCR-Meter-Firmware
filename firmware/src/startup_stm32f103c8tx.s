@@ -105,9 +105,11 @@ fill_stack2:
   ldr   r1,=_Min_Heap_Size       // r1 = size of heap
   cbz   r1,fill_heap2            // no heap
   sub   r1,r0,r1                 // r1 = r0 - r1        r1 = start of heap
-  movs  r2,#0xAAAAAAAA           // r2 = fill value
+;  movs  r2,#0xAAAAAAAA           // r2 = fill value
+  movs  r2,#0x01010101         // r2 = fill value
 fill_heap1:
   str   r2,[r1],#4               // *r1++ = r2
+  add   r2,r2,#0x01010101
   cmp   r1,r0
   bcc   fill_heap1
 fill_heap2:
