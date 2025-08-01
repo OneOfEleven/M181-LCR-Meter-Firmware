@@ -3530,15 +3530,14 @@ int send_dut_data(void)
 		const char rms_current_unit = unit_conversion(&rms_current, "umkMG");
 
 		float impedance = system_data.impedance;
-		impedance = adc_to_volts(impedance);
 		const char impedance_unit = unit_conversion(&impedance, "mkMG");
 
-		char v_str[6] = {0};
-		char i_str[6] = {0};
-		char z_str[6] = {0};
-		n_sprintf(4, rms_voltage, v_str, sizeof(v_str), 1);
-		n_sprintf(4, rms_current, i_str, sizeof(i_str), 1);
-		n_sprintf(4, impedance, z_str, sizeof(z_str), 1);
+		char v_str[8] = {0};
+		char i_str[8] = {0};
+		char z_str[8] = {0};
+		n_sprintf(5, rms_voltage, v_str, sizeof(v_str), 1);
+		n_sprintf(5, rms_current, i_str, sizeof(i_str), 1);
+		n_sprintf(5, impedance, z_str, sizeof(z_str), 1);
 
 		const unsigned int len = strlen(tx_str);
 
@@ -3576,20 +3575,20 @@ int send_dut_data(void)
 		const char qf_unit          = unit_conversion(&qf,          "kMG");
 		const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
 
-		char l_str[6] = {0};
-		char c_str[6] = {0};
-		char r_str[6] = {0};
-		char e_str[6] = {0};
-		char d_str[6] = {0};
-		char q_str[6] = {0};
-		char x_str[6] = {0};
-		n_sprintf(4, inductance,  l_str, sizeof(l_str), 1);
-		n_sprintf(4, capacitance, c_str, sizeof(c_str), 1);
-		n_sprintf(4, resistance,  r_str, sizeof(r_str), 1);
-		n_sprintf(4, esr,         e_str, sizeof(e_str), 1);
-		n_sprintf(4, tan_delta,   d_str, sizeof(d_str), 1);
-		n_sprintf(4, qf,          q_str, sizeof(q_str), 1);
-		n_sprintf(4, reactance,   x_str, sizeof(x_str), 1);
+		char l_str[8] = {0};
+		char c_str[8] = {0};
+		char r_str[8] = {0};
+		char e_str[8] = {0};
+		char d_str[8] = {0};
+		char q_str[8] = {0};
+		char x_str[8] = {0};
+		n_sprintf(5, inductance,  l_str, sizeof(l_str), 1);
+		n_sprintf(5, capacitance, c_str, sizeof(c_str), 1);
+		n_sprintf(5, resistance,  r_str, sizeof(r_str), 1);
+		n_sprintf(5, esr,         e_str, sizeof(e_str), 1);
+		n_sprintf(5, tan_delta,   d_str, sizeof(d_str), 1);
+		n_sprintf(5, qf,          q_str, sizeof(q_str), 1);
+		n_sprintf(5, reactance,   x_str, sizeof(x_str), 1);
 
 		const char mode = (i == 0) ? 's' : 'p';
 
