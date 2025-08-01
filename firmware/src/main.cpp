@@ -1847,7 +1847,7 @@ void process_ADC(void)
 #define LINE2_Y      (LINE_SPACING + 2)
 #define LINE3_Y      (LINE2_Y + LINE_SPACING + 4)
 
-void print_sprint(const unsigned int digit, const float value, char buf[], const unsigned int out_max_size, const uint8_t _trim_leading_zeros)
+char * n_sprintf(const unsigned int digit, const float value, char buf[], const unsigned int out_max_size, const uint8_t _trim_leading_zeros)
 {
 	const float v = fabsf(value);
 
@@ -1903,6 +1903,8 @@ void print_sprint(const unsigned int digit, const float value, char buf[], const
 
 	if (_trim_leading_zeros)
 		trim_leading_zeros(buf);
+
+	return buf;
 }
 
 void screen_init(void)
@@ -2014,7 +2016,7 @@ void draw_screen(void)
 		#if 1
 			else
 			{	// VI phase
-				print_sprint(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf), 1);
+				n_sprintf(4, system_data.vi_phase_deg, str_buf, sizeof(str_buf), 1);
 				ssd1306_WriteString(str_buf, &font_8x12, White);
 			}
 		#endif
@@ -2061,7 +2063,7 @@ void draw_screen(void)
 						#endif
 					}
 					else
-						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
+						n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
 					break;
 
 				case LCR_MODE_CAPACITANCE:
@@ -2076,7 +2078,7 @@ void draw_screen(void)
 						#endif
 					}
 					else
-						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
+						n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
 					break;
 
 				default:
@@ -2092,7 +2094,7 @@ void draw_screen(void)
 						#endif
 					}
 					else
-						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
+						n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
 					break;
 
 //				case LCR_MODE_AUTO:
@@ -2216,7 +2218,7 @@ void draw_screen(void)
 				value = adc_to_volts(value);
 				const char unit = unit_conversion(&value, "mkMG");
 
-				print_sprint(3, value, str_buf, sizeof(str_buf), 1);
+				n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
 				unsigned int i = strlen(str_buf);
 				if (unit != ' ')
 					str_buf[i++] = unit;
@@ -2232,7 +2234,7 @@ void draw_screen(void)
 				value = adc_to_volts(value);
 				const char unit = unit_conversion(&value, "umkMG");
 
-				print_sprint(3, value, str_buf, sizeof(str_buf), 1);
+				n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
 				unsigned int i = strlen(str_buf);
 				if (unit != ' ')
 					str_buf[i++] = unit;
@@ -2259,7 +2261,7 @@ void draw_screen(void)
 					ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
 					ssd1306_WriteString("ER", &font_8x12, White);
 
-					print_sprint(3, value, str_buf, sizeof(str_buf), 1);
+					n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
 					str_buf[i++] = unit;
 					str_buf[i++] = '\0';
@@ -2276,7 +2278,7 @@ void draw_screen(void)
 					ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
 					ssd1306_WriteString("D", &font_8x12, White);
 
-					print_sprint(3, value, str_buf, sizeof(str_buf), 1);
+					n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
 					str_buf[i++] = unit;
 					str_buf[i++] = '\0';
@@ -2293,7 +2295,7 @@ void draw_screen(void)
 					ssd1306_WriteString("Q", &font_8x12, White);
 
 					//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - font_8x12.height);
-					print_sprint(3, value, str_buf, sizeof(str_buf), 1);
+					n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
 					str_buf[i++] = unit;
 					str_buf[i++] = '\0';
@@ -2322,7 +2324,7 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
 						const char unit = unit_conversion(&value, "umkMG");
 
-						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
+						n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
 						unsigned int i = strlen(str_buf);
 						if (unit != ' ')
 							str_buf[i++] = unit;
@@ -2334,7 +2336,7 @@ void draw_screen(void)
 						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.capacitance : system_data.series.capacitance;
 						const char unit = unit_conversion(&value, "pnumkMG");
 
-						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
+						n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
 						unsigned int i = strlen(str_buf);
 						if (unit != ' ')
 							str_buf[i++] = unit;
@@ -2353,7 +2355,7 @@ void draw_screen(void)
 					ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
 					ssd1306_WriteString("Q", &font_8x12, White);
 
-					print_sprint(3, value, str_buf, sizeof(str_buf), 1);
+					n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
 					str_buf[i++] = unit;
 					str_buf[i++] = '\0';
@@ -2416,7 +2418,7 @@ void draw_screen(void)
 			ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
 			ssd1306_WriteString("V", &font_8x12, White);
 
-			print_sprint(3, rms_voltage, str_buf, sizeof(str_buf), 1);
+			n_sprintf(3, rms_voltage, str_buf, sizeof(str_buf), 1);
 			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
 				str_buf[i++] = unit;
@@ -2434,7 +2436,7 @@ void draw_screen(void)
 			ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
 			ssd1306_WriteString("I", &font_8x12, White);
 
-			print_sprint(3, rms_current, str_buf, sizeof(str_buf), 1);
+			n_sprintf(3, rms_current, str_buf, sizeof(str_buf), 1);
 			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
 				str_buf[i++] = unit;
@@ -3531,34 +3533,40 @@ int send_dut_data(void)
 		float impedance = system_data.impedance;
 		const char impedance_unit = unit_conversion(&impedance, "mkMG");
 
-		const unsigned int len = strlen(tx_str);
+		char v_str[6] = {0};
+		char i_str[6] = {0};
+		char z_str[6] = {0};
+		n_sprintf(4, rms_voltage, v_str, sizeof(v_str), 1);
+		n_sprintf(4, rms_current, i_str, sizeof(i_str), 1);
+		n_sprintf(4, impedance, z_str, sizeof(z_str), 1);
 
-		//print_sprint(5, value, str_buf, sizeof(str_buf), 1);
+		const unsigned int len = strlen(tx_str);
 
 		snprintf(tx_str + len, tx_str_size - len,
 			NEWLINE
 			"DUT:" NEWLINE
 			" Freq %u Hz" NEWLINE
-			"    V %0.3f %cV rms" NEWLINE
-			"    I %0.3f %cA rms" NEWLINE
+			"    V %s %cV rms" NEWLINE
+			"    I %s %cA rms" NEWLINE
 			"  Phi %0.3f deg" NEWLINE
-			"    Z %0.3f %c" NEWLINE,
+			"    Z %s %c" NEWLINE,
 			measurement_Hz,
-			rms_voltage, rms_voltage_unit,
-			rms_current, rms_current_unit,
+			v_str, rms_voltage_unit,
+			i_str, rms_current_unit,
 			system_data.vi_phase_deg,
-			impedance, impedance_unit
+			z_str, impedance_unit
 		);
 	}
 
+	for (unsigned int i = 0; i < 2; i++)
 	{
-		float inductance  = system_data.series.inductance;
-		float capacitance = system_data.series.capacitance;
-		float resistance  = system_data.series.resistance;
-		float esr         = system_data.series.esr;
-		float tan_delta   = system_data.series.tan_delta;
-		float qf          = system_data.series.qf;
-		float reactance   = system_data.series.reactance;
+		float inductance  = (i == 0) ? system_data.series.inductance  : system_data.parallel.inductance;;
+		float capacitance = (i == 0) ? system_data.series.capacitance : system_data.parallel.capacitance;
+		float resistance  = (i == 0) ? system_data.series.resistance  : system_data.parallel.resistance;
+		float esr         = (i == 0) ? system_data.series.esr         : system_data.parallel.esr;
+		float tan_delta   = (i == 0) ? system_data.series.tan_delta   : system_data.parallel.tan_delta;
+		float qf          = (i == 0) ? system_data.series.qf          : system_data.parallel.qf;
+		float reactance   = (i == 0) ? system_data.series.reactance   : system_data.parallel.reactance;
 
 		const char inductance_unit  = unit_conversion(&inductance,  "um");
 		const char capacitance_unit = unit_conversion(&capacitance, "pnum");
@@ -3568,60 +3576,40 @@ int send_dut_data(void)
 		const char qf_unit          = unit_conversion(&qf,          "kMG");
 		const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
 
-		const unsigned int len = strlen(tx_str);
+		char l_str[6] = {0};
+		char c_str[6] = {0};
+		char r_str[6] = {0};
+		char e_str[6] = {0};
+		char d_str[6] = {0};
+		char q_str[6] = {0};
+		char x_str[6] = {0};
+		n_sprintf(4, inductance,  l_str, sizeof(l_str), 1);
+		n_sprintf(4, capacitance, c_str, sizeof(c_str), 1);
+		n_sprintf(4, resistance,  r_str, sizeof(r_str), 1);
+		n_sprintf(4, esr,         e_str, sizeof(e_str), 1);
+		n_sprintf(4, tan_delta,   d_str, sizeof(d_str), 1);
+		n_sprintf(4, qf,          q_str, sizeof(q_str), 1);
+		n_sprintf(4, reactance,   x_str, sizeof(x_str), 1);
 
-		snprintf(tx_str + len, tx_str_size - len,
-			"   Ls %0.3f %cH" NEWLINE
-			"   Cs %0.3f %cF" NEWLINE
-			"   Rs %0.3f %c" NEWLINE
-			" ESRs %0.3f %c" NEWLINE
-			"   Ds %0.3f %c" NEWLINE
-			"   Qs %0.3f %c" NEWLINE
-			"   Xs %0.3f %c" NEWLINE,
-			inductance,  inductance_unit,
-			capacitance, capacitance_unit,
-			resistance,  resistance_unit,
-			esr,         esr_unit,
-			tan_delta,   tan_delta_unit,
-			qf,          qf_unit,
-			reactance,   reactance_unit
-		);
-	}
-
-	{
-		float inductance  = system_data.parallel.inductance;
-		float capacitance = system_data.parallel.capacitance;
-		float resistance  = system_data.parallel.resistance;
-		float esr         = system_data.parallel.esr;
-		float tan_delta   = system_data.parallel.tan_delta;
-		float qf          = system_data.parallel.qf;
-		float reactance   = system_data.parallel.reactance;
-
-		const char inductance_unit  = unit_conversion(&inductance,  "um");
-		const char capacitance_unit = unit_conversion(&capacitance, "pnum");
-		const char resistance_unit  = unit_conversion(&resistance,  "mkMG");
-		const char esr_unit         = unit_conversion(&esr,         "mkMG");
-		const char tan_delta_unit   = unit_conversion(&tan_delta,   "mkMG");
-		const char qf_unit          = unit_conversion(&qf,          "kMG");
-		const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
+		const char mode = (i == 0) ? 's' : 'p';
 
 		const unsigned int len = strlen(tx_str);
 
 		snprintf(tx_str + len, tx_str_size - len,
-			"   Lp %0.3f %cH" NEWLINE
-			"   Cp %0.3f %cF" NEWLINE
-			"   Rp %0.3f %c" NEWLINE
-			" ESRp %0.3f %c" NEWLINE
-			"   Dp %0.3f %c" NEWLINE
-			"   Qp %0.3f %c" NEWLINE
-			"   Xp %0.3f %c" NEWLINE,
-			inductance,  inductance_unit,
-			capacitance, capacitance_unit,
-			resistance,  resistance_unit,
-			esr,         esr_unit,
-			tan_delta,   tan_delta_unit,
-			qf,          qf_unit,
-			reactance,   reactance_unit
+			"   L%c %s %cH" NEWLINE
+			"   C%c %s %cF" NEWLINE
+			"   R%c %s %c" NEWLINE
+			" ESR%c %s %c" NEWLINE
+			"   D%c %s %c" NEWLINE
+			"   Q%c %s %c" NEWLINE
+			"   X%c %s %c" NEWLINE,
+			mode, l_str, inductance_unit,
+			mode, c_str, capacitance_unit,
+			mode, r_str, resistance_unit,
+			mode, e_str, esr_unit,
+			mode, d_str, tan_delta_unit,
+			mode, q_str, qf_unit,
+			mode, x_str, reactance_unit
 		);
 	}
 
