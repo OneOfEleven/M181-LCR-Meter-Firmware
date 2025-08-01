@@ -3527,7 +3527,7 @@ int send_dut_data(void)
 
 		float rms_current = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
 		rms_current = adc_to_volts(rms_current);
-		const char rms_current_unit = unit_conversion(&rms_current, "umkMG");
+		const char rms_current_unit = unit_conversion(&rms_current, "numkMG");
 
 		float impedance = system_data.impedance;
 		const char impedance_unit = unit_conversion(&impedance, "mkMG");
@@ -3539,16 +3539,36 @@ int send_dut_data(void)
 		n_sprintf(5, rms_current, i_str, sizeof(i_str), 1);
 		n_sprintf(5, impedance, z_str, sizeof(z_str), 1);
 
+		char mode_str[4] = {0};
+		switch (lcr_mode)
+		{
+			case LCR_MODE_INDUCTANCE:  mode_str[0] = 'L'; break;
+			case LCR_MODE_CAPACITANCE: mode_str[0] = 'C'; break;
+			case LCR_MODE_RESISTANCE:  mode_str[0] = 'R'; break;
+			case LCR_MODE_AUTO:        mode_str[0] = 'A'; break;
+			default:                   mode_str[0] = '?'; break;
+		}
+		switch (sp_mode)
+		{
+			case SP_MODE_SERIES:   mode_str[1] = 's'; break;
+			case SP_MODE_PARALLEL: mode_str[1] = 'p'; break;
+			case SP_MODE_AUTO:     mode_str[1] = 'a'; break;
+			default:               mode_str[1] = '?'; break;
+		}
+		mode_str[2] = (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ';
+
 		const unsigned int len = strlen(tx_str);
 
 		snprintf(tx_str + len, tx_str_size - len,
 			NEWLINE
 			"DUT:" NEWLINE
+			" Mode %s" NEWLINE
 			" Freq %u Hz" NEWLINE
 			"    V %s %cV rms" NEWLINE
 			"    I %s %cA rms" NEWLINE
 			"  Phi %0.3f deg" NEWLINE
 			"    Z %s %c" NEWLINE,
+			mode_str,
 			measurement_Hz,
 			v_str, rms_voltage_unit,
 			i_str, rms_current_unit,
