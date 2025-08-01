@@ -798,15 +798,15 @@ void goertzel_init(t_goertzel *g, const float normalized_freq)
 
 // 'units' .. a list of units we want tested and scaled for (case sensitive) ..
 //
-//            'f' = femto
-//            'p' = pico
-//            'n' = nano
-//            'u' = micro
-//            'm' = milli
-//            'k' = kilo
-//            'M' = Mega
-//            'G' = Giga
-//            'T' = Tera
+//    'f' = femto
+//    'p' = pico
+//    'n' = nano
+//    'u' = micro
+//    'm' = milli
+//    'k' = kilo
+//    'M' = Mega
+//    'G' = Giga
+//    'T' = Tera
 //
 char unit_conversion(float *value, const char units[])   // const char units[] = "fpnumkMG")
 {
@@ -1079,12 +1079,12 @@ int process_Goertzel(void)
 		if (!filter || clipped)
 		{	// don't Goertzel DFT filter the waveform, but do do these ..
 			//   compute waveform RMS magnitude
-			//   compute waveform phase
+			//   compute waveform phase using a single Goertzel DFT
 
 			// point to the ADC samples
 			float *buf = adc_data[buf_index];
 
-			{	// compute waveform RMS magnitude of the unfiltered waveform
+			{	// compute RMS magnitude of the unfiltered waveform
 				float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 					sum += SQR(buf[k]);
@@ -1428,8 +1428,7 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 		}
 	}
 
-	{
-		// remove DC offset from this new block of averaged samples
+	{	// remove DC offset from this new block of averaged samples
 
 		const float coeff = (frames <= 3) ? 0.9 : 0.3;   // fast LPF convergence to start with, then switch to slower coeff
 
@@ -1969,7 +1968,7 @@ void draw_measurement_mode(void)
 
 void draw_screen(void)
 {
-	const unsigned int xx = font_8x12.width * 8;
+	const unsigned int xx = font_8x12.width * 9;
 
 	// clear the screen
 	ssd1306_Fill(Black);
@@ -2187,7 +2186,7 @@ void draw_screen(void)
 		#endif
 
 		#if 0
-		{	// show current serial/parallel mode
+		{	// show the current serial/parallel mode
 			const char *sp[] = {"Rs", "Rp", "R-", "ER"};
 			const char *s = NULL;
 			switch (sp_mode)
@@ -2198,7 +2197,7 @@ void draw_screen(void)
 				default:               s = sp[3]; break;
 			}
 			strcpy(str_buf, (s != NULL) ? s : "");
-			ssd1306_SetCursor(SSD1306_WIDTH - (2 * font_8x12.width), LINE3_Y);
+			ssd1306_SetCursor(SSD1306_WIDTH - (strlen(str_buf) * font_8x12.width), LINE3_Y);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 		#else
@@ -2268,7 +2267,7 @@ void draw_screen(void)
 					const char unit = unit_conversion(&value, "mkMG");
 
 					ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
-					ssd1306_WriteString("ER", &font_8x12, White);
+					ssd1306_WriteString("ESR", &font_8x12, White);
 
 					n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
 					unsigned int i = strlen(str_buf);
@@ -2462,7 +2461,6 @@ void draw_screen(void)
 
 	#if 1
 	{
-		memset(str_buf, 0, sizeof(str_buf));
 		switch (settings.data_mode)
 		{
 			case DATA_MODE_NONE:   str_buf[0] = ' '; break;
@@ -2471,7 +2469,8 @@ void draw_screen(void)
 			case DATA_MODE_DUT:    str_buf[0] = 'D'; break;
 			default:               str_buf[0] = 'E'; break;
 		}
-		ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width), SSD1306_HEIGHT - 1 - font_8x12.height);
+		str_buf[1] = '\0';
+		ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width) + 1, SSD1306_HEIGHT - 1 - font_8x12.height);
 		ssd1306_WriteString(str_buf, &font_8x12, White);
 	}
 	#endif
