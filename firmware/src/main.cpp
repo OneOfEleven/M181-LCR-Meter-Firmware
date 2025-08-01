@@ -2002,13 +2002,15 @@ void draw_screen(void)
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 
-		// hold or fast
+		// hold, fast or VI phase
 		ssd1306_SetCursor(SSD1306_WIDTH - (4 * font_8x12.width), 0);
 		if (display_hold)
 			ssd1306_WriteString("HOLD", &font_8x12, White);
-		else
-		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
-			ssd1306_WriteString("fast", &font_8x12, White);
+		#if 0
+			else
+			if (settings.flags & SETTING_FLAG_FAST_UPDATES)
+				ssd1306_WriteString("fast", &font_8x12, White);
+		#endif
 		#if 1
 			else
 			{	// VI phase
@@ -2190,7 +2192,6 @@ void draw_screen(void)
 		}
 		#else
 		{	// show the current LCR mode
-			memset(str_buf, 0, 2);
 			switch (settings.lcr_mode)
 			{
 				case LCR_MODE_INDUCTANCE:  str_buf[0] = 'L'; break;
@@ -2199,7 +2200,9 @@ void draw_screen(void)
 				case LCR_MODE_AUTO:        str_buf[0] = 'A'; break;
 				default:                   str_buf[0] = '?'; break;
 			}
-			ssd1306_SetCursor(SSD1306_WIDTH - (1 * font_8x12.width), LINE3_Y);
+			str_buf[1] = (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ';
+			str_buf[2] = '\0';
+			ssd1306_SetCursor(SSD1306_WIDTH - (strlen(str_buf) * font_8x12.width), LINE3_Y);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 		#endif
@@ -2304,16 +2307,40 @@ void draw_screen(void)
 
 			default:
 			case LCR_MODE_RESISTANCE:
-				{	// inductance
-					float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
-					const char unit = unit_conversion(&value, "umkMG");
+				{
+					uint8_t mode = LCR_MODE_RESISTANCE;
+					if (fabsf(system_data.vi_phase_deg) < LCR_AUTO_PHASE_THRESHOLD)
+					{	// toggle between inductance and capcitance mode
+						const uint8_t mask = (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 1u << 4 : 1u << 2;
+						mode = (frames & mask) ? LCR_MODE_INDUCTANCE : LCR_MODE_CAPACITANCE;
+					}
+					else
+						mode = (system_data.vi_phase_deg < 0) ? LCR_MODE_INDUCTANCE : LCR_MODE_CAPACITANCE;
 
-					print_sprint(4, value, str_buf, sizeof(str_buf), 1);
-					unsigned int i = strlen(str_buf);
-					if (unit != ' ')
-						str_buf[i++] = unit;
-					str_buf[i++] = 'H';
-					str_buf[i++] = '\0';
+					if (mode == LCR_MODE_INDUCTANCE)
+					{	// inductance
+						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.inductance : system_data.series.inductance;
+						const char unit = unit_conversion(&value, "umkMG");
+
+						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
+						unsigned int i = strlen(str_buf);
+						if (unit != ' ')
+							str_buf[i++] = unit;
+						str_buf[i++] = 'H';
+						str_buf[i++] = '\0';
+					}
+					else
+					{	// capacitance
+						float value = (sp_mode == SP_MODE_PARALLEL) ? system_data.parallel.capacitance : system_data.series.capacitance;
+						const char unit = unit_conversion(&value, "pnumkMG");
+
+						print_sprint(4, value, str_buf, sizeof(str_buf), 1);
+						unsigned int i = strlen(str_buf);
+						if (unit != ' ')
+							str_buf[i++] = unit;
+						str_buf[i++] = 'F';
+						str_buf[i++] = '\0';
+					}
 					trim_trailing_zeros(str_buf);
 					ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
 					ssd1306_WriteString(str_buf, &font_8x12, White);

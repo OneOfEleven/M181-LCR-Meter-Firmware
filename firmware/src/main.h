@@ -36,7 +36,7 @@
 	#define M_PI                     3.14159265358979323846264338327950288
 #endif
 
-#define FW_VERSION                   "1.0c"
+#define FW_VERSION                   "1.0d"
 
 #define NEWLINE                      "\n"
 
@@ -72,14 +72,11 @@
 
 #define DUAL_ADC_MODE                               // comment out to use single ADC dual channel mode
 
-#define SP_AUTO_LOW_OHMS_THRESHOLD   1000           // impedance <= this we switch to SERIES mode
-#define SP_AUTO_HIGH_OHMS_THRESHOLD  10000          // impedance >= this we switch to PARELLEL mode
-
 #define SERIES_RESISTOR_OHMS         1000           // the value of the resistor in series with the DUT - needs calibrating
 
-//#define HISTOGRAM_CLIP_DET                        // uncomment to use histogram clip detector, comment out for faster/simple threshold clip detector
+//#define HISTOGRAM_CLIP_DET                        // use histogram clip detector, comment out for faster/simple sample threshold clip detector
 
-//#define AVERAGE_PHASE                             // average all the Goertzel filter outputs to create a phase average - TEST ONLY
+//#define AVERAGE_PHASE                             // average all the Goertzel filter outputs to create a phase average - TEST ONLY, not needed
 
 // remove outliner values
 #define MEDIAN_SIZE                  3              // '0' or ODD length only
@@ -91,9 +88,11 @@
 
 #define CALIBRATE_COUNT              4              // number of results to average when doing the open/short calibration
 
-#define LCR_AUTO_PHASE_THRESHOLD     2.5f
+#define LCR_AUTO_PHASE_THRESHOLD     2.5f           // auto LCR mode phase threshold
 
-#define SP_AUTO_PHASE_THRESHOLD      5.0f
+#define SP_AUTO_PHASE_THRESHOLD      5.0f           // used in the auto Series/Parallel mode decision
+#define SP_AUTO_LOW_OHMS_THRESHOLD   1000           // impedance <= this we switch to SERIES mode
+#define SP_AUTO_HIGH_OHMS_THRESHOLD  10000          // impedance >= this we switch to PARELLEL mode
 
 #define VOLTAGE_OPEN_CAL_THRESHOLD   900.0f         // RMS ADC value
 #define CURRENT_OPEN_CAL_THRESHOLD   0.000050f      // RMS ADC value

@@ -15,13 +15,12 @@
 <img src="firmware/docs/pcb_finished.png" alt="image" style="width:500px;height:auto;">
 
 - Note, you WILL eventually pull/lift the two probe jack sockets off the PCB, this is a serious HW design flaw often made by beginners/non-experienced :(
-- ALL terminating connectors to the outside world must always be secured by through-hole methods (ie through-hole pins and/or casing etc). PCB SMD alone will n-e-v-e-r be strong enough for this.
+- ALL terminating connectors to the outside world must always be secured by through-hole methods (ie through-hole pins and/or casing etc). PCB SMD alone will never be strong enough for this.
 
 ## Main tasks to be completed on this firmware
 - [ ] Track down any remaining bugs (let me know if you spot any)
-- [ ] Auto calibration
 - [ ] Change some PCB component values to add a 10kHz option (see LTspice sims)
-- [ ] Add a menu system (flash space dependant)
+- [ ] Maybe add a menu system (flash space dependant)
 
 ## Buttons ..
 
