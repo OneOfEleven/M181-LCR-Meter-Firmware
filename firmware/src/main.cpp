@@ -3530,7 +3530,7 @@ int send_dut_data(void)
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
 		return -1;     // uart DMA is still busy sending
 
-	memset(tx_buffer, 0, sizeof(tx_buffer));
+	tx_buffer[0] = 0;
 
 	const unsigned int tx_str_size = sizeof(tx_buffer);
 	char              *tx_str      = (char *)tx_buffer;
@@ -3714,7 +3714,7 @@ const t_cmd cmds[] = {
 	{"dut",       "                  .. read current DUT params",            CMD_DUT_ID      },
 	{"frequency", "[Hz]              .. read/set measurement frequency",     CMD_FREQUENCY_ID},
 	{"hold",      "                  .. toggle display hold on/off",         CMD_HOLD_ID     },
-	{"lcrmode",   "[r l i c a]       .. read/set LCR mode",                  CMD_LCR_MODE_ID },
+	{"lcrmode",   "[r l i c a]       .. read/set LCRA mode",                 CMD_LCR_MODE_ID },
 	{"spmode",    "[s p a]           .. read/set Series/Parallel/Auto mode", CMD_SP_MODE_ID  },
 	{"opencal",   "                  .. run open probe calibration",         CMD_OPEN_CAL_ID },
 	{"shortcal",  "                  .. run shorted probe calibration",      CMD_SHORT_CAL_ID},
@@ -3903,9 +3903,9 @@ void process_serial_command(char cmd[], unsigned int len)
 			}
 
 			if (settings.measurement_Hz < 1000)
-				snprintf(str_buf, sizeof(str_buf), " %u Hz" NEWLINE, settings.measurement_Hz);
+				snprintf(str_buf, sizeof(str_buf), "%u Hz", settings.measurement_Hz);
 			else
-				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", settings.measurement_Hz * 1e-3f);
+				snprintf(str_buf, sizeof(str_buf), "%0.3f kHz", settings.measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);
 			printf(NEWLINE "measurement frequency %s" NEWLINE, str_buf);
 
@@ -4079,12 +4079,8 @@ void process_serial_command(char cmd[], unsigned int len)
 
 			display_hold ^= 1u;        // toggle hold flag
 
-			printf(NEWLINE "display");
-			fflush(NULL);
-			if (display_hold)
-				printf(" hold" NEWLINE);
-			else
-				printf(" run" NEWLINE);
+			printf(NEWLINE "display ");
+			printf("%s" NEWLINE, display_hold ? "hold" : "run");
 
 			draw_screen();
 			return;
@@ -4095,7 +4091,7 @@ void process_serial_command(char cmd[], unsigned int len)
 			return;
 
 		case CMD_VERSION_ID:
-			printf(NEWLINE "M181 LCR Meter v%s %s %s %s %s %s %s %s" NEWLINE,
+			printf(NEWLINE "M181 LCR Meter v%s, FW by Jaishankar M and 1o11     %s %s %s %s %s %s %s" NEWLINE,
 				FW_VERSION,
 				reset_cause.por    ? "POR"    : "por",
 				reset_cause.pin    ? "PIN"    : "pin",
@@ -4435,7 +4431,7 @@ int main(void)
 
 	set_measurement_frequency(settings.measurement_Hz);
 
-	printf(NEWLINE NEWLINE "rebooted M181 LCR Meter v%s %s %s %s %s %s %s %s" NEWLINE,
+	printf(NEWLINE NEWLINE "rebooted M181 LCR Meter v%s, FW by Jaishankar M and 1o11     %s %s %s %s %s %s %s" NEWLINE,
 		FW_VERSION,
 		reset_cause.por    ? "POR"    : "por",
 		reset_cause.pin    ? "PIN"    : "pin",
