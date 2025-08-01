@@ -1126,7 +1126,7 @@ int process_Goertzel(void)
 				system_data.mag_rms[buf_index] = sqrtf(sum);     // save the computed RMS magnitude
 			}
 
-			#ifndef AVERAGE_PHASE
+			#if !defined(AVERAGE_PHASE) || (GOERTZEL_FILTER_LENGTH == ADC_DATA_LENGTH)
 			{	// compute waveform phase using a single Goertzel DFT on the filtered waveform
 				const t_complex s = goertzel_block(buf, ADC_DATA_LENGTH, &goertzel);
 				system_data.phase_deg[buf_index] = (s.real != 0) ? atan2f(s.imag, s.real) * RAD_TO_DEG : NAN;
@@ -1293,7 +1293,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 //
 void process_ADC_DMA(const void *buffer, const unsigned int size)
 {
-	if (buffer == NULL || size == 0 || initialising || tmp_buffer_in_use != 0)
+	if (buffer == NULL || size == 0 || initialising || tmp_buffer_in_use)
 		return;                                       // the temp buffer is not available for use, drop this sample block
 
 	if (vi_measure_index >= VI_MODE_COUNT)
@@ -1431,9 +1431,12 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 	{
 		// remove DC offset from this new block of averaged samples
 
-		const float coeff = (frames <= 3) ? 0.9 : 0.3;  // fast LPF convergence to start with, then switch to slower coeff
+		const float coeff = (frames <= 3) ? 0.9 : 0.3;   // fast LPF convergence to start with, then switch to slower coeff
 
-		if (!adc_data_clipping[vi_mode] || op_mode != OP_MODE_MEASURING)  // don't bother if the samples are clipped (sample block is useless to us)
+		const unsigned int calibrating = (op_mode != OP_MODE_MEASURING) ? 1 : 0;  // set if we're doing a calibration run
+
+//		if (!adc_data_clipping[vi_mode] || calibrating)  // don't bother if the samples are clipped (sample block is useless to us)
+		if (!adc_data_clipping[vi_mode])                 // don't bother if the samples are clipped (sample block is useless to us)
 		{	// ADC input
 
 			// compute the DC offset of the block
@@ -1443,12 +1446,12 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 			sum *= 1.0f / ADC_DATA_LENGTH;
 
 			// smooth the DC offset value (LPF)
-			if (!adc_data_clipping[vi_mode])
+//			if (!adc_data_clipping[vi_mode])
 				adc_input_dc_offset[buf_index] = ((1.0f - coeff) * adc_input_dc_offset[buf_index]) + (coeff * sum);
 
-			if (!display_hold)                                            // don't bother removing DC offset if display HOLD is active
+			if (!display_hold || calibrating)
 			{	// subtract/remove the DC offset
-				if (!adc_data_clipping[vi_mode])
+//				if (!adc_data_clipping[vi_mode])
 					sum = adc_input_dc_offset[buf_index];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_adc[i] -= sum;
@@ -1466,7 +1469,7 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 			// smooth the DC offset value (LPF)
 			adc_input_dc_offset[buf_index] = ((1.0f - coeff) * adc_input_dc_offset[buf_index]) + (coeff * sum);
 
-			if (!display_hold)                                            // don't bother removing DC offset if display HOLD is active
+			if (!display_hold || calibrating)
 			{	// subtract/remove the DC offset
 				sum = adc_input_dc_offset[buf_index];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
@@ -1732,7 +1735,7 @@ void process_data(void)
 //
 void process_ADC(void)
 {
-	if (tmp_buffer_in_use == 0 || initialising)
+	if (initialising || !tmp_buffer_in_use)
 		return;                      // ADC DMA hasn't yet given us anything
 
 	// current VI mode index
@@ -1777,8 +1780,8 @@ void process_ADC(void)
 	// we drop the hi-gain blocks if they are clipped (clipping makes the data useless)
 	// we drop the lo-gain blocks if the hi-gain blocks are usable (if no high-gain clipping detected)
 	//
-//	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
-	unsigned int average_count = (100ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
+	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
+//	unsigned int average_count = (100ul * measurement_Hz) >> 10;  // a bit faster
 	if (op_mode == OP_MODE_MEASURING)
 	{
 		if (display_hold)
@@ -1792,6 +1795,11 @@ void process_ADC(void)
 		else
 		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
 			average_count >>= 3;                                  // average fewer buffers in 'fast' mode (this is speeds up the display update rate)
+	}
+	else
+	{
+		if (adc_data_clipping[vi_mode])
+			average_count = 1;                                    // this block of samples are clipping, drop them, move on to the next mode
 	}
 	average_count = (average_count < 1) ? 1 : average_count;
 
