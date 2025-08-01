@@ -45,9 +45,7 @@ typedef struct {
 	uint8_t  Initialized;
 } SSD1306_t;
 
-// uint8_t ssd1306_Init(I2C_HandleTypeDef *hi2c);
 uint8_t ssd1306_Init(void);
-//void ssd1306_UpdateScreen(I2C_HandleTypeDef *hi2c);
 void ssd1306_UpdateScreen(void);
 void ssd1306_Fill(SSD1306_COLOR color);
 void ssd1306_DrawPixel(const unsigned int x, const unsigned int y, SSD1306_COLOR color);
