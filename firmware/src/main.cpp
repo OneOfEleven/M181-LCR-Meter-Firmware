@@ -3529,8 +3529,8 @@ int send_dut_data(void)
 		rms_current = adc_to_volts(rms_current);
 		const char rms_current_unit = unit_conversion(&rms_current, "umkMG");
 
-		// impedance
 		float impedance = system_data.impedance;
+		impedance = adc_to_volts(impedance);
 		const char impedance_unit = unit_conversion(&impedance, "mkMG");
 
 		char v_str[6] = {0};
