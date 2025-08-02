@@ -280,6 +280,17 @@ void stop(uint32_t ms = 0)
 	}
 }
 
+char * strcatc(char buf[], const char c)
+{
+	if (buf != NULL)
+	{
+		unsigned int i = strlen(buf);
+		buf[i++] = c;
+		buf[i] = '\0';
+	}
+	return buf;
+}
+
 // remove any leading zeros
 //
 void trim_leading_zeros(char buf[])
@@ -471,13 +482,6 @@ void getCPU(void)
 #endif
 
 // ***********************************************************
-
-// convert ADC raw value to voltage
-//
-float adc_to_volts(const float raw_adc)
-{
-	return  (3.3f / 4095) * raw_adc;    // 12-bit ADC
-}
 
 void set_measure_mode_pins(const unsigned int mode)
 {
@@ -2054,20 +2058,22 @@ void draw_screen(void)
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 
-		// measurement frequency
-		if (measurement_Hz < 1000)
-			snprintf(str_buf, sizeof(str_buf), "%u", measurement_Hz);
-		else
-			snprintf(str_buf, sizeof(str_buf), "%0.1fk", measurement_Hz * 1e-3f);
-		trim_trailing_zeros(str_buf);
-		ssd1306_MoveCursor(font_8x12.width / 2, 0);
-		ssd1306_WriteString(str_buf, &font_8x12, White);
+		{	// measurement frequency
+			ssd1306_MoveCursor(font_8x12.width, 0);
+			//ssd1306_SetCursor(font_8x12.width * 4, 0);
+
+			float value = measurement_Hz;
+			const char unit = unit_conversion(&value, "kMG");
+			n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
+			trim_trailing_zeros(str_buf);
+			strcatc(str_buf, unit);
+			ssd1306_WriteString(str_buf, &font_8x12, White);
+		}
 
 		{	// open/short calibration
-			unsigned int i = 0;
-			memset(str_buf, 0, sizeof(str_buf));
-			str_buf[i++] = (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-';
-			str_buf[i++] = (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-';
+			str_buf[0] = '\0';
+			strcatc(str_buf, (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-');
+			strcatc(str_buf, (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-');
 			ssd1306_SetCursor(SSD1306_WIDTH - ((2 + 1 + 4) * font_8x12.width), 0);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
@@ -2183,22 +2189,18 @@ void draw_screen(void)
 			{
 				case LCR_MODE_INDUCTANCE:
 				{
-					unsigned int i = 0;
 					if (unit != ' ')
-						str_buf[i++] = unit;
-					str_buf[i++] = 'H';
-					str_buf[i++] = '\0';
+						strcatc(str_buf, unit);
+					strcatc(str_buf, 'H');
 					ssd1306_WriteString(str_buf, &font_11x18, White);
 					break;
 				}
 
 				case LCR_MODE_CAPACITANCE:
 				{
-					unsigned int i = 0;
 					if (unit != ' ')
-						str_buf[i++] = unit;
-					str_buf[i++] = 'F';
-					str_buf[i++] = '\0';
+						strcatc(str_buf, unit);
+					strcatc(str_buf, 'F');
 					ssd1306_WriteString(str_buf, &font_11x18, White);
 					break;
 				}
@@ -2208,8 +2210,7 @@ void draw_screen(void)
 				{
 					if (unit != ' ')
 					{
-						str_buf[0] = unit;
-						str_buf[1] = '\0';
+						strcatc(str_buf, unit);
 						ssd1306_WriteString(str_buf, &font_11x18, White);
 					}
 
@@ -2229,10 +2230,10 @@ void draw_screen(void)
 
 		#if 1
 		{	// show gain setting for V and I modes
-			str_buf[0] = volt_gain_sel ? 'H' : 'L';
-			str_buf[1] = amp_gain_sel  ? 'H' : 'L';
-			str_buf[2] ='\0';
-			ssd1306_SetCursor(SSD1306_WIDTH - ((2 + 1 + 2) * font_8x12.width), LINE3_Y);
+			str_buf[0] = '\0';
+			strcatc(str_buf, volt_gain_sel ? 'H' : 'L');
+			strcatc(str_buf, amp_gain_sel  ? 'H' : 'L');
+			ssd1306_SetCursor(SSD1306_WIDTH - (5 * font_8x12.width), LINE3_Y);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 		#endif
@@ -2262,8 +2263,7 @@ void draw_screen(void)
 				case LCR_MODE_AUTO:        str_buf[0] = 'A'; break;
 				default:                   str_buf[0] = '?'; break;
 			}
-			str_buf[1] = (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ';
-			str_buf[2] = '\0';
+			strcatc(str_buf, (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ');
 			ssd1306_SetCursor(SSD1306_WIDTH - (strlen(str_buf) * font_8x12.width), LINE3_Y);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
@@ -2274,33 +2274,27 @@ void draw_screen(void)
 
 		# if 0
 			{	// voltage
-				float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
-				value = adc_to_volts(value);
+				float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc * ADC_TO_VOLTS : 0;
 				const char unit = unit_conversion(&value, "mkMG");
 
 				n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
-				unsigned int i = strlen(str_buf);
-				if (unit != ' ')
-					str_buf[i++] = unit;
-				str_buf[i++] = 'V';
-				str_buf[i++] = '\0';
 				trim_trailing_zeros(str_buf);
+				if (unit != ' ')
+					strcatc(str_buf, unit);
+				strcatc(str_buf, 'V');
 				ssd1306_SetCursor(0, LINE3_Y);
 				ssd1306_WriteString(str_buf, &font_8x12, White);
 			}
 
 			{	// current
-				float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
-				value = adc_to_volts(value);
+				float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc * ADC_TO_VOLTS : 0;
 				const char unit = unit_conversion(&value, "umkMG");
 
 				n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
-				unsigned int i = strlen(str_buf);
-				if (unit != ' ')
-					str_buf[i++] = unit;
-				str_buf[i++] = 'A';
-				str_buf[i++] = '\0';
 				trim_trailing_zeros(str_buf);
+				if (unit != ' ')
+					strcatc(str_buf, unit);
+				strcatc(str_buf, 'A');
 				ssd1306_SetCursor(xx, LINE3_Y);
 				ssd1306_WriteString(str_buf, &font_8x12, White);
 			}
@@ -2322,10 +2316,8 @@ void draw_screen(void)
 					ssd1306_WriteString("ESR", &font_8x12, White);
 
 					n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
-					unsigned int i = strlen(str_buf);
-					str_buf[i++] = unit;
-					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
+					strcatc(str_buf, unit);
 					ssd1306_MoveCursor(font_8x12.width / 2, 0);
 					ssd1306_WriteString(str_buf, &font_8x12, White);
 				}
@@ -2339,10 +2331,8 @@ void draw_screen(void)
 					ssd1306_WriteString("D", &font_8x12, White);
 
 					n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
-					unsigned int i = strlen(str_buf);
-					str_buf[i++] = unit;
-					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
+					strcatc(str_buf, unit);
 					ssd1306_MoveCursor(font_8x12.width / 2, 0);
 					ssd1306_WriteString(str_buf, &font_8x12, White);
 				}
@@ -2356,10 +2346,8 @@ void draw_screen(void)
 
 					//ssd1306_SetCursor(x3, SSD1306_HEIGHT - 1 - font_8x12.height);
 					n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
-					unsigned int i = strlen(str_buf);
-					str_buf[i++] = unit;
-					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
+					strcatc(str_buf, unit);
 					ssd1306_MoveCursor(font_8x12.width / 2, 0);
 					ssd1306_WriteString(str_buf, &font_8x12, White);
 				}
@@ -2385,11 +2373,9 @@ void draw_screen(void)
 						const char unit = unit_conversion(&value, "umkMG");
 
 						n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
-						unsigned int i = strlen(str_buf);
 						if (unit != ' ')
-							str_buf[i++] = unit;
-						str_buf[i++] = 'H';
-						str_buf[i++] = '\0';
+						strcatc(str_buf, unit);
+						strcatc(str_buf, 'H');
 					}
 					else
 					{	// capacitance
@@ -2397,11 +2383,9 @@ void draw_screen(void)
 						const char unit = unit_conversion(&value, "pnumkMG");
 
 						n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
-						unsigned int i = strlen(str_buf);
 						if (unit != ' ')
-							str_buf[i++] = unit;
-						str_buf[i++] = 'F';
-						str_buf[i++] = '\0';
+							strcatc(str_buf, unit);
+						strcatc(str_buf, 'F');
 					}
 					trim_trailing_zeros(str_buf);
 					ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
@@ -2416,10 +2400,8 @@ void draw_screen(void)
 					ssd1306_WriteString("Q", &font_8x12, White);
 
 					n_sprintf(3, value, str_buf, sizeof(str_buf), 1);
-					unsigned int i = strlen(str_buf);
-					str_buf[i++] = unit;
-					str_buf[i++] = '\0';
 					trim_trailing_zeros(str_buf);
+					strcatc(str_buf, unit);
 					ssd1306_MoveCursor(font_8x12.width / 2, 0);
 					ssd1306_WriteString(str_buf, &font_8x12, White);
 				}
@@ -2449,13 +2431,11 @@ void draw_screen(void)
 
 		if (probes_OK)
 		{	// frequency
-			//float value = measurement_Hz;
-			//const char unit = unit_conversion(&value, "kMG");
-			if (measurement_Hz < 1000)
-				snprintf(str_buf, sizeof(str_buf), " %u Hz", measurement_Hz);
-			else
-				snprintf(str_buf, sizeof(str_buf), " %0.3f kHz", measurement_Hz * 1e-3f);
+			float value = measurement_Hz;
+			const char unit = unit_conversion(&value, "kMG");
+			n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
 			trim_trailing_zeros(str_buf);
+			strcatc(str_buf, unit);
 		}
 		else
 		{	// probe error, restart the calibration
@@ -2469,36 +2449,32 @@ void draw_screen(void)
 		ssd1306_WriteString(str_buf, &font_11x18, White);
 
 		{	// voltage
-//			rms_voltage = adc_to_volts(rms_voltage);
+//			rms_voltage *= ADC_TO_VOLTS;
 			const char unit = unit_conversion(&rms_voltage, "mkMG");
 
 			ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
 			ssd1306_WriteString("V", &font_8x12, White);
 
 			n_sprintf(3, rms_voltage, str_buf, sizeof(str_buf), 1);
-			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
-				str_buf[i++] = unit;
-//			str_buf[i++] = 'V';
-			str_buf[i++] = '\0';
+				strcatc(str_buf, unit);
+			//strcatc(str_buf, 'V');
 			trim_trailing_zeros(str_buf);
 			ssd1306_MoveCursor(4, 0);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
 		}
 
 		{	// current
-//			rms_current = adc_to_volts(rms_current);
+//			rms_current *= ADC_TO_VOLTS;
 			const char unit = unit_conversion(&rms_current, "umkMG");
 
 			ssd1306_SetCursor(xx, SSD1306_HEIGHT - 1 - font_8x12.height);
 			ssd1306_WriteString("I", &font_8x12, White);
 
 			n_sprintf(3, rms_current, str_buf, sizeof(str_buf), 1);
-			unsigned int i = strlen(str_buf);
 			if (unit != ' ')
-				str_buf[i++] = unit;
-//			str_buf[i++] = 'A';
-			str_buf[i++] = '\0';
+				strcatc(str_buf, unit);
+			//strcatc(str_buf, 'A');
 			trim_trailing_zeros(str_buf);
 			ssd1306_MoveCursor(4, 0);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
@@ -3489,26 +3465,12 @@ void process_buttons(void)
 
 			initialising = 1;
 
-			// cycle the frequency
-			//
-			// TODO: use measurement_table_Hz[]
-			//
-			#if 1
-				switch (settings.measurement_Hz)
-				{
-					default:
-					case 100:   settings.measurement_Hz = 1000; break;
-					case 1000:  settings.measurement_Hz =  100; break;
-				}
-			#else
-				switch (settings.measurement_Hz)
-				{
-					default:
-					case 100:   settings.measurement_Hz =  1000; break;
-					case 1000:  settings.measurement_Hz = 10000; break;
-					case 10000: settings.measurement_Hz =   100; break;
-				}
-			#endif
+			{	// cycle the frequency
+				uint32_t Hz = 10ul * settings.measurement_Hz;
+				if (Hz > measurement_table_Hz[ARRAY_SIZE(measurement_table_Hz) - 1])
+					Hz = measurement_table_Hz[0];
+				settings.measurement_Hz = Hz;
+			}
 
 			set_measurement_frequency(settings.measurement_Hz);
 
@@ -3618,12 +3580,10 @@ int send_dut_data(void)
 	char              *tx_str      = (char *)tx_buffer;
 
 	{
-		float rms_voltage = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc : 0;
-		rms_voltage = adc_to_volts(rms_voltage);
+		float rms_voltage = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc * ADC_TO_VOLTS : 0;
 		const char rms_voltage_unit = unit_conversion(&rms_voltage, "mkMG");
 
-		float rms_current = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc : 0;
-		rms_current = adc_to_volts(rms_current);
+		float rms_current = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc * ADC_TO_VOLTS  : 0;
 		const char rms_current_unit = unit_conversion(&rms_current, "numkMG");
 
 		float impedance = system_data.impedance;
@@ -3634,11 +3594,11 @@ int send_dut_data(void)
 		char z_str[8] = {0};
 		n_sprintf(5, rms_voltage, v_str, sizeof(v_str), 1);
 		n_sprintf(5, rms_current, i_str, sizeof(i_str), 1);
-		n_sprintf(5, impedance, z_str, sizeof(z_str), 1);
+		n_sprintf(5, impedance,   z_str, sizeof(z_str), 1);
 
 		char cal_str[3] = {0};
-		cal_str[0] = (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-';
-		cal_str[1] = (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-';
+		strcatc(cal_str, (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-');
+		strcatc(cal_str, (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-');
 
 		char m_str[4] = {0};
 		switch (lcr_mode)
@@ -3656,7 +3616,7 @@ int send_dut_data(void)
 			case SP_MODE_AUTO:     m_str[1] = 'a'; break;
 			default:               m_str[1] = '?'; break;
 		}
-		m_str[2] = (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ';
+		strcatc(m_str, (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ');
 
 		const unsigned int len = strlen(tx_str);
 
@@ -3666,10 +3626,10 @@ int send_dut_data(void)
 			"  Cal %s" NEWLINE
 			" Mode %s" NEWLINE
 			" Freq %u" NEWLINE
-			"    V %s %c rms" NEWLINE
-			"    I %s %c rms" NEWLINE
+			"    V %s%c rms" NEWLINE
+			"    I %s%c rms" NEWLINE
 			"  Phi %0.3f deg" NEWLINE
-			"    Z %s %c" NEWLINE,
+			"    Z %s%c" NEWLINE,
 			cal_str,
 			m_str,
 			measurement_Hz,
@@ -3718,13 +3678,13 @@ int send_dut_data(void)
 		const unsigned int len = strlen(tx_str);
 
 		snprintf(tx_str + len, tx_str_size - len,
-			"   L%c %s %c" NEWLINE
-			"   C%c %s %c" NEWLINE
-			"   R%c %s %c" NEWLINE
-			" ESR%c %s %c" NEWLINE
-			"   D%c %s %c" NEWLINE
-			"   Q%c %s %c" NEWLINE
-			"   X%c %s %c" NEWLINE,
+			"   L%c %s%c" NEWLINE
+			"   C%c %s%c" NEWLINE
+			"   R%c %s%c" NEWLINE
+			" ESR%c %s%c" NEWLINE
+			"   D%c %s%c" NEWLINE
+			"   Q%c %s%c" NEWLINE
+			"   X%c %s%c" NEWLINE,
 			mode, l_str, inductance_unit,
 			mode, c_str, capacitance_unit,
 			mode, r_str, resistance_unit,

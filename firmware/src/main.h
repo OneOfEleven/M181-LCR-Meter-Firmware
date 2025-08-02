@@ -47,7 +47,9 @@
 
 #define SQR(x)                      ((x) * (x))
 
-#define SHOW_CPU                                    // show the device details on the serial link at boot-up
+#define ADC_TO_VOLTS                ((float)(3.3 / 4095))        // 12-bit ADC
+
+#define SHOW_CPU                                                 // show the device details on the serial link at boot-up
 
 #define UART_BAUDRATE_MIN            115200
 #define UART_BAUDRATE_MAX            921600

@@ -17,10 +17,8 @@
 - Note, you will eventually pull/lift the two probe jack sockets off the PCB, this is a serious beginner/non-experienced HW design flaw :(
 - ALL terminating connectors to the outside world must always be secured by through-hole methods (ie through-hole pins and/or casing etc). PCB SMD alone will never be strong enough for this.
 
-## Main tasks to be completed on this firmware
-- [ ] Track down any remaining bugs (let me know if you spot any)
+## Tasks to be completed on this firmware
 - [ ] Change some PCB component values to add a 10kHz option (see LTspice sims)
-- [ ] Maybe add a menu system (flash space dependant)
 
 ## Buttons ..
 
