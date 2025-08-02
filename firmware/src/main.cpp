@@ -3471,19 +3471,21 @@ void process_buttons(void)
 
 			initialising = 1;
 
-			// cycle the frequency
-			if (ARRAY_SIZE(measurement_table_Hz) > 1 && settings.measurement_Hz < measurement_table_Hz[ARRAY_SIZE(measurement_table_Hz) - 1])
+			// cycle the measurement frequency
+			uint32_t Hz = settings.measurement_Hz;
+			if (ARRAY_SIZE(measurement_table_Hz) > 1 && Hz < measurement_table_Hz[ARRAY_SIZE(measurement_table_Hz) - 1])
 			{
 				for (unsigned int i = 0; i < ARRAY_SIZE(measurement_table_Hz); i++)
 				{
-					if (settings.measurement_Hz >= measurement_table_Hz[i])
+					if (Hz >= measurement_table_Hz[i])
 						continue;
-					settings.measurement_Hz = measurement_table_Hz[i];
+					Hz = measurement_table_Hz[i];
 					break;
 				}
 			}
 			else
-				settings.measurement_Hz = measurement_table_Hz[0];
+				Hz = measurement_table_Hz[0];
+			settings.measurement_Hz = Hz;
 
 			set_measurement_frequency(settings.measurement_Hz);
 
@@ -3506,8 +3508,7 @@ void process_buttons(void)
 			initialising = 1;
 
 			// cycle through the LCR modes (inc FAST modes)
-			settings.flags ^= SETTING_FLAG_FAST_UPDATES;
-			if (!(settings.flags & SETTING_FLAG_FAST_UPDATES))
+			if (((settings.flags ^= SETTING_FLAG_FAST_UPDATES) & SETTING_FLAG_FAST_UPDATES) == 0)    // toggle 'fast' mode flag
 			{
 				uint8_t mode = settings.lcr_mode;
 				if (++mode >= LCR_MODE_COUNT)
@@ -3580,8 +3581,6 @@ int send_binary_data(void)
 	return 0;
 }
 
-// send the DUT params via the serial port
-//
 int send_dut_data(void)
 {
 	if (LL_DMA_IsEnabledChannel(DMA1, LL_DMA_CHANNEL_4))
@@ -3794,24 +3793,24 @@ void process_serial_command(char cmd[], unsigned int len)
 	for (unsigned int i = 0; i < len; i++)
 		cmd[i] = (cmd[i] == '\t') ? ' ' : tolower(cmd[i]);
 
-	// trim leading
+	// trim leading spaces
 	while (len > 0 && cmd[0] <= ' ')
 		memmove(cmd, cmd + 1, --len);
 
-	// trim trailing
+	// trim trailing spaces
 	while (len > 0 && cmd[len - 1] <= ' ')
 		cmd[--len] = '\0';
-
-	if (len == 0)
-		return;
 
 	// ensure it's null terminated
 	cmd[len] = '\0';
 
+	if (len == 0)
+		return;
+
 	// ****************
 
 	// determine the length of the command
-	// also lowercase the command
+	// also lowercase it
 	unsigned int param_pos = 0;
 	while (param_pos < len && cmd[param_pos] > ' ')
 	{
@@ -3822,8 +3821,29 @@ void process_serial_command(char cmd[], unsigned int len)
 	// null term the command
 	cmd[param_pos] = '\0';
 
-	// determine the length of any present param
-	const unsigned int param_len = (len >= (param_pos + 1)) ? len - (param_pos + 1) : 0;
+	// determine the length of the param (if any)
+	unsigned int param_len = (len > (param_pos + 1)) ? len - (param_pos + 1) : 0;
+
+	// point to start of param
+	param_pos = (param_len > 0) ? param_pos + 1 : param_pos;
+	char *param = &cmd[param_pos];
+
+	if (param_len > 0)
+	{	// trim leading spaces from param
+		while (param_len > 0 && param[0] <= ' ')
+		{
+			memmove(param, param + 1, --param_len);
+			len--;
+		}
+
+		// find end of param
+		param_len = 0;
+		while (param[param_len] > ' ')
+			param_len++;
+
+		// null term the param
+		param[param_len] = '\0';
+	}
 
 	// **********
 
@@ -3842,10 +3862,6 @@ void process_serial_command(char cmd[], unsigned int len)
 
 		cmd_id = cmds[i].id;
 	}
-
-	// point to start of param
-	param_pos = (param_len > 0) ? param_pos + 1 : param_pos;
-	const char *param = &cmd[param_pos];
 
 	// **********
 	// process the command
