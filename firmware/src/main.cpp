@@ -3330,8 +3330,13 @@ void wait_for_all_button_release(void)
 		// break if no butt press for >= 200ms
 		const uint32_t tick = sys_tick;
 		for (unsigned int i = 0; i < BUTTON_COUNT; i++)
+		{
 			if (button[i].pressed_ms > 0 || button[i].released)
-				butt_tick = tick;
+			{
+				butt_tick           = tick;
+				button[i].processed = 1;
+			}
+		}
 		if ((tick - butt_tick) >= 200)
 			break;
 
