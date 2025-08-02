@@ -3737,7 +3737,9 @@ enum t_cmd_id : uint8_t {
 	CMD_NONE_ID = 0,
 	CMD_HELP_ID1,
 	CMD_HELP_ID2,
+	CMD_ASCII_ID,
 	CMD_BAUDRATE_ID,
+	CMD_BINARY_ID,
 	CMD_DEFAULTS_ID,
 	CMD_OPEN_CAL_ID,
 	CMD_SHORT_CAL_ID,
@@ -3763,7 +3765,9 @@ typedef struct {
 const t_cmd cmds[] = {
 	{"?",         "                  .. this help",                          CMD_HELP_ID1    },
 	{"help",      "                  .. this help",                          CMD_HELP_ID2    },
+	{"ascii",     "                  .. read adc samples",                   CMD_ASCII_ID    },
 	{"baudrate",  "[baudrate]        .. read/set serial baudrate",           CMD_BAUDRATE_ID },
+	{"binary",    "                  .. read adc samples",                   CMD_BINARY_ID   },
 	{"data",      "[off asc bin dut] .. read/set sending real-time data",    CMD_DATA_ID     },
 	{"dut",       "                  .. read current DUT params",            CMD_DUT_ID      },
 	{"frequency", "[Hz]              .. read/set measurement frequency",     CMD_FREQUENCY_ID},
@@ -3785,10 +3789,7 @@ void process_serial_command(char cmd[], unsigned int len)
 	if (cmd == NULL || len == 0)
 		return;
 
-	// ****************
-	// clean up the text
-
-	// replace any tabs with spaces
+	// replace tabs with spaces
 	// and lower case all
 	for (unsigned int i = 0; i < len; i++)
 		cmd[i] = (cmd[i] == '\t') ? ' ' : tolower(cmd[i]);
@@ -3807,9 +3808,7 @@ void process_serial_command(char cmd[], unsigned int len)
 	if (len == 0)
 		return;
 
-	// ****************
-
-	// determine the length of the command
+	// determine length of command
 	// also lowercase it
 	unsigned int param_pos = 0;
 	while (param_pos < len && cmd[param_pos] > ' ')
@@ -3821,10 +3820,10 @@ void process_serial_command(char cmd[], unsigned int len)
 	// null term the command
 	cmd[param_pos] = '\0';
 
-	// determine the length of the param (if any)
+	// determine length of param (if any)
 	unsigned int param_len = (len > (param_pos + 1)) ? len - (param_pos + 1) : 0;
 
-	// point to start of param
+	// point to param
 	param_pos = (param_len > 0) ? param_pos + 1 : param_pos;
 	char *param = &cmd[param_pos];
 
@@ -3836,7 +3835,7 @@ void process_serial_command(char cmd[], unsigned int len)
 			len--;
 		}
 
-		// find end of param
+		// determine length of param
 		param_len = 0;
 		while (param[param_len] > ' ')
 			param_len++;
@@ -3844,8 +3843,6 @@ void process_serial_command(char cmd[], unsigned int len)
 		// null term the param
 		param[param_len] = '\0';
 	}
-
-	// **********
 
 	// determine what the command is
 	t_cmd_id cmd_id = CMD_NONE_ID;
@@ -3855,9 +3852,11 @@ void process_serial_command(char cmd[], unsigned int len)
 			continue;
 
 		if (cmd_id != CMD_NONE_ID)
-		{	// matches more than 1 command, treat it as an unknown command
-			cmd_id = CMD_NONE_ID;
-			break;
+		{	// matches more than one command, error
+			printf(NEWLINE "error: matches more than one command '%s'" NEWLINE, cmd);
+			return;
+			//cmd_id = CMD_NONE_ID;
+			//break;
 		}
 
 		cmd_id = cmds[i].id;
@@ -3895,6 +3894,12 @@ void process_serial_command(char cmd[], unsigned int len)
 			reboot();
 			break;
 
+		case CMD_ASCII_ID:
+			wait_tx_dma(500);
+			if (send_ascii_data() < 0)
+				printf(NEWLINE "busy" NEWLINE);
+			return;
+
 		case CMD_BAUDRATE_ID:
 			if (param_len > 0)
 			{
@@ -3919,6 +3924,12 @@ void process_serial_command(char cmd[], unsigned int len)
 			printf(NEWLINE "baudrate %lu" NEWLINE, settings.baudrate);
 
 			draw_screen();
+			return;
+
+		case CMD_BINARY_ID:
+			wait_tx_dma(500);
+			if (send_binary_data() < 0)
+				printf(NEWLINE "busy" NEWLINE);
 			return;
 
 		case CMD_OPEN_CAL_ID:
@@ -4137,8 +4148,9 @@ void process_serial_command(char cmd[], unsigned int len)
 			return;
 
 		case CMD_DUT_ID:
-//			wait_tx_dma(500);
-			send_dut_data();
+			wait_tx_dma(500);
+			if (send_dut_data() < 0)
+				printf(NEWLINE "busy" NEWLINE);
 			return;
 
 		case CMD_HOLD_ID:
