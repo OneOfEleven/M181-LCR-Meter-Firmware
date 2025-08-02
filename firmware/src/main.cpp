@@ -4541,6 +4541,13 @@ void process_op_mode(void)
 
 					printf(NEWLINE "open probe calibration done" NEWLINE);
 
+					if (eeprom_write_settings() >= 0)     // save settings
+					{	// done
+						save_settings_timer = -1;
+						printf(NEWLINE "settings saved" NEWLINE);
+						reboot();
+					}
+
 					// back to normal measurement mode
 					start_measuring();
 				}
@@ -4599,6 +4606,13 @@ void process_op_mode(void)
 
 					printf(NEWLINE "shorted probe calibration done" NEWLINE);
 
+					if (eeprom_write_settings() >= 0)     // save settings
+					{	// done
+						save_settings_timer = -1;
+						printf(NEWLINE "settings saved" NEWLINE);
+						reboot();
+					}
+					
 					// back to normal measurement mode
 					start_measuring();
 				}
