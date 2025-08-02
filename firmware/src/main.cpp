@@ -53,6 +53,11 @@ typedef struct {
 
 // 16-bit ADC dual channel
 typedef struct {
+	uint16_t adc;
+	uint16_t afc;
+} t_adc_dma_data_16u;
+
+typedef struct {
 	int16_t adc;
 	int16_t afc;
 } t_adc_dma_data_16;
@@ -161,7 +166,7 @@ char                  str_buf[32] = {0};                              // used fo
 
 t_button              button[BUTTON_COUNT] = {0};                     // holds each buttons state
 
-uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE] = {0};       // holds look-up data for one complete sine wave cycle (for the DAC)
+uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR] = {0};  // holds look-up data for one complete sine wave cycle (for the DAC)
 
 uint32_t              measurement_Hz = measurement_table_Hz[1];       // current measurement frequency
 
@@ -192,7 +197,7 @@ float                 high_gain = 101;                                // HW gain
 float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse value of the series resistor in series with the DUT (the LOAD cal calibrates this value)
 
 // ADC DMA raw sample buffer
-t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];             // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
+t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR];  // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
 
 // ADC sample block averaging buffer
 // we take several sample blocks and average them together to reduce noise (bad PCB layout/design)
@@ -220,23 +225,29 @@ volatile int          save_settings_timer = -1;                            // we
 t_settings            settings            = {0};                           // the system/users settings
 
 t_system_data         system_data = {0};                                   // various results saved in here
-
+/*
+#if (4 * (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR)) > (8 * ADC_DATA_LENGTH)
+	uint8_t           temp_buffer[sizeof(t_adc_dma_data_16) * (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR)]; // buffer must be big enough for whatever uses it
+#else
+	uint8_t           temp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];                                   // buffer must be big enough for whatever uses it
+#endif
+*/
 uint8_t               temp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];    // buffer must be big enough for whatever uses it
-volatile uint8_t      temp_buffer_in_use = 0;                              // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
+uint8_t               temp_buffer_in_use = 0;                              // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
 
 uint8_t               tx_buffer[sizeof(t_packet)];                         // for TX'ing data via the serial port, must be big enough for everything that uses it
 
 // serial port stuff
 struct {
 	struct {
-		uint8_t  buffer[1024];     // RX raw buffer
+		uint8_t  buffer[256];      // RX raw buffer
 		uint32_t buffer_wr;        // WRITE index
 		uint32_t buffer_rd;        // READ index
 
 		uint32_t timer;            // timer for resetting the RX buffer if nothing received for a set time
 
 		struct {
-			uint8_t  buffer[256];  // RX text line buffer
+			uint8_t  buffer[128];  // RX text line buffer
 			uint32_t buffer_wr;    // WRITE index
 		} line;
 	} rx;
@@ -956,7 +967,7 @@ void set_measurement_frequency(const uint32_t Hz)
 	{	// fill the sine wave look-up table with one complete sine cycle
 
 		const float scale      = amplitude * (255 * 0.5f);                         // 0-255
-		const float phase_step = (2 * M_PI) / SAMPLES_PER_SINE_CYCLE;
+		const float phase_step = (2 * M_PI) / (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR);
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		//
@@ -964,14 +975,14 @@ void set_measurement_frequency(const uint32_t Hz)
 		//
 		// see 9.2.4 (page 173) of the stm32f103xx reference manual about the ODR being WORD ONLY
 		//
-		for (unsigned int i = 0; i < SAMPLES_PER_SINE_CYCLE; i++)
+		for (unsigned int i = 0; i < (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR); i++)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
 
 	// set the timer rate, the timer clocks the ADC and DAC DMA at the desired ratetmp_buffer_in_use
 	if (measurement_Hz > 0)
 	{
-		const uint32_t sample_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
+		const uint32_t sample_rate_Hz = (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR) * measurement_Hz;
 //		const uint32_t period         = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), sample_rate_Hz);
 		const uint32_t period         = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (sample_rate_Hz / 2)) / sample_rate_Hz) - 1;
 		LL_TIM_SetAutoReload(TIM3, period);
@@ -986,23 +997,54 @@ void set_measurement_frequency(const uint32_t Hz)
 			// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
 			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
 
-			uint32_t sampling_time = LL_ADC_SAMPLINGTIME_239CYCLES_5;
-			if (sample_rate_Hz >= 300e3)
-				sampling_time = LL_ADC_SAMPLINGTIME_1CYCLE_5;
-			else
-			if (sample_rate_Hz >= 230e3)
-				sampling_time = LL_ADC_SAMPLINGTIME_7CYCLES_5;
-			else
-			if (sample_rate_Hz >= 110e3)
-				sampling_time = LL_ADC_SAMPLINGTIME_28CYCLES_5;
-			else
-			if (sample_rate_Hz >= 23e3)
-				sampling_time = LL_ADC_SAMPLINGTIME_41CYCLES_5;
-
 			#ifdef DUAL_ADC_MODE
+				uint32_t sampling_time = LL_ADC_SAMPLINGTIME_239CYCLES_5;
+				if (sample_rate_Hz >= 500e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_1CYCLE_5;
+				else
+				if (sample_rate_Hz >= 440e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_7CYCLES_5;
+				else
+				if (sample_rate_Hz >= 270e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_13CYCLES_5;
+				else
+				if (sample_rate_Hz >= 200e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_28CYCLES_5;
+				else
+				if (sample_rate_Hz >= 160e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_41CYCLES_5;
+				else
+				if (sample_rate_Hz >= 130e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_55CYCLES_5;
+				else
+				if (sample_rate_Hz >= 40e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_71CYCLES_5;
+
 				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  sampling_time);
 				LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  sampling_time);
 			#else
+				uint32_t sampling_time = LL_ADC_SAMPLINGTIME_239CYCLES_5;
+				if (sample_rate_Hz >= 300e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_1CYCLE_5;
+				else
+				if (sample_rate_Hz >= 230e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_7CYCLES_5;
+				else
+				if (sample_rate_Hz >= 146e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_13CYCLES_5;
+				else
+				if (sample_rate_Hz >= 111e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_28CYCLES_5;
+				else
+				if (sample_rate_Hz >= 88e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_41CYCLES_5;
+				else
+				if (sample_rate_Hz >= 71e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_55CYCLES_5;
+				else
+				if (sample_rate_Hz >= 23e3)
+					sampling_time = LL_ADC_SAMPLINGTIME_71CYCLES_5;
+
 				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  sampling_time);
 				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  sampling_time);
 			#endif
@@ -1383,13 +1425,45 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 #endif
 
+/*
+uint32_t num_ones(const uint32_t value)
+{
+	uint32_t unused = 0;
+	uint32_t bit    = 32;
+	uint32_t count  = 0;
+
+	asm("loop:                 \n" // loop
+	    "   tst  %2,#1         \n" // mask for bit0
+	    "   beq  continue      \n" // branch if bit0 is 0
+	    "   add  %0,#1         \n" // bit0 is 1 so increment count #
+	    "continue:             \n" // jump to here if bit0 is 0
+	    "   lsr  %2,#1         \n" // move next bit into bit0 position
+	    "   subs %3,#1         \n" // decrement bit number
+	    "   bne  loop          \n" // next bit
+	    : "=r"(count) : "r"(unused) ,"r"(value) ,"r"(bit)
+	);
+
+
+	// or ...
+//	int src = 1;
+//	int dst;
+//
+//	asm("mov  %1, %0  \n"
+//      "add  $1, %0  \n"
+//      : "=r" (dst)
+//      : "r" (src));
+
+	return count;
+}
+*/
+
 // save the new ADC DMA sample block
 //
 // this is called from the ADC DMA interrupt
 //
-void process_ADC_DMA(const void *buffer, const unsigned int size)
+void process_ADC_DMA(const void *buffer, const unsigned int num_samples)
 {
-	if (buffer == NULL || size == 0 || initialising || temp_buffer_in_use)
+	if (buffer == NULL || num_samples == 0 || initialising || temp_buffer_in_use)
 		return;                                       // the temp buffer is not available for use, drop this sample block
 
 	if (vi_measure_index >= VI_MODE_COUNT)
@@ -1398,7 +1472,62 @@ void process_ADC_DMA(const void *buffer, const unsigned int size)
 	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);     // TEST only, LED on
 
 	// copy the new ADC sample block as quickly as possible so as not to hold up the DMA
-	memcpy(temp_buffer, buffer, size);
+	#if (OVER_SAMPLING_FACTOR <= 0)
+		memcpy(temp_buffer, buffer, sizeof(t_adc_dma_data_16u) * num_samples);
+	#else
+	{
+		register const t_adc_dma_data_16u *buf     = (t_adc_dma_data_16u *)buffer;
+		register       t_adc_dma_data_16u *tmp_buf = (t_adc_dma_data_16u *)temp_buffer;
+		for (unsigned int i = 0; i < (num_samples >> OVER_SAMPLING_FACTOR); i++)
+		{
+			register t_adc_dma_data_16u samp;
+			register t_adc_dma_data_16u sum = {0, 0};
+			#if (OVER_SAMPLING_FACTOR == 1)
+				// unroll loop
+				samp = *buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp = *buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+			#elif (OVER_SAMPLING_FACTOR == 2)
+				// unroll loop
+				samp = *buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp = *buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp = *buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp = *buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+			#else
+				for (unsigned int k = 0; k < (1u << (OVER_SAMPLING_FACTOR - 2)); k++)
+				{
+					samp = *buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp = *buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp = *buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp = *buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+				}
+			#endif
+			sum.adc >>= OVER_SAMPLING_FACTOR;
+			sum.afc >>= OVER_SAMPLING_FACTOR;
+			*tmp_buf++ = sum;
+		}
+	}
+	#endif
+
 	temp_buffer_in_use = 1;                           // let the exec know their is a new sample block ready and waiting
 
 	// generate an SWI to further process these new samples
@@ -1423,11 +1552,30 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 
 	if (vi_mode < VI_MODE_VOLT_HI_GAIN)
 	{	// we don't check for any signs of sample clipping/saturation in the LOW gain modes
+
+		register const t_adc_dma_data_16 *buffer = adc_buffer;
+
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{	// add the new samples to the averaging buffer
-			adc_buffer_sum[i].adc += (adc_buffer[i].adc - 2048) * adc_sign;
-			adc_buffer_sum[i].afc += (adc_buffer[i].afc - 2048) * afc_sign;
-		}
+//			#if (OVER_SAMPLING_FACTOR <= 0)
+				const t_adc_dma_data_16 samp = *buffer++;
+				adc_buffer_sum[i].adc += (samp.adc - 2048) * adc_sign;
+				adc_buffer_sum[i].afc += (samp.afc - 2048) * afc_sign;
+/*			#else
+			{
+				int16_t adc = 0;
+				int16_t afc = 0;
+				for (unsigned int k = 0; k < (1u << OVER_SAMPLING_FACTOR); k++)
+				{
+					const t_adc_dma_data_16 samp = *buffer++;
+					adc += samp.adc - 2048;
+					afc += samp.afc - 2048;
+				}
+				adc_buffer_sum[i].adc += (adc >> OVER_SAMPLING_FACTOR) * adc_sign;
+				adc_buffer_sum[i].afc += (afc >> OVER_SAMPLING_FACTOR) * afc_sign;
+			}
+			#endif
+*/		}
 		adc_data_clipping[vi_mode] = 0;                       // '0' = no clipping/saturation detected
 	}
 	else
@@ -1446,12 +1594,28 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 			uint16_t peak_adc_value = 0;
 		#endif
 
+		const t_adc_dma_data_16 *buffer = adc_buffer;
+
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
 			// fetch the raw ADC samples
-			const int16_t adc = (adc_buffer[i].adc - 2048) * adc_sign;
-			const int16_t afc = (adc_buffer[i].afc - 2048) * afc_sign;
-
+//			#if (OVER_SAMPLING_FACTOR <= 0)
+				const t_adc_dma_data_16 samp = *buffer++;
+				const int16_t adc = (samp.adc - 2048) * adc_sign;
+				const int16_t afc = (samp.afc - 2048) * afc_sign;
+/*			#else
+				int16_t adc = 0;
+				int16_t afc = 0;
+				for (unsigned int k = 0; k < (1u << OVER_SAMPLING_FACTOR); k++)
+				{
+					const t_adc_dma_data_16 samp = *buffer++;
+					adc += samp.adc - 2048;
+					afc += samp.afc - 2048;
+				}
+				adc = (adc >> OVER_SAMPLING_FACTOR) * adc_sign;
+				afc = (afc >> OVER_SAMPLING_FACTOR) * afc_sign;
+			#endif
+*/
 			// add the new samples to the averaging buffer
 			adc_buffer_sum[i].adc += adc;
 			adc_buffer_sum[i].afc += afc;
@@ -2642,7 +2806,7 @@ void MX_ADC_Init(void)
 			LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_WORD);
 
 			LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA_MULTI), (uint32_t)&adc_dma_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);     // two buffers .. double buffering
+			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR) * 2);     // two buffers .. double buffering
 
 			// clear all flags
 			LL_DMA_ClearFlag_GI1(DMA1);
@@ -2764,7 +2928,7 @@ void MX_ADC_Init(void)
 			LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_HALFWORD);
 
 			LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA), (uint32_t)&adc_dma_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);     // double buffering
+			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR) * 2);     // double buffering
 
 			// enable selected DMA interrupts
 			LL_DMA_ClearFlag_GI1(DMA1);
@@ -2878,7 +3042,7 @@ void MX_TIM3_Init(void)
 		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_MDATAALIGN_HALFWORD);  //    "              "
 
 		LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3, (uint32_t)&sine_table, (uint32_t)&GPIOB->ODR, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, SAMPLES_PER_SINE_CYCLE);
+		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR);
 	}
 
 	{	// setup the timer
@@ -2887,7 +3051,7 @@ void MX_TIM3_Init(void)
 
 		LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM3);
 
-		const uint32_t sample_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
+		const uint32_t sample_rate_Hz = (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR) * measurement_Hz;
 
 		TIM_InitStruct.Prescaler     = 0;
 		TIM_InitStruct.CounterMode   = LL_TIM_COUNTERMODE_UP;
@@ -3245,17 +3409,23 @@ void DMA1_Channel1_IRQHandler(void)
 {
 	// pass the ADC sample blocks over to the routine that does something with them
 
-//	if (LL_DMA_IsActiveFlag_TE1(DMA1))                                   // error
+//	if (LL_DMA_IsActiveFlag_TE1(DMA1))                         // error
 //	{	// error
 //	}
 
 	if (LL_DMA_IsActiveFlag_HT1(DMA1))
-		process_ADC_DMA(&adc_dma_buffer[0], sizeof(adc_dma_buffer[0]));  // lower half of ADC buffer
+	{
+		LL_DMA_ClearFlag_HT1(DMA1);
+		process_ADC_DMA(&adc_dma_buffer[0], ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR);  // lower half of ADC buffer
+	}
 
 	if (LL_DMA_IsActiveFlag_TC1(DMA1))
-		process_ADC_DMA(&adc_dma_buffer[1], sizeof(adc_dma_buffer[0]));  // upper half of ADC buffer
+	{
+		LL_DMA_ClearFlag_TC1(DMA1);
+		process_ADC_DMA(&adc_dma_buffer[1], ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR);  // upper half of ADC buffer
+	}
 
-	LL_DMA_ClearFlag_GI1(DMA1);                                          // clear all DMA-1 CHANNEL-1 flags
+	LL_DMA_ClearFlag_GI1(DMA1);                                // clear all DMA-1 CHANNEL-1 flags
 }
 
 // UART TX DMA
@@ -4505,7 +4675,8 @@ int main(void)
 	settings.series_ohms    = SERIES_RESISTOR_OHMS;      // this can be calibrated using a DUT with a known resistance value
 	settings.baudrate       = DEFAULT_UART_BAUDRATE;
 	settings.measurement_Hz = measurement_table_Hz[1];
-	settings.lcr_mode       = LCR_MODE_AUTO;
+//	settings.lcr_mode       = LCR_MODE_AUTO;
+	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
 	settings.sp_mode        = SP_MODE_AUTO;
 	settings.data_mode      = DATA_MODE_NONE;
 
@@ -4586,7 +4757,7 @@ int main(void)
 
 	bootup_screen();
 
-	MX_SWI_Init();
+//	MX_SWI_Init();
 	MX_ADC_Init();
 	MX_TIM3_Init();
 

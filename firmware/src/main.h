@@ -49,7 +49,7 @@
 
 #define ADC_TO_VOLTS                ((float)(3.3 / 4095))        // 12-bit ADC
 
-#define SHOW_CPU                                                 // show the device details on the serial link at boot-up
+//#define SHOW_CPU                                                 // show the device details on the serial link at boot-up
 
 #define UART_BAUDRATE_MIN            115200
 #define UART_BAUDRATE_MAX            921600
@@ -70,7 +70,8 @@
 #define MEASURE_HZ_MIN               100            // minimum measurement frequency
 
 #define SINES_PER_BLOCK              2              // number of sine wave cycles per sample block     no more SRAM left for more than 2 :(
-#define SAMPLES_PER_SINE_CYCLE       64             // 2^n
+#define SAMPLES_PER_SINE_CYCLE       64u            // 2^n
+#define OVER_SAMPLING_FACTOR         1              // 0..4  .. note, DO NOT use anything above '1' - for now
 
 #define ADC_DATA_LENGTH              (SAMPLES_PER_SINE_CYCLE * SINES_PER_BLOCK)
 
@@ -99,7 +100,7 @@
 #define SP_AUTO_HIGH_OHMS_THRESHOLD  10000          // impedance >= this we switch to PARELLEL mode
 
 #define VOLTAGE_OPEN_CAL_THRESHOLD   900.0f         // RMS ADC value
-#define CURRENT_OPEN_CAL_THRESHOLD   0.000050f      // RMS ADC value
+#define CURRENT_OPEN_CAL_THRESHOLD   0.000060f      // RMS ADC value
 
 #define VOLTAGE_SHORT_CAL_THRESHOLD  0.4f           // RMS ADC value
 #define CURRENT_SHORT_CAL_THRESHOLD  1.0f           // RMS ADC value
