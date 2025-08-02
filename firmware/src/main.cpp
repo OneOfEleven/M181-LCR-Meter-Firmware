@@ -410,6 +410,66 @@ int _write(int file, char ptr[], int len)
 	return len;
 }
 
+// **************************************************************
+
+#ifdef SHOW_CPU
+
+// AN2606 page 26
+#if   defined(STM32L031xx)
+	const __IO uint8_t *bootloader_ID = (uint8_t *)0x1FF00FFE;
+#elif defined(STM32F103xB)
+	const __IO uint8_t *bootloader_ID = (uint8_t *)0x1FFFF7D6;
+#elif defined(STM32F411xE)
+	const __IO uint8_t *bootloader_ID = (uint8_t *)0x1FFF76DE;
+#elif defined(STM32F405xx)
+	const __IO uint8_t *bootloader_ID = (uint8_t *)0x1FFF77DE;
+#endif
+
+struct {
+	uint32_t deviceID;
+	uint32_t revisionID;
+	uint32_t bootloader_id;
+	uint32_t flashSize_bytes;
+//	uint32_t package_type;
+//	uint32_t sysclock;
+//	uint32_t hclock;
+//	uint32_t pclock1;
+//	uint32_t pclock2;
+	uint32_t uniqueID_96[3];
+	uint32_t implementer;
+	uint32_t variant;
+	uint32_t part_no;
+	uint32_t revision;
+	uint32_t constant;
+	//uint32_t architecture;
+} m_cpu_details;
+
+void getCPU(void)
+{
+	LL_RCC_GetSystemClocksFreq(&rcc_clocks);
+
+	m_cpu_details.deviceID        = LL_DBGMCU_GetDeviceID();
+	m_cpu_details.revisionID      = LL_DBGMCU_GetRevisionID();
+	m_cpu_details.bootloader_id   = (uint32_t)(*bootloader_ID);
+	m_cpu_details.flashSize_bytes = LL_GetFlashSize() * 1024;
+//	m_cpu_details.package_type    = LL_GetPackageType();
+//	m_cpu_details.sysclock        = rcc_clocks.SYSCLK_Frequency;
+//	m_cpu_details.hclock          = rcc_clocks.HCLK_Frequency;
+//	m_cpu_details.pclock1         = rcc_clocks.PCLK1_Frequency;
+//	m_cpu_details.pclock2         = rcc_clocks.PCLK2_Frequency;
+	m_cpu_details.uniqueID_96[0]  = LL_GetUID_Word0();
+	m_cpu_details.uniqueID_96[1]  = LL_GetUID_Word1();
+	m_cpu_details.uniqueID_96[2]  = LL_GetUID_Word2();
+	m_cpu_details.implementer     = LL_CPUID_GetImplementer();
+	m_cpu_details.variant         = LL_CPUID_GetVariant();
+	m_cpu_details.part_no         = LL_CPUID_GetParNo();
+	m_cpu_details.revision        = LL_CPUID_GetRevision();
+	m_cpu_details.constant        = LL_CPUID_GetConstant();
+	//m_cpu_details.architecture    = LL_CPUID_GetArchitecture();
+}
+
+#endif
+
 // ***********************************************************
 
 // convert ADC raw value to voltage
@@ -3176,7 +3236,7 @@ void DMA1_Channel1_IRQHandler(void)
 {
 	// pass the ADC sample blocks over to the routine that does something with them
 
-//	if (LL_DMA_IsActiveFlag_TE1(DMA1))
+//	if (LL_DMA_IsActiveFlag_TE1(DMA1))                                   // error
 //	{	// error
 //	}
 
@@ -3186,7 +3246,7 @@ void DMA1_Channel1_IRQHandler(void)
 	if (LL_DMA_IsActiveFlag_TC1(DMA1))
 		process_ADC_DMA(&adc_dma_buffer[1], sizeof(adc_dma_buffer[0]));  // upper half of ADC buffer
 
-	LL_DMA_ClearFlag_GI1(DMA1);
+	LL_DMA_ClearFlag_GI1(DMA1);                                          // clear all DMA-1 CHANNEL-1 flags
 }
 
 // UART TX DMA
@@ -3197,7 +3257,7 @@ void DMA1_Channel4_IRQHandler(void)
 //	if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
 	{
 		LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
-		LL_DMA_ClearFlag_GI4(DMA1);
+		LL_DMA_ClearFlag_GI4(DMA1);                                      // clear all DMA-1 CHANNEL-4 flags
 	}
 }
 
@@ -3270,7 +3330,7 @@ void USART1_IRQHandler(void)
 //
 void EXTI4_IRQHandler(void)
 {
-	if (LL_EXTI_IsActiveFlag_0_31(LL_EXTI_LINE_4))
+//	if (LL_EXTI_IsActiveFlag_0_31(LL_EXTI_LINE_4))
 	{	// process the new ADC sample block
 		process_ADC();
 		LL_EXTI_ClearFlag_0_31(LL_EXTI_LINE_4);
@@ -3279,24 +3339,24 @@ void EXTI4_IRQHandler(void)
 
 // ***********************************************************
 
-// wait until the user has released all buttons
+// wait here until the user has released all buttons
 //
 void wait_for_all_button_release(void)
 {
 	uint32_t butt_tick = sys_tick;
 
+	// loop until all buttons are released
 	while (1)
 	{
 		__WFI();
 
-		{	// break if no butt press for >= 200ms
-			const uint32_t tick = sys_tick;
-			for (unsigned int i = 0; i < BUTTON_COUNT; i++)
-				if (button[i].pressed_ms > 0 || button[i].released)
-					butt_tick = tick;
-			if ((tick - butt_tick) >= 200)
-				break;
-		}
+		// break if no butt press for >= 200ms
+		const uint32_t tick = sys_tick;
+		for (unsigned int i = 0; i < BUTTON_COUNT; i++)
+			if (button[i].pressed_ms > 0 || button[i].released)
+				butt_tick = tick;
+		if ((tick - butt_tick) >= 200)
+			break;
 
 		#ifdef USE_IWDG
 			// feed the dog
@@ -3403,7 +3463,7 @@ void process_buttons(void)
 			initialising = 1;
 			{
 				uint8_t mode = settings.sp_mode;
-				if (++mode > SP_MODE_AUTO)
+				if (++mode >= SP_MODE_COUNT)
 					mode = SP_MODE_SERIES;
 				settings.sp_mode = mode;
 				sp_mode          = mode;
@@ -3433,12 +3493,22 @@ void process_buttons(void)
 			//
 			// TODO: use measurement_table_Hz[]
 			//
-			switch (settings.measurement_Hz)
-			{
-				default:
-				case 100:  settings.measurement_Hz = 1000; break;
-				case 1000: settings.measurement_Hz =  100; break;
-			}
+			#if 1
+				switch (settings.measurement_Hz)
+				{
+					default:
+					case 100:   settings.measurement_Hz = 1000; break;
+					case 1000:  settings.measurement_Hz =  100; break;
+				}
+			#else
+				switch (settings.measurement_Hz)
+				{
+					default:
+					case 100:   settings.measurement_Hz =  1000; break;
+					case 1000:  settings.measurement_Hz = 10000; break;
+					case 10000: settings.measurement_Hz =   100; break;
+				}
+			#endif
 
 			set_measurement_frequency(settings.measurement_Hz);
 
@@ -3465,8 +3535,7 @@ void process_buttons(void)
 			if (!(settings.flags & SETTING_FLAG_FAST_UPDATES))
 			{
 				uint8_t mode = settings.lcr_mode;
-				if (++mode > LCR_MODE_AUTO)               // TEST ONLY
-//				if (++mode > LCR_MODE_RESISTANCE)
+				if (++mode >= LCR_MODE_COUNT)
 					mode = LCR_MODE_INDUCTANCE;
 				settings.lcr_mode = mode;
 				lcr_mode          = mode;
@@ -3483,6 +3552,19 @@ void process_buttons(void)
 	}
 
 	// *************
+}
+
+void send_ver_str(void)
+{
+	printf("M181 LCR Meter v%s, FW by Jaishankar M and 1o11     %s %s %s %s %s %s %s" NEWLINE,
+		FW_VERSION,
+		reset_cause.por    ? "POR"    : "por",
+		reset_cause.pin    ? "PIN"    : "pin",
+		reset_cause.sft    ? "SFT"    : "sft",
+		reset_cause.iwdg   ? "IWDG"   : "iwdg",
+		reset_cause.wwdg   ? "WWDG"   : "wwdg",
+		reset_cause.lpwr   ? "LPWR"   : "lpwr",
+		reset_cause.lsirdy ? "LSIRDY" : "lsirdy");
 }
 
 int send_ascii_data(void)
@@ -4091,15 +4173,8 @@ void process_serial_command(char cmd[], unsigned int len)
 			return;
 
 		case CMD_VERSION_ID:
-			printf(NEWLINE "M181 LCR Meter v%s, FW by Jaishankar M and 1o11     %s %s %s %s %s %s %s" NEWLINE,
-				FW_VERSION,
-				reset_cause.por    ? "POR"    : "por",
-				reset_cause.pin    ? "PIN"    : "pin",
-				reset_cause.sft    ? "SFT"    : "sft",
-				reset_cause.iwdg   ? "IWDG"   : "iwdg",
-				reset_cause.wwdg   ? "WWDG"   : "wwdg",
-				reset_cause.lpwr   ? "LPWR"   : "lpwr",
-				reset_cause.lsirdy ? "LSIRDY" : "lsirdy");
+			printf(NEWLINE);
+			send_ver_str();
 			return;
 
 		default:
@@ -4431,15 +4506,44 @@ int main(void)
 
 	set_measurement_frequency(settings.measurement_Hz);
 
-	printf(NEWLINE NEWLINE "rebooted M181 LCR Meter v%s, FW by Jaishankar M and 1o11     %s %s %s %s %s %s %s" NEWLINE,
-		FW_VERSION,
-		reset_cause.por    ? "POR"    : "por",
-		reset_cause.pin    ? "PIN"    : "pin",
-		reset_cause.sft    ? "SFT"    : "sft",
-		reset_cause.iwdg   ? "IWDG"   : "iwdg",
-		reset_cause.wwdg   ? "WWDG"   : "wwdg",
-		reset_cause.lpwr   ? "LPWR"   : "lpwr",
-		reset_cause.lsirdy ? "LSIRDY" : "lsirdy");
+	printf(NEWLINE NEWLINE "rebooted ");
+	send_ver_str();
+
+	#ifdef SHOW_CPU
+		getCPU();
+
+		printf(NEWLINE
+			"    device-id %#lx " NEWLINE
+			"       rev-id %#lx " NEWLINE
+			"bootloader-id %#lx " NEWLINE
+			"        flash %lu " NEWLINE
+			"         sclk %luMHz " NEWLINE
+			"         hclk %luMHz " NEWLINE
+			"        pclk1 %luMHz " NEWLINE
+			"        pclk2 %luMHz " NEWLINE
+			"    unique-id %08lx-%08lx-%08lx " NEWLINE
+			"          imp %#lx " NEWLINE
+			"          var %lu " NEWLINE
+			"      part-no %#lx " NEWLINE
+			"          rev %lu " NEWLINE
+			"         cnst %#lx" NEWLINE,
+			m_cpu_details.deviceID,
+			m_cpu_details.revisionID,
+			m_cpu_details.bootloader_id,
+			m_cpu_details.flashSize_bytes,
+			rcc_clocks.SYSCLK_Frequency / 1000000,
+			rcc_clocks.HCLK_Frequency   / 1000000,
+			rcc_clocks.PCLK1_Frequency  / 1000000,
+			rcc_clocks.PCLK2_Frequency  / 1000000,
+			m_cpu_details.uniqueID_96[0],
+			m_cpu_details.uniqueID_96[1],
+			m_cpu_details.uniqueID_96[2],
+			m_cpu_details.implementer,
+			m_cpu_details.variant,
+			m_cpu_details.part_no,
+			m_cpu_details.revision,
+			m_cpu_details.constant);
+	#endif
 
 	screen_init();
 

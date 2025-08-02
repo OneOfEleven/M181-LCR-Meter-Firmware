@@ -47,6 +47,8 @@
 
 #define SQR(x)                      ((x) * (x))
 
+#define SHOW_CPU                                    // show the device details on the serial link at boot-up
+
 #define UART_BAUDRATE_MIN            115200
 #define UART_BAUDRATE_MAX            921600
 
@@ -336,7 +338,8 @@ enum {
 enum {
 	OP_MODE_MEASURING = 0,
 	OP_MODE_OPEN_PROBE_CALIBRATION,
-	OP_MODE_SHORTED_PROBE_CALIBRATION
+	OP_MODE_SHORTED_PROBE_CALIBRATION,
+	OP_MODE_COUNT
 };
 
 // LCR mode
@@ -344,14 +347,16 @@ enum {
 	LCR_MODE_INDUCTANCE = 0,
 	LCR_MODE_CAPACITANCE,
 	LCR_MODE_RESISTANCE,
-	LCR_MODE_AUTO
+	LCR_MODE_AUTO,
+	LCR_MODE_COUNT
 };
 
 // Series/Parallel mode
 enum {
 	SP_MODE_SERIES = 0,
 	SP_MODE_PARALLEL,
-	SP_MODE_AUTO
+	SP_MODE_AUTO,
+	SP_MODE_COUNT
 };
 
 // VI mode
@@ -360,7 +365,7 @@ enum {
 	VI_MODE_AMP_LO_GAIN,
 	VI_MODE_VOLT_HI_GAIN,
 	VI_MODE_AMP_HI_GAIN,
-	VI_MODE_COUNT                     // number of differebt modes
+	VI_MODE_COUNT
 };
 
 // Serial/Uart data mode
@@ -368,7 +373,8 @@ enum {
 	DATA_MODE_NONE = 0,
 	DATA_MODE_ASCII,
 	DATA_MODE_BINARY,
-	DATA_MODE_DUT
+	DATA_MODE_DUT,
+	DATA_MODE_COUNT
 };
 
 extern const uint16_t measurement_table_Hz[2];
