@@ -18,7 +18,7 @@
 - ALL terminating connectors to the outside world must always be secured by through-hole methods (ie through-hole pins and/or casing etc). PCB SMD alone will never be strong enough for this.
 
 ## Tasks to be completed on this firmware
-- [ ] Change some PCB component values to add a 10kHz option (see LTspice sims)
+- [ ] Change some PCB component values to add a 10kHz option (see LTspice sims), although this will probably need the OPAMP to be swapped out for a TLV9064IDR.
 
 ## Buttons ..
 

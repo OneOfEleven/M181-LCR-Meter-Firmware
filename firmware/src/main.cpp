@@ -975,6 +975,38 @@ void set_measurement_frequency(uint32_t Hz)
 //		const uint32_t period        = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), timer_rate_Hz);
 		const uint32_t period        = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
 		LL_TIM_SetAutoReload(TIM3, period);
+
+		{
+			// LL_ADC_SAMPLINGTIME_1CYCLE_5             1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
+			// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
+			// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
+			// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
+			// LL_ADC_SAMPLINGTIME_41CYCLES_5          41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max  222kHz sample rate
+			// LL_ADC_SAMPLINGTIME_55CYCLES_5          55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max  176kHz sample rate
+			// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
+			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
+
+			uint32_t sampling_time = LL_ADC_SAMPLINGTIME_239CYCLES_5;
+			if (timer_rate_Hz >= 300e3)
+				sampling_time = LL_ADC_SAMPLINGTIME_1CYCLE_5;
+			else
+			if (timer_rate_Hz >= 230e3)
+				sampling_time = LL_ADC_SAMPLINGTIME_7CYCLES_5;
+			else
+			if (timer_rate_Hz >= 110e3)
+				sampling_time = LL_ADC_SAMPLINGTIME_28CYCLES_5;
+			else
+			if (timer_rate_Hz >= 23e3)
+				sampling_time = LL_ADC_SAMPLINGTIME_41CYCLES_5;
+
+			#ifdef DUAL_ADC_MODE
+				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  sampling_time);
+				LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  sampling_time);
+			#else
+				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  sampling_time);
+				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  sampling_time);
+			#endif
+		}
 	}
 }
 
@@ -2648,7 +2680,7 @@ void MX_ADC_Init(void)
 		}
 
 		{
-			// LL_ADC_SAMPLINGTIME_1CYCLES_5            1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
+			// LL_ADC_SAMPLINGTIME_1CYCLE_5             1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
 			// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
 			// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
 			// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
@@ -2768,7 +2800,7 @@ void MX_ADC_Init(void)
 		}
 
 		{
-			// LL_ADC_SAMPLINGTIME_1CYCLES_5            1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
+			// LL_ADC_SAMPLINGTIME_1CYCLE_5             1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
 			// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
 			// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
 			// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
@@ -3769,15 +3801,15 @@ const t_cmd cmds[] = {
 	{"baudrate",  "[baudrate]        .. read/set serial baudrate",           CMD_BAUDRATE_ID },
 	{"binary",    "                  .. read adc samples",                   CMD_BINARY_ID   },
 	{"data",      "[off asc bin dut] .. read/set sending real-time data",    CMD_DATA_ID     },
+	{"defaults",  "                  .. restore defaults",                   CMD_DEFAULTS_ID },
 	{"dut",       "                  .. read current DUT params",            CMD_DUT_ID      },
 	{"frequency", "[Hz]              .. read/set measurement frequency",     CMD_FREQUENCY_ID},
 	{"hold",      "                  .. toggle display hold on/off",         CMD_HOLD_ID     },
 	{"lcrmode",   "[r l i c a]       .. read/set LCRA mode",                 CMD_LCR_MODE_ID },
-	{"spmode",    "[s p a]           .. read/set Series/Parallel/Auto mode", CMD_SP_MODE_ID  },
 	{"opencal",   "                  .. run open probe calibration",         CMD_OPEN_CAL_ID },
-	{"shortcal",  "                  .. run shorted probe calibration",      CMD_SHORT_CAL_ID},
 	{"reboot",    "                  .. reboot this unit",                   CMD_REBOOT_ID   },
-	{"defaults",  "                  .. restore defaults",                   CMD_DEFAULTS_ID },
+	{"shortcal",  "                  .. run shorted probe calibration",      CMD_SHORT_CAL_ID},
+	{"spmode",    "[s p a]           .. read/set Series/Parallel/Auto mode", CMD_SP_MODE_ID  },
 	{"version",   "                  .. this units version",                 CMD_VERSION_ID  },
 	{NULL,        "",                                                        CMD_NONE_ID     }    // last one, DO NOT delete/move this one, it must be the last entry
 };
