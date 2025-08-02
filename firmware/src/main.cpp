@@ -163,7 +163,7 @@ t_button              button[BUTTON_COUNT] = {0};                     // holds e
 
 uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE] = {0};       // holds look-up data for one complete sine wave cycle (for the DAC)
 
-uint16_t              measurement_Hz = measurement_table_Hz[1];       // current measurement frequency
+uint32_t              measurement_Hz = measurement_table_Hz[1];       // current measurement frequency
 
 uint8_t               lcr_mode = LCR_MODE_CAPACITANCE;                // current LCR mode
 uint8_t               sp_mode  = SP_MODE_SERIES;                      // current Series/Parallel/Auto mode
@@ -971,9 +971,9 @@ void set_measurement_frequency(uint32_t Hz)
 	// set the timer rate, the timer clocks the ADC and DAC DMA at the desired ratetmp_buffer_in_use
 	if (measurement_Hz > 0)
 	{
-		const uint32_t timer_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
-//		const uint32_t period        = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), timer_rate_Hz);
-		const uint32_t period        = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
+		const uint32_t sample_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
+//		const uint32_t period         = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), sample_rate_Hz);
+		const uint32_t period         = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (sample_rate_Hz / 2)) / sample_rate_Hz) - 1;
 		LL_TIM_SetAutoReload(TIM3, period);
 
 		{
@@ -987,16 +987,16 @@ void set_measurement_frequency(uint32_t Hz)
 			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
 
 			uint32_t sampling_time = LL_ADC_SAMPLINGTIME_239CYCLES_5;
-			if (timer_rate_Hz >= 300e3)
+			if (sample_rate_Hz >= 300e3)
 				sampling_time = LL_ADC_SAMPLINGTIME_1CYCLE_5;
 			else
-			if (timer_rate_Hz >= 230e3)
+			if (sample_rate_Hz >= 230e3)
 				sampling_time = LL_ADC_SAMPLINGTIME_7CYCLES_5;
 			else
-			if (timer_rate_Hz >= 110e3)
+			if (sample_rate_Hz >= 110e3)
 				sampling_time = LL_ADC_SAMPLINGTIME_28CYCLES_5;
 			else
-			if (timer_rate_Hz >= 23e3)
+			if (sample_rate_Hz >= 23e3)
 				sampling_time = LL_ADC_SAMPLINGTIME_41CYCLES_5;
 
 			#ifdef DUAL_ADC_MODE
@@ -2887,13 +2887,13 @@ void MX_TIM3_Init(void)
 
 		LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM3);
 
-		const uint32_t timer_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
+		const uint32_t sample_rate_Hz = SAMPLES_PER_SINE_CYCLE * measurement_Hz;
 
 		TIM_InitStruct.Prescaler     = 0;
 		TIM_InitStruct.CounterMode   = LL_TIM_COUNTERMODE_UP;
 		TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
-//		TIM_InitStruct.Autoreload    = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, TIM_InitStruct.Prescaler, timer_rate_Hz);
-		TIM_InitStruct.Autoreload    = (((rcc_clocks.HCLK_Frequency / (TIM_InitStruct.Prescaler + 1)) + (timer_rate_Hz / 2)) / timer_rate_Hz) - 1;
+//		TIM_InitStruct.Autoreload    = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, TIM_InitStruct.Prescaler, sample_rate_Hz);
+		TIM_InitStruct.Autoreload    = (((rcc_clocks.HCLK_Frequency / (TIM_InitStruct.Prescaler + 1)) + (sample_rate_Hz / 2)) / sample_rate_Hz) - 1;
 		LL_TIM_Init(TIM3, &TIM_InitStruct);
 
 		LL_TIM_EnableARRPreload(      TIM3);
