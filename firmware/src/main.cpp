@@ -2053,9 +2053,8 @@ void draw_screen(void)
 				case SP_MODE_AUTO:     s = (sp_mode == SP_MODE_SERIES) ? sp[2] : (sp_mode == SP_MODE_PARALLEL) ? sp[3] : sp[4]; break;
 				default:               s = sp[5]; break;
 			}
-			strcpy(str_buf, (s != NULL) ? s : "");
 			ssd1306_SetCursor(0, 0);
-			ssd1306_WriteString(str_buf, &font_8x12, White);
+			ssd1306_WriteString(s, &font_8x12, White);
 		}
 
 		{	// measurement frequency
@@ -2116,7 +2115,6 @@ void draw_screen(void)
 					break;
 			}
 
-			//char unit = unit_conversion(&value, "fpnumkMG");
 			char unit = ' ';
 
 			memset(str_buf, 0, sizeof(str_buf));
@@ -2189,6 +2187,7 @@ void draw_screen(void)
 			{
 				case LCR_MODE_INDUCTANCE:
 				{
+					str_buf[0] = '\0';
 					if (unit != ' ')
 						strcatc(str_buf, unit);
 					strcatc(str_buf, 'H');
@@ -2198,6 +2197,7 @@ void draw_screen(void)
 
 				case LCR_MODE_CAPACITANCE:
 				{
+					str_buf[0] = '\0';
 					if (unit != ' ')
 						strcatc(str_buf, unit);
 					strcatc(str_buf, 'F');
@@ -2210,6 +2210,7 @@ void draw_screen(void)
 				{
 					if (unit != ' ')
 					{
+						str_buf[0] = '\0';
 						strcatc(str_buf, unit);
 						ssd1306_WriteString(str_buf, &font_11x18, White);
 					}
@@ -2249,9 +2250,8 @@ void draw_screen(void)
 				case SP_MODE_AUTO:     s = sp[2]; break;
 				default:               s = sp[3]; break;
 			}
-			strcpy(str_buf, (s != NULL) ? s : "");
 			ssd1306_SetCursor(SSD1306_WIDTH - (strlen(str_buf) * font_8x12.width), LINE3_Y);
-			ssd1306_WriteString(str_buf, &font_8x12, White);
+			ssd1306_WriteString(s, &font_8x12, White);
 		}
 		#else
 		{	// show the current LCR mode
@@ -2263,6 +2263,7 @@ void draw_screen(void)
 				case LCR_MODE_AUTO:        str_buf[0] = 'A'; break;
 				default:                   str_buf[0] = '?'; break;
 			}
+			str_buf[1] = '\0';
 			strcatc(str_buf, (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ');
 			ssd1306_SetCursor(SSD1306_WIDTH - (strlen(str_buf) * font_8x12.width), LINE3_Y);
 			ssd1306_WriteString(str_buf, &font_8x12, White);
@@ -2374,7 +2375,7 @@ void draw_screen(void)
 
 						n_sprintf(4, value, str_buf, sizeof(str_buf), 1);
 						if (unit != ' ')
-						strcatc(str_buf, unit);
+							strcatc(str_buf, unit);
 						strcatc(str_buf, 'H');
 					}
 					else
@@ -3492,7 +3493,7 @@ void process_buttons(void)
 
 			initialising = 1;
 
-			// cycle through the LCR modes (inc SLOW/FAST mode)
+			// cycle through the LCR modes (inc FAST modes)
 			settings.flags ^= SETTING_FLAG_FAST_UPDATES;
 			if (!(settings.flags & SETTING_FLAG_FAST_UPDATES))
 			{
