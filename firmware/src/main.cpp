@@ -135,8 +135,8 @@ static const uint16_t omega_13x18[] = {
 };
 
 // measure frequencies
-const uint16_t measurement_table_Hz[2] = {100, 1000};            // standard
-//const uint16_t measurement_table_Hz[3] = {100, 1000, 10000};   // this one after we've updated the PCB compnents to pass 10kHz
+const uint32_t measurement_table_Hz[2] = {100, 1000};            // standard
+//const uint32_t measurement_table_Hz[3] = {100, 1000, 10000};   // this one after we've updated the PCB compnents to pass 10kHz
 
 struct {
 	uint8_t por;
@@ -942,7 +942,7 @@ char unit_conversion(float *value, const char units[])   // const char units[] =
 // set the system measurement Hz
 // ie 100Hz, 1000Hz or whatever
 //
-void set_measurement_frequency(uint32_t Hz)
+void set_measurement_frequency(const uint32_t Hz)
 {
 	// limit the range
 	measurement_Hz = (Hz < MEASURE_HZ_MIN) ? MEASURE_HZ_MIN : (Hz > MEASURE_HZ_MAX) ? MEASURE_HZ_MAX : Hz;
@@ -3664,12 +3664,14 @@ int send_dut_data(void)
 
 		const unsigned int len = strlen(tx_str);
 
-		snprintf(tx_str + len, tx_str_size - len,
+		snprintf(
+			tx_str + len,
+			tx_str_size - len,
 			NEWLINE
 			"DUT:" NEWLINE
 			"  Cal %s" NEWLINE
 			" Mode %s" NEWLINE
-			" Freq %u" NEWLINE
+			" Freq %lu" NEWLINE
 			"    V %s%c rms" NEWLINE
 			"    I %s%c rms" NEWLINE
 			"  Phi %0.3f deg" NEWLINE
@@ -4005,7 +4007,7 @@ void process_serial_command(char cmd[], unsigned int len)
 					return;
 				}
 
-				const uint16_t Hz = (val < MEASURE_HZ_MIN) ? MEASURE_HZ_MIN : (val > MEASURE_HZ_MAX) ? MEASURE_HZ_MAX : val;
+				const uint32_t Hz = (val < MEASURE_HZ_MIN) ? MEASURE_HZ_MIN : (val > MEASURE_HZ_MAX) ? MEASURE_HZ_MAX : val;
 				if (settings.measurement_Hz != Hz)
 				{
 					settings.measurement_Hz = Hz;
@@ -4017,7 +4019,7 @@ void process_serial_command(char cmd[], unsigned int len)
 			}
 
 			if (settings.measurement_Hz < 1000)
-				snprintf(str_buf, sizeof(str_buf), "%u Hz", settings.measurement_Hz);
+				snprintf(str_buf, sizeof(str_buf), "%lu Hz", settings.measurement_Hz);
 			else
 				snprintf(str_buf, sizeof(str_buf), "%0.3f kHz", settings.measurement_Hz * 1e-3f);
 			trim_trailing_zeros(str_buf);

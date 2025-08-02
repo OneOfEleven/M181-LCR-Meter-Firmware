@@ -62,7 +62,7 @@
 
 #define PACKET_MARKER                0x19621996     // 32-bit marker to indicate 'start of packet' for the receiver (windows GUI etc)
 
-#define SETTINGS_MARKER              0x19961962     // 32-bit marker to indicate 'start of settings' - so we can find them in flash
+#define SETTINGS_MARKER              0x12345678     // 32-bit marker to indicate 'start of settings' - so we can find them in flash
 
 //#define RIGHT_ALIGN_DUT                             // this right aligns the large DUT value on the display
 
@@ -379,8 +379,8 @@ enum {
 	DATA_MODE_COUNT
 };
 
-extern const uint16_t measurement_table_Hz[2];
-//extern const uint16_t measurement_table_Hz[3];
+extern const uint32_t measurement_table_Hz[2];
+//extern const uint32_t measurement_table_Hz[3];
 
 #define SETTING_FLAG_FAST_UPDATES      (1u << 0)   // set if the user wants faster screen updates (but noisier)
 #define SETTING_FLAG_OPEN_CAL_DONE     (1u << 1)   // set if open    calibration is complete
@@ -394,12 +394,11 @@ typedef struct t_settings {
 
 	float     series_ohms;                                           // the exact value of the series resistor
 	uint32_t  baudrate;                                              // uart baud rate
-	uint16_t  measurement_Hz;                                        // the sine wave measurement frequency the user is using
+	uint32_t  measurement_Hz;                                        // the sine wave measurement frequency the user is using
 	uint8_t   lcr_mode;                                              // the LCR mode the user has selected
 	uint8_t   sp_mode;                                               // the series/parallel mode the user has selected
 	uint8_t   data_mode;                                             // type of data we're sending via the serial port
 	uint8_t   flags;                                                 // various 'flags'
-	uint8_t   padding1[2];                                           // maintain 32-bit alignment
 
 	struct {
 		float mag_rms[VI_MODE_COUNT * 2];                            // averaged RMS magnitude values for each VI mode
