@@ -3471,12 +3471,19 @@ void process_buttons(void)
 
 			initialising = 1;
 
-			{	// cycle the frequency
-				uint32_t Hz = 10ul * settings.measurement_Hz;
-				if (Hz > measurement_table_Hz[ARRAY_SIZE(measurement_table_Hz) - 1])
-					Hz = measurement_table_Hz[0];
-				settings.measurement_Hz = Hz;
+			// cycle the frequency
+			if (ARRAY_SIZE(measurement_table_Hz) > 1 && settings.measurement_Hz < measurement_table_Hz[ARRAY_SIZE(measurement_table_Hz) - 1])
+			{
+				for (unsigned int i = 0; i < ARRAY_SIZE(measurement_table_Hz); i++)
+				{
+					if (settings.measurement_Hz >= measurement_table_Hz[i])
+						continue;
+					settings.measurement_Hz = measurement_table_Hz[i];
+					break;
+				}
 			}
+			else
+				settings.measurement_Hz = measurement_table_Hz[0];
 
 			set_measurement_frequency(settings.measurement_Hz);
 
@@ -4252,7 +4259,7 @@ void process_op_mode(void)
 		case OP_MODE_MEASURING:                // normal measurement mode
 			break;
 
-		case OP_MODE_OPEN_PROBE_CALIBRATION:   // doing an OPEN probe calibration
+		case OP_MODE_OPEN_PROBE_CALIBRATION:
 		{
 			if (rms_voltage < VOLTAGE_OPEN_CAL_THRESHOLD || rms_current > CURRENT_OPEN_CAL_THRESHOLD)
 			{	// probes are not fully open
@@ -4271,11 +4278,11 @@ void process_op_mode(void)
 				calibrate.phase_sum[i].imag += sinf(phase_rad);
 			}
 
-			// delay saving the settings
+			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
 
 			if (++calibrate.count >= CALIBRATE_COUNT)
-			{	// finished summing, save the average
+			{	// finished summing, save the averages
 
 				unsigned int index = calibrate.index_Hz;
 
@@ -4310,7 +4317,7 @@ void process_op_mode(void)
 			break;
 		}
 
-		case OP_MODE_SHORTED_PROBE_CALIBRATION:   // doing a SHORTED probe calibration
+		case OP_MODE_SHORTED_PROBE_CALIBRATION:
 		{
 			if (rms_voltage > VOLTAGE_SHORT_CAL_THRESHOLD || rms_current < CURRENT_SHORT_CAL_THRESHOLD)
 			{	// probes are not fully closed
@@ -4329,11 +4336,11 @@ void process_op_mode(void)
 				calibrate.phase_sum[i].imag += sinf(phase_rad);
 			}
 
-			// delay saving the settings
+			// save settings
 			save_settings_timer = SAVE_SETTINGS_MS;
 
 			if (++calibrate.count >= CALIBRATE_COUNT)
-			{	// finished summing, save the average
+			{	// finished summing, save the averages
 
 				unsigned int index = calibrate.index_Hz;
 
@@ -4542,8 +4549,13 @@ int main(void)
 				{	// check for any butt press
 					uint8_t pressed = 0;
 					for (unsigned int b = 0; b < BUTTON_COUNT && !pressed; b++)
+					{
 						if (button[b].pressed_ms > 0 || button[b].released)
-							pressed = 1;
+						{
+							pressed             = 1;
+							button[b].processed = 1;
+						}
+					}
 					if (pressed)
 						break;
 				}
