@@ -80,7 +80,8 @@
 
 #define SINES_PER_BLOCK              2              // number of sine wave cycles per sample block     no more RAM left for more than 2 :(
 #define SAMPLES_PER_SINE_CYCLE       64u            // 2^n
-#define OVER_SAMPLING_FACTOR         1              // 0..4  .. note, DO NOT use anything above '1' - for now
+
+#define OVER_SAMPLING_FACTOR         1              // 0..4   must be '0' for measurement > 6kHz (CPU limitation) .. DO NOT use anything above '1' (RAM limitation)
 
 #define ADC_DATA_LENGTH              (SAMPLES_PER_SINE_CYCLE * SINES_PER_BLOCK)
 

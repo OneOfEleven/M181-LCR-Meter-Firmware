@@ -162,11 +162,9 @@ volatile uint32_t     sys_tick = 0;                                   // our own
 
 LL_RCC_ClocksTypeDef  rcc_clocks = {0};                               // various CPU clock frequencies
 
-char                  str_buf[32] = {0};                              // used for various things
+char                  str_buf[32] = {0};                              // general use
 
 t_button              button[BUTTON_COUNT] = {0};                     // holds each buttons state
-
-uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR] = {0};  // holds look-up data for one complete sine wave cycle (for the DAC)
 
 uint32_t              measurement_Hz = measurement_table_Hz[1];       // current measurement frequency
 
@@ -196,6 +194,8 @@ float                 high_gain = 101;                                // HW gain
 
 float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse value of the series resistor in series with the DUT (the LOAD cal calibrates this value)
 
+uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR] = {0};  // holds look-up data for one complete sine wave cycle (for the DAC)
+
 // ADC DMA raw sample buffer
 t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR];  // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
 
@@ -208,7 +208,7 @@ float                 adc_dc_offset[VI_MODE_COUNT * 2] = {0};              // AD
 
 // VI mode sequence order to minimize mode switching time
 // because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins, large DC spike occurs)
-const uint8_t         vi_measure_mode_table[] = {0, 1, 3, 2};              // the VI mode sequennce we use
+static const uint8_t  vi_measure_mode_table[] = {0, 1, 3, 2};              // the VI mode sequennce we use
 volatile uint8_t      vi_measure_index        = 0;                         // current VI stage we're at
 
 #pragma pack(push, 1)
@@ -217,22 +217,20 @@ float                 adc_data[VI_MODE_COUNT * 2][ADC_DATA_LENGTH] = {0};  // ho
 
 // set to '1' if waveform clipping/saturation is detected
 // if the HIGH gain waveform is being clipped, then we can't use it, we use the LOW gain samples instead
-uint8_t               adc_data_clipping[VI_MODE_COUNT] = {0};              // temp as we go
+uint8_t               adc_data_clipping[VI_MODE_COUNT] = {0};              // temp
 uint8_t               adc_data_clipped[VI_MODE_COUNT]  = {0};              // saved here at the end of the full VI sample cycle
 
-// user/system settings are stored in flash area
+// user/system settings
+t_settings            settings            = {0};                           // the settings
 volatile int          save_settings_timer = -1;                            // we use a timer to help reduce flash wear (limited write cycles)
-t_settings            settings            = {0};                           // the system/users settings
 
 t_system_data         system_data = {0};                                   // various results saved in here
-/*
-#if (4 * (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR)) > (8 * ADC_DATA_LENGTH)
-	uint8_t           temp_buffer[sizeof(t_adc_dma_data_16) * (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR)]; // buffer must be big enough for whatever uses it
-#else
+
+//#if (4 * (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR)) > (8 * ADC_DATA_LENGTH)
+//	uint8_t           temp_buffer[sizeof(t_adc_dma_data_16) * (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR)]; // buffer must be big enough for whatever uses it
+//#else
 	uint8_t           temp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];                                   // buffer must be big enough for whatever uses it
-#endif
-*/
-uint8_t               temp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];    // buffer must be big enough for whatever uses it
+//#endif
 uint8_t               temp_buffer_in_use = 0;                              // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
 
 uint8_t               tx_buffer[sizeof(t_packet)];                         // for TX'ing data via the serial port, must be big enough for everything that uses it
@@ -253,11 +251,11 @@ struct {
 	} rx;
 /*
 	struct {
-		uint8_t  buffer[2048];     // TX raw buffer
-		uint32_t buffer_wr;        // WRITE index
-		uint32_t buffer_rd;        // READ index
+		uint8_t  buffer[sizeof(t_packet)];  // TX raw buffer
+		uint32_t buffer_wr;                 // WRITE index
+		uint32_t buffer_rd;                 // READ index
 
-		uint32_t timer;            // timer for caching the TX data before actually sending it (helps reduce number of sends)
+		uint32_t timer;                     // timer for caching the TX data before actually sending it (helps reduce number of sends)
 	} tx;
 */
 } volatile serial = {0};
@@ -796,14 +794,14 @@ t_goertzel goertzel = {0};
 // this is for the phase detector, this outputs a single I/Q pair
 //
 //std::complex <float> goertzel_block(const float *samples, const unsigned int len, t_goertzel *g)
-t_complex goertzel_block(const float samples[], const unsigned int len, const t_goertzel *g)
+t_complex OPTIMIZE_SPEED goertzel_block(const float samples[], const unsigned int len, const t_goertzel *g)
 {
-	float m1 = 0;
-	float m2 = 0;
+	register float m1 = 0;
+	register float m2 = 0;
 
 	for (unsigned int i = len; i > 0; i--)
 	{
-		const float m = *samples++ + (g->coeff * m1) - m2;
+		register const float m = *samples++ + (g->coeff * m1) - m2;
 		m2 = m1;
 		m1 = m;
 	}
@@ -822,17 +820,17 @@ t_complex goertzel_block(const float samples[], const unsigned int len, const t_
 // this one is for BPF filtering the waveform, the filtered wave is saved in 'out_samples', it removes all out-of-band 'noise'
 //
 //int goertzel_wrap(const float in_samples[], std::complex out_samples[], const unsigned int len, const unsigned int g_len, const t_goertzel *g)
-int goertzel_wrap(const float in_samples[], t_complex out_samples[], const unsigned int len, const unsigned int g_len, const t_goertzel *g)
+int OPTIMIZE_SPEED goertzel_wrap(const float in_samples[], t_complex out_samples[], const unsigned int len, const unsigned int g_len, const t_goertzel *g)
 {
 	const float scale = 2.0f / g_len;             // for correcting the output amplitude
 
 	for (unsigned int k = 0; k < len; k++)
 	{
-		float m1 = 0;
-		float m2 = 0;
+		register float m1 = 0;
+		register float m2 = 0;
 		for (unsigned int i = g_len, n = k; i > 0; i--)
 		{
-			const float m = in_samples[n] + (g->coeff * m1) - m2;
+			register const float m = in_samples[n] + (g->coeff * m1) - m2;
 			m2 = m1;
 			m1 = m;
 			if (++n >= len)
@@ -1099,7 +1097,7 @@ void start_probe_short_cal(void)
 	initialising         = 0;
 }
 
-// compute the phase difference between two phases (in degrees)
+// compute the phase difference between two phases
 //
 #if 1
 	float phase_diff(const t_complex c1, const t_complex c2)
@@ -1223,10 +1221,10 @@ int process_Goertzel(void)
 			//   compute waveform phase using a single Goertzel DFT
 
 			// point to the ADC samples
-			float *buf = adc_data[buf_index];
+			register const float *buf = adc_data[buf_index];
 
 			{	// compute RMS magnitude of the unfiltered waveform
-				float sum = 0;
+				register float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 					sum += SQR(buf[k]);
 				sum *= 1.0f / ADC_DATA_LENGTH;
@@ -1246,7 +1244,7 @@ int process_Goertzel(void)
 			// point to an output buffer for the Goertzel filter to save into
 			t_complex *temp_buf = (t_complex *)temp_buffer;
 
-			float *buf = adc_data[buf_index];
+			register float *buf = adc_data[buf_index];
 
 			// filter the entire waveform using many Goertzel DFTs
 			if (goertzel_wrap(buf, temp_buf, ADC_DATA_LENGTH, GOERTZEL_FILTER_LENGTH, &goertzel) < 0)
@@ -1256,10 +1254,10 @@ int process_Goertzel(void)
 			}
 
 			{	// compute RMS magnitude and save the Goertzel filtered output samples
-				float sum = 0;
+				register float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
-					const t_complex samp = temp_buf[k];          // fetch filtered waveform sample
+					register const t_complex samp = temp_buf[k]; // fetch filtered waveform sample
 					sum += SQR(samp.real) + SQR(samp.imag);      // sum it (for computing the average)
 					buf[k] = samp.real;                          // save the Goertzel filtered sample
 				}
@@ -1275,12 +1273,12 @@ int process_Goertzel(void)
 			#else
 			{	// compute waveform phase using all the Goertzel DFTs that filtered the entire waveform
 				// ie, compute the average phase
-				t_complex sum;
+				register t_complex sum;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
 					// remove the phase offset from this sample position in the buffer
-					const t_complex p = phi_table[k];   // fetch sample phase in the buffer
-					      t_complex s = temp_buf[k];     // fetch filtered waveform sample
+					register const t_complex p = phi_table[k];    // fetch sample phase in the buffer
+					register       t_complex s = temp_buf[k];     // fetch filtered waveform sample
 					// conj multiply
 					s = t_complex((p.real * s.real) + (p.imag * s.imag), (p.real * s.imag) - (p.imag * s.real));  // phase difference
 
@@ -1303,9 +1301,9 @@ int process_Goertzel(void)
 //
 void combine_afc(float *avg_rms, float *avg_deg)
 {
-	unsigned int sum_count = 0;
-	float        sum_rms   = 0;
-	t_complex       sum_phase = {0, 0};
+	register unsigned int sum_count = 0;
+	register float        sum_rms   = 0;
+	register t_complex    sum_phase = {0, 0};
 
 	for (unsigned int mode = 0; mode < (VI_MODE_COUNT * 2); mode += 2)
 	{
@@ -1335,7 +1333,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 		sum_rms += system_data.mag_rms[mode + 1];
 
-		const float phase_rad = system_data.phase_deg[mode + 1] * DEG_TO_RAD;
+		register const float phase_rad = system_data.phase_deg[mode + 1] * DEG_TO_RAD;
 		sum_phase.real += cosf(phase_rad);
 		sum_phase.imag += sinf(phase_rad);
 
@@ -1387,7 +1385,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 				{	// phase_deg median
 
-					const float deg = system_data.phase_deg[m];
+					register const float deg = system_data.phase_deg[m];
 
 					// add new value into the input circular buffer
 					median.phase_deg_buffer[m][median.buffer_index] = deg;
@@ -1412,14 +1410,14 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 			for (unsigned int m = 0; m < (VI_MODE_COUNT * 2); m++)
 			{
-				const float mag = system_data.mag_rms[m];
+				register const float mag = system_data.mag_rms[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
 					median.mag_rms_buffer[m][i] = mag;
 			}
 
 			for (unsigned int m = 0; m < (VI_MODE_COUNT * 2); m++)
 			{
-				const float deg = system_data.phase_deg[m];
+				register const float deg = system_data.phase_deg[m];
 				for (unsigned int i = 0; i < MEDIAN_SIZE; i++)
 					median.phase_deg_buffer[m][i] = deg;
 			}
@@ -1436,14 +1434,15 @@ uint32_t num_ones(const uint32_t value)
 	uint32_t count  = 0;
 
 	asm("loop:                 \n" // loop
-	    "   tst  %2,#1         \n" // mask for bit0
-	    "   beq  continue      \n" // branch if bit0 is 0
+	    "   tst  %2,#1         \n" // mask for bit-0
+	    "   beq  continue      \n" // branch if bit-0 is 0
 	    "   add  %0,#1         \n" // bit0 is 1 so increment count #
-	    "continue:             \n" // jump to here if bit0 is 0
-	    "   lsr  %2,#1         \n" // move next bit into bit0 position
+	    "continue:             \n" // jump to here if bit-0 is 0
+	    "   lsr  %2,#1         \n" // move next bit into bit-0 position
 	    "   subs %3,#1         \n" // decrement bit number
 	    "   bne  loop          \n" // next bit
-	    : "=r"(count) : "r"(unused) ,"r"(value) ,"r"(bit)
+	    : "=r"(count)
+		: "r"(unused) ,"r"(value) ,"r"(bit)
 	);
 
 
@@ -1479,54 +1478,107 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_s
 		memcpy(temp_buffer, buffer, sizeof(t_adc_dma_data_16u) * num_samples);
 	#else
 	{
-		register const t_adc_dma_data_16u *buf     = (t_adc_dma_data_16u *)buffer;
+		register const t_adc_dma_data_16u *in_buf  = (t_adc_dma_data_16u *)buffer;
 		register       t_adc_dma_data_16u *tmp_buf = (t_adc_dma_data_16u *)temp_buffer;
 		for (unsigned int i = 0; i < (num_samples >> OVER_SAMPLING_FACTOR); i++)
 		{
 			register t_adc_dma_data_16u samp;
-			register t_adc_dma_data_16u sum = {0, 0};
+			register t_adc_dma_data_16u sum;
 			#if (OVER_SAMPLING_FACTOR == 1)
 				// unroll loop
-				samp = *buf++;
+				sum      = *in_buf++;
+				samp     = *in_buf++;
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
-				samp = *buf++;
-				sum.adc += samp.adc;
-				sum.afc += samp.afc;
+/*
+				__asm volatile(
+  					"ldr      %sum_adc,[%ib],#4            \n"  // sum_adc = *ib++
+  					"ldr      %sum_afc,[%ib],#4            \n"  // sum_afc = *ib++
+  					"ldr      %adc,[%ib],#4                \n"  // adc = *ib++
+  					"ldr      %afc,[%ib],#4                \n"  // afc = *ib++
+//					"add      %sum_adc,%sum_adc,%adc       \n"  // sum_adc += adc
+//					"add      %sum_afc,%sum_afc,%afc       \n"  // sum_afc += afc
+
+					: [ib]       "r" (in_buf)
+					: [tb]       "r" (tmp_buf)
+//					: [adc]      "r" (samp.adc)
+//					: [afc]      "r" (samp.afc)
+//					: [sum_adc]  "r" (sum.adc)
+//					: [sum_afc]  "r" (sum.afc)
+//					: "cc","s0","s1","s2","s3","s4","s5","s6","s7","s8","s9","s10","s11","s12","s13","s14","s15","s16","s17","s18","s19","s20","s21","s22","s23","s24","s25","s26","s27","s31"
+					: [result]   "=r" (sum)
+				);
+*/
 			#elif (OVER_SAMPLING_FACTOR == 2)
 				// unroll loop
-				samp = *buf++;
+				sum      = *in_buf++;
+				samp     = *in_buf++;
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
-				samp = *buf++;
+				samp     = *in_buf++;
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
-				samp = *buf++;
+				samp     = *in_buf++;
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
-				samp = *buf++;
+			#elif (OVER_SAMPLING_FACTOR == 3)
+				// unroll loop
+				sum      = *in_buf++;
+				samp     = *in_buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp     = *in_buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp     = *in_buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp     = *in_buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp     = *in_buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp     = *in_buf++;
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
+				samp     = *in_buf++;
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
 			#else
-				for (unsigned int k = 0; k < (1u << (OVER_SAMPLING_FACTOR - 2)); k++)
+				sum.adc = 0;
+				sum.afc = 0;
+				for (unsigned int k = 0; k < (1u << (OVER_SAMPLING_FACTOR - 3)); k++)
 				{
-					samp = *buf++;
+					samp     = *in_buf++;
 					sum.adc += samp.adc;
 					sum.afc += samp.afc;
-					samp = *buf++;
+					samp     = *in_buf++;
 					sum.adc += samp.adc;
 					sum.afc += samp.afc;
-					samp = *buf++;
+					samp     = *in_buf++;
 					sum.adc += samp.adc;
 					sum.afc += samp.afc;
-					samp = *buf++;
+					samp     = *in_buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp     = *in_buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp     = *in_buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp     = *in_buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp     = *in_buf++;
 					sum.adc += samp.adc;
 					sum.afc += samp.afc;
 				}
 			#endif
 			sum.adc >>= OVER_SAMPLING_FACTOR;
 			sum.afc >>= OVER_SAMPLING_FACTOR;
-			*tmp_buf++ = sum;
+			*tmp_buf++ = sum;                         // save the un-over-sampled sample
 		}
 	}
 	#endif

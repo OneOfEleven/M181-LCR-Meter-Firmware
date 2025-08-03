@@ -14,7 +14,7 @@
 <img src="firmware/docs/pcb.png" alt="image" style="width:500px;height:auto;">
 <img src="firmware/docs/pcb_finished.png" alt="image" style="width:500px;height:auto;">
 
-- Note, you will eventually pull/lift the two probe jack sockets off the PCB, this is a serious beginner/non-experienced HW design flaw :(
+- Note, you will eventually pull/lift the two probe jack sockets off the PCB, this is a serious beginner/non-experienced HW design flaw, but can also be an indication of that awful practice of 'planned obsolescence' (done by ALL commercial companies) :(
 - ALL terminating connectors to the outside world must always be secured by through-hole methods (ie through-hole pins and/or casing etc). PCB SMD alone will never be strong enough for this.
 
 ## Tasks to be completed on this firmware
