@@ -955,8 +955,11 @@ char unit_conversion(float *value, const char units[])   // const char units[] =
 //
 void set_measurement_frequency(const uint32_t Hz)
 {
-	// limit the range
-	measurement_Hz = (Hz < MEASURE_HZ_MIN) ? MEASURE_HZ_MIN : (Hz > MEASURE_HZ_MAX) ? MEASURE_HZ_MAX : Hz;
+	{	// limit the range
+		const uint32_t max = measurement_table_Hz[ARRAY_SIZE(measurement_table_Hz) - 1];
+		const uint32_t min = measurement_table_Hz[0];
+		measurement_Hz = (Hz < min) ? min : (Hz > max) ? max : Hz;
+	}
 
 	// lower freq = lower amplitude (due to PCB HW filter design)
 	//
@@ -1461,7 +1464,7 @@ uint32_t num_ones(const uint32_t value)
 //
 // this is called from the ADC DMA interrupt
 //
-void process_ADC_DMA(const void *buffer, const unsigned int num_samples)
+void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_samples)
 {
 	if (buffer == NULL || num_samples == 0 || initialising || temp_buffer_in_use)
 		return;                                       // the temp buffer is not available for use, drop this sample block
@@ -1537,42 +1540,39 @@ void process_ADC_DMA(const void *buffer, const unsigned int num_samples)
 
 // add the new sample block to the averaging buffer (reduces noise)
 //
-void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_block_count)
+void OPTIMIZE_SPEED add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_block_count)
 {
 	if (adc_buffer_sum_count < skip_block_count)
 		return;
 
-	// point to the new ADC sample block from the DMA
-	const t_adc_dma_data_16 *adc_buffer = (t_adc_dma_data_16 *)temp_buffer;
-
 	// invert the current (I) ADC waveform to counter-act the inverting transimpedance OP-AMP stage
 	// AFC samples are never inverted
-	const int16_t adc_sign = (vi_mode == VI_MODE_AMP_LO_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) ? -1 : 1;
-	const int16_t afc_sign = 1;
+	register const int16_t adc_sign = (vi_mode == VI_MODE_AMP_LO_GAIN || vi_mode == VI_MODE_AMP_HI_GAIN) ? -1 : 1;
+	register const int16_t afc_sign = 1;
 
 	if (vi_mode < VI_MODE_VOLT_HI_GAIN)
 	{	// we don't check for any signs of sample clipping/saturation in the LOW gain modes
 
-		register const t_adc_dma_data_16 *buffer = adc_buffer;
+		// point to the new samples
+		register const t_adc_dma_data_16 *buffer = (t_adc_dma_data_16 *)temp_buffer;
 
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{	// add the new samples to the averaging buffer
 //			#if (OVER_SAMPLING_FACTOR <= 0)
-				const t_adc_dma_data_16 samp = *buffer++;
+				register const t_adc_dma_data_16 samp = *buffer++;
 				adc_buffer_sum[i].adc += (samp.adc - 2048) * adc_sign;
 				adc_buffer_sum[i].afc += (samp.afc - 2048) * afc_sign;
 /*			#else
 			{
-				int16_t adc = 0;
-				int16_t afc = 0;
+				register t_adc_dma_data_16u sum = {0};
 				for (unsigned int k = 0; k < (1u << OVER_SAMPLING_FACTOR); k++)
 				{
-					const t_adc_dma_data_16 samp = *buffer++;
-					adc += samp.adc - 2048;
-					afc += samp.afc - 2048;
+					register const t_adc_dma_data_16u samp = *buffer++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
 				}
-				adc_buffer_sum[i].adc += (adc >> OVER_SAMPLING_FACTOR) * adc_sign;
-				adc_buffer_sum[i].afc += (afc >> OVER_SAMPLING_FACTOR) * afc_sign;
+				adc_buffer_sum[i].adc += ((int16_t)(sum.adc >> OVER_SAMPLING_FACTOR) - 2048) * adc_sign;
+				adc_buffer_sum[i].afc += ((int16_t)(sum.afc >> OVER_SAMPLING_FACTOR) - 2048) * afc_sign;
 			}
 			#endif
 */		}
@@ -1591,37 +1591,38 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 			#define HISTOGRAM_SIZE        (2048 >> HISTOGRAM_SCALE)
 			uint8_t histogram[HISTOGRAM_SIZE + 1] = {0};               // '+ 1' so we don't try writing beyond the buffer size
 		#else
-			uint16_t peak_adc_value = 0;
+			register uint16_t peak_adc_value = 0;
 		#endif
 
-		const t_adc_dma_data_16 *buffer = adc_buffer;
+		// point to the new samples
+		register const t_adc_dma_data_16 *buffer = (t_adc_dma_data_16 *)temp_buffer;
 
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
 			// fetch the raw ADC samples
 //			#if (OVER_SAMPLING_FACTOR <= 0)
-				const t_adc_dma_data_16 samp = *buffer++;
-				const int16_t adc = (samp.adc - 2048) * adc_sign;
-				const int16_t afc = (samp.afc - 2048) * afc_sign;
+				register const t_adc_dma_data_16 samp = *buffer++;
+				register const int16_t adc = (samp.adc - 2048) * adc_sign;
+				register const int16_t afc = (samp.afc - 2048) * afc_sign;
 /*			#else
-				int16_t adc = 0;
-				int16_t afc = 0;
+				register int16_t adc = 0;
+				register int16_t afc = 0;
 				for (unsigned int k = 0; k < (1u << OVER_SAMPLING_FACTOR); k++)
 				{
-					const t_adc_dma_data_16 samp = *buffer++;
-					adc += samp.adc - 2048;
-					afc += samp.afc - 2048;
+					register const t_adc_dma_data_16u samp = *buffer++;
+					adc += samp.adc;
+					afc += samp.afc;
 				}
-				adc = (adc >> OVER_SAMPLING_FACTOR) * adc_sign;
-				afc = (afc >> OVER_SAMPLING_FACTOR) * afc_sign;
+				adc = ((adc >> OVER_SAMPLING_FACTOR) - 2048) * adc_sign;
+				afc = ((afc >> OVER_SAMPLING_FACTOR) - 2048) * afc_sign;
 			#endif
 */
 			// add the new samples to the averaging buffer
 			adc_buffer_sum[i].adc += adc;
 			adc_buffer_sum[i].afc += afc;
 
-			//uint32_t val = (adc < 0) ? -adc : adc;          // 0..2048   two's compliment
-			uint32_t val = (adc < 0) ? ~adc : adc;            // 0..2047   one's compliment
+			//register uint32_t val = (adc < 0) ? -adc : adc; // 0..2048   two's compliment
+			register uint32_t val = (adc < 0) ? ~adc : adc;   // 0..2047   one's compliment
 
 			#ifdef HISTOGRAM_CLIP_DET
 				// update the histogram with the sample
@@ -1671,16 +1672,16 @@ void add_ADC_to_average(const unsigned int vi_mode, const unsigned int skip_bloc
 
 // fetch & re-scale the summed ADC sample blocks to create an averaged single block of samples
 //
-void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_block_count)
+void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_block_count)
 {
 	const unsigned int buf_index = vi_mode * 2;
 
 	// point to buffers where we'll save the averaged samples into
-	float *buf_adc = adc_data[buf_index + 0];
-	float *buf_afc = adc_data[buf_index + 1];
+	register float *buf_adc = adc_data[buf_index + 0];
+	register float *buf_afc = adc_data[buf_index + 1];
 
 	{	// fetch and re-scale (also converts from 'int' to 'float')
-		const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
+		register const float scale = 1.0f / (adc_buffer_sum_count - skip_block_count);
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
 			buf_adc[i] = adc_buffer_sum[i].adc * scale;
@@ -1699,7 +1700,7 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 		{	// ADC input
 
 			// compute the DC offset of the block
-			float sum = 0;
+			register float sum = 0;
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 				sum += buf_adc[i];
 			sum *= 1.0f / ADC_DATA_LENGTH;
@@ -1720,7 +1721,7 @@ void finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_bl
 		{	// AFC input (samples never ever clip)
 
 			// compute the DC offset
-			float sum = 0;
+			register float sum = 0;
 			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 				sum += buf_afc[i];
 			sum *= 1.0f / ADC_DATA_LENGTH;
@@ -4169,15 +4170,18 @@ void process_serial_command(char cmd[], unsigned int len)
 		case CMD_FREQUENCY_ID:
 			if (param_len > 0)
 			{
+				const int max = measurement_table_Hz[ARRAY_SIZE(measurement_table_Hz) - 1];
+				const int min = measurement_table_Hz[0];
+
 				char     *endptr = NULL;
 				const int val    = strtol(param, &endptr, 10);
-				if (errno > 0 || param == endptr || val < MEASURE_HZ_MIN || val > MEASURE_HZ_MAX)
+				if (errno > 0 || param == endptr || val < min || val > max)
 				{
 					printf(NEWLINE "error: frequency param '%s'" NEWLINE, param);
 					return;
 				}
 
-				const uint32_t Hz = (val < MEASURE_HZ_MIN) ? MEASURE_HZ_MIN : (val > MEASURE_HZ_MAX) ? MEASURE_HZ_MAX : val;
+				const uint32_t Hz = (val < min) ? min : (val > max) ? max : val;
 				if (settings.measurement_Hz != Hz)
 				{
 					settings.measurement_Hz = Hz;
@@ -4612,7 +4616,7 @@ void process_op_mode(void)
 						printf(NEWLINE "settings saved" NEWLINE);
 						reboot();
 					}
-					
+
 					// back to normal measurement mode
 					start_measuring();
 				}

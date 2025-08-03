@@ -42,6 +42,18 @@
 
 #define ARRAY_SIZE(x)               (sizeof(x) / sizeof((x)[0]))
 
+#define OPTIMIZE_NONE		        __attribute__((optimize("-O0")))
+#ifdef DEBUG
+	#define OPTIMIZE_MOST
+	#define OPTIMIZE_SIZE
+//	#define OPTIMIZE_SPEED
+	#define OPTIMIZE_SPEED          __attribute__((optimize("-Ofast")))
+#else
+	#define OPTIMIZE_MOST           __attribute__((optimize("-O3")))
+	#define OPTIMIZE_SIZE           __attribute__((optimize("-Os")))
+	#define OPTIMIZE_SPEED          __attribute__((optimize("-Ofast")))
+#endif
+
 #define RAD_TO_DEG                  ((float)(180.0 / M_PI))
 #define DEG_TO_RAD                  ((float)(M_PI / 180.0))
 
@@ -62,14 +74,11 @@
 
 #define PACKET_MARKER                0x19621996     // 32-bit marker to indicate 'start of packet' for the receiver (windows GUI etc)
 
-#define SETTINGS_MARKER              0x12345678     // 32-bit marker to indicate 'start of settings' - so we can find them in flash
+#define SETTINGS_MARKER              0x12345678     // 32-bit marker - so we can find them again in flash
 
 //#define RIGHT_ALIGN_DUT                             // this right aligns the large DUT value on the display
 
-#define MEASURE_HZ_MAX               10000          // maximum measurement frequency
-#define MEASURE_HZ_MIN               100            // minimum measurement frequency
-
-#define SINES_PER_BLOCK              2              // number of sine wave cycles per sample block     no more SRAM left for more than 2 :(
+#define SINES_PER_BLOCK              2              // number of sine wave cycles per sample block     no more RAM left for more than 2 :(
 #define SAMPLES_PER_SINE_CYCLE       64u            // 2^n
 #define OVER_SAMPLING_FACTOR         1              // 0..4  .. note, DO NOT use anything above '1' - for now
 
@@ -81,7 +90,7 @@
 
 //#define HISTOGRAM_CLIP_DET                        // use histogram clip detector, comment out for faster/simple sample threshold clip detector
 
-//#define AVERAGE_PHASE                             // average all the Goertzel filter outputs to create a phase average - TEST ONLY, not needed
+//#define AVERAGE_PHASE                             // average all the Goertzel filter outputs to create a phase average - TEST ONLY, do not use
 
 // remove outliner values
 #define MEDIAN_SIZE                  3              // '0' or ODD length only
