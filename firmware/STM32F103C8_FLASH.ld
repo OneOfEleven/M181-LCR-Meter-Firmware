@@ -40,7 +40,7 @@ _estack = 0x20005000;		  /* end of RAM */
 
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size  = 0;  		/* 512  size of heap  */
-_Min_Stack_Size = 1280;		/* 1024 size of stack */
+_Min_Stack_Size = 0x400;	/* 1024 size of stack */
 
 _EEPROM_SIZE_  = 4K;      /* emmulated EEPROM size */
 
