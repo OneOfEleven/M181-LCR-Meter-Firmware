@@ -109,18 +109,23 @@ void ssd1306_Fill(SSD1306_COLOR color)
 //
 void ssd1306_UpdateScreen(void)
 {
-	uint8_t txBuffer[SSD1306_WIDTH + 1]; // +1 for control byte
-
-	txBuffer[0] = 0x40;                  // Control byte for data
+	#if 0
+		uint8_t txBuffer[SSD1306_WIDTH + 1]; // +1 for control byte
+		txBuffer[0] = 0x40;                  // Control byte for data
+	#endif
 
 	for (int i = 0; i < 8; i++)
 	{
 		ssd1306_WriteCommand(0xB0 + i);
 		ssd1306_WriteCommand(0x00);
 		ssd1306_WriteCommand(0x10);
-		memcpy(&txBuffer[1], &SSD1306_Buffer[SSD1306_WIDTH * i], SSD1306_WIDTH);
-		I2C_transmit(SSD1306_I2C_ADDR, txBuffer, SSD1306_WIDTH + 1);
-		// HAL_I2C_Mem_Write(hi2c, SSD1306_I2C_ADDR, 0x40, 1, &SSD1306_Buffer[SSD1306_WIDTH * i], SSD1306_WIDTH, 100);
+
+		#if 0
+			memcpy(&txBuffer[1], &SSD1306_Buffer[SSD1306_WIDTH * i], SSD1306_WIDTH);
+			I2C_transmit(SSD1306_I2C_ADDR, txBuffer, sizeof(txBuffer));
+		#else
+			I2C_transmit2(SSD1306_I2C_ADDR, 0x40, &SSD1306_Buffer[SSD1306_WIDTH * i], SSD1306_WIDTH);
+		#endif
 	}
 }
 

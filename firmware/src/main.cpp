@@ -3793,77 +3793,76 @@ int send_dut_data(void)
 
 	const unsigned int tx_str_size = sizeof(tx_buffer);
 	char              *tx_str      = (char *)tx_buffer;
-
-	char str[20] = {0};
+	unsigned int       len         = 0;
 
 	{
-		snprintf(str, sizeof(str), NEWLINE "DUT:" NEWLINE);
-		strcat(tx_str, str);
+		snprintf(tx_str + len, tx_str_size - len, NEWLINE "DUT:" NEWLINE);
+		len += strlen(tx_str + len);
 	}
 
 	{
-		str[0] = '\0';
-		strcatc(str, (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-');
-		strcatc(str, (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-');
-		const unsigned int len = strlen(tx_str);
-		snprintf(tx_str + len, tx_str_size - len, "  Cal %s" NEWLINE, str);
+		str_buf[0] = (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-';
+		str_buf[1] = (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-';
+		str_buf[2] = '\0';
+		snprintf(tx_str + len, tx_str_size - len, "  Cal %s" NEWLINE, str_buf);
+		len += strlen(tx_str + len);
 	}
 
 	{
 		switch (lcr_mode)
 		{
-			case LCR_MODE_INDUCTANCE:  str[0] = 'L'; break;
-			case LCR_MODE_CAPACITANCE: str[0] = 'C'; break;
-			case LCR_MODE_RESISTANCE:  str[0] = 'R'; break;
-			case LCR_MODE_AUTO:        str[0] = 'A'; break;
-			default:                   str[0] = '?'; break;
+			case LCR_MODE_INDUCTANCE:  str_buf[0] = 'L'; break;
+			case LCR_MODE_CAPACITANCE: str_buf[0] = 'C'; break;
+			case LCR_MODE_RESISTANCE:  str_buf[0] = 'R'; break;
+			case LCR_MODE_AUTO:        str_buf[0] = 'A'; break;
+			default:                   str_buf[0] = '?'; break;
 		}
 		switch (sp_mode)
 		{
-			case SP_MODE_SERIES:   str[1] = 's'; break;
-			case SP_MODE_PARALLEL: str[1] = 'p'; break;
-			case SP_MODE_AUTO:     str[1] = 'a'; break;
-			default:               str[1] = '?'; break;
+			case SP_MODE_SERIES:   str_buf[1] = 's'; break;
+			case SP_MODE_PARALLEL: str_buf[1] = 'p'; break;
+			case SP_MODE_AUTO:     str_buf[1] = 'a'; break;
+			default:               str_buf[1] = '?'; break;
 		}
-		str[2] = (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ';
-		str[3] = '\0';
-		const unsigned int len = strlen(tx_str);
-		snprintf(tx_str + len, tx_str_size - len, " Mode %s" NEWLINE, str);
+		str_buf[2] = (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ';
+		str_buf[3] = '\0';
+		snprintf(tx_str + len, tx_str_size - len, " Mode %s" NEWLINE, str_buf);
+		len += strlen(tx_str + len);
 	}
 
 	{
-		snprintf(str, sizeof(str), "%lu", measurement_Hz);
-		const unsigned int len = strlen(tx_str);
-		snprintf(tx_str + len, tx_str_size - len, " Freq %s" NEWLINE, str);
+		snprintf(str_buf, sizeof(str_buf), "%lu", measurement_Hz);
+		snprintf(tx_str + len, tx_str_size - len, " Freq %s" NEWLINE, str_buf);
+		len += strlen(tx_str + len);
 	}
 
 	{
 		float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc * ADC_TO_VOLTS : 0;
 		const char unit = unit_conversion(&value, "mkMG");
-		n_sprintf(5, value, str, sizeof(str), 1);
-		const unsigned int len = strlen(tx_str);
-		snprintf(tx_str + len, tx_str_size - len, "    V %s%c rms" NEWLINE, str, unit);
+		n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+		snprintf(tx_str + len, tx_str_size - len, "    V %s%c rms" NEWLINE, str_buf, unit);
+		len += strlen(tx_str + len);
 	}
 
 	{
 		float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc * ADC_TO_VOLTS  : 0;
 		const char unit = unit_conversion(&value, "numkMG");
-		n_sprintf(5, value, str, sizeof(str), 1);
-		const unsigned int len = strlen(tx_str);
-		snprintf(tx_str + len, tx_str_size - len, "    I %s%c rms" NEWLINE, str, unit);
+		n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+		snprintf(tx_str + len, tx_str_size - len, "    I %s%c rms" NEWLINE, str_buf, unit);
+		len += strlen(tx_str + len);
 	}
 
 	{
-		const unsigned int len = strlen(tx_str);
 		snprintf(tx_str + len, tx_str_size - len, "  Phi %0.3f deg" NEWLINE, system_data.vi_phase_deg);
+		len += strlen(tx_str + len);
 	}
 
 	{
 		float value = system_data.impedance;
 		const char unit = unit_conversion(&value, "mkMG");
-		n_sprintf(5, value, str, sizeof(str), 1);
-		const unsigned int len = strlen(tx_str);
-		snprintf(tx_str + len, tx_str_size - len, "    Z %s%c" NEWLINE, str, unit);
+		n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+		snprintf(tx_str + len, tx_str_size - len, "    Z %s%c" NEWLINE, str_buf, unit);
+		len += strlen(tx_str + len);
 	}
 
 	for (unsigned int i = 0; i < 2; i++)
@@ -3873,61 +3872,61 @@ int send_dut_data(void)
 		{
 			float value = (i == 0) ? system_data.series.inductance  : system_data.parallel.inductance;;
 			const char unit  = unit_conversion(&value, "um");
-			n_sprintf(5, value, str, sizeof(str), 1);
-			const unsigned int len = strlen(tx_str);
-			snprintf(tx_str + len, tx_str_size - len, "   L%c %s%c" NEWLINE, mode, str, unit);
+			n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+			snprintf(tx_str + len, tx_str_size - len, "   L%c %s%c" NEWLINE, mode, str_buf, unit);
+			len += strlen(tx_str + len);
 		}
 
 		{
 			float value = (i == 0) ? system_data.series.capacitance : system_data.parallel.capacitance;
 			const char unit = unit_conversion(&value, "pnum");
-			n_sprintf(5, value, str, sizeof(str), 1);
-			const unsigned int len = strlen(tx_str);
-			snprintf(tx_str + len, tx_str_size - len, "   C%c %s%c" NEWLINE, mode, str, unit);
+			n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+			snprintf(tx_str + len, tx_str_size - len, "   C%c %s%c" NEWLINE, mode, str_buf, unit);
+			len += strlen(tx_str + len);
 		}
 
 		{
 			float value = (i == 0) ? system_data.series.resistance : system_data.parallel.resistance;
 			const char unit = unit_conversion(&value, "mkMG");
-			n_sprintf(5, value, str, sizeof(str), 1);
-			const unsigned int len = strlen(tx_str);
-			snprintf(tx_str + len, tx_str_size - len, "   R%c %s%c" NEWLINE, mode, str, unit);
+			n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+			snprintf(tx_str + len, tx_str_size - len, "   R%c %s%c" NEWLINE, mode, str_buf, unit);
+			len += strlen(tx_str + len);
 		}
 
 		{
 			float value = (i == 0) ? system_data.series.esr : system_data.parallel.esr;
 			const char unit = unit_conversion(&value, "mkMG");
-			n_sprintf(5, value, str, sizeof(str), 1);
-			const unsigned int len = strlen(tx_str);
-			snprintf(tx_str + len, tx_str_size - len, " ESR%c %s%c" NEWLINE, mode, str, unit);
+			n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+			snprintf(tx_str + len, tx_str_size - len, " ESR%c %s%c" NEWLINE, mode, str_buf, unit);
+			len += strlen(tx_str + len);
 		}
 
 		{
 			float value = (i == 0) ? system_data.series.tan_delta : system_data.parallel.tan_delta;
 			const char unit   = unit_conversion(&value, "mkMG");
-			n_sprintf(5, value, str, sizeof(str), 1);
-			const unsigned int len = strlen(tx_str);
-			snprintf(tx_str + len, tx_str_size - len, "   D%c %s%c" NEWLINE, mode, str, unit);
+			n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+			snprintf(tx_str + len, tx_str_size - len, "   D%c %s%c" NEWLINE, mode, str_buf, unit);
+			len += strlen(tx_str + len);
 		}
 
 		{
 			float value = (i == 0) ? system_data.series.qf : system_data.parallel.qf;
 			const char unit = unit_conversion(&value, "kMG");
-			n_sprintf(5, value, str, sizeof(str), 1);
-			const unsigned int len = strlen(tx_str);
-			snprintf(tx_str + len, tx_str_size - len, "   Q%c %s%c" NEWLINE, mode, str, unit);
+			n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+			snprintf(tx_str + len, tx_str_size - len, "   Q%c %s%c" NEWLINE, mode, str_buf, unit);
+			len += strlen(tx_str + len);
 		}
 
 		{
 			float value = (i == 0) ? system_data.series.reactance : system_data.parallel.reactance;
 			const char unit = unit_conversion(&value, "mkMG");
-			n_sprintf(5, value, str, sizeof(str), 1);
-			const unsigned int len = strlen(tx_str);
-			snprintf(tx_str + len, tx_str_size - len, "   X%c %s%c" NEWLINE, mode, str, unit);
+			n_sprintf(5, value, str_buf, sizeof(str_buf), 1);
+			snprintf(tx_str + len, tx_str_size - len, "   X%c %s%c" NEWLINE, mode, str_buf, unit);
+			len += strlen(tx_str + len);
 		}
 	}
 
-	start_tx_dma(tx_buffer, strlen(tx_str));
+	start_tx_dma(tx_buffer, len);
 
 	return 0;
 }

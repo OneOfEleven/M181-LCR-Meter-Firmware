@@ -190,27 +190,45 @@ uint8_t I2C_receive_byte_data(const uint8_t address, const uint8_t reg)
 	return 0; // return zero if NACKed
 }
 
+uint8_t I2C_transmit_data(const uint8_t data[], const uint8_t size)
+{
+	if (data == NULL || size == 0)
+		return 0;
+
+	for (unsigned int i = 0; i < (size - 1); i++)
+		if (!I2C_write_byte(data[i], 0, 0))
+			return 0;
+
+	// last byte
+	if (I2C_write_byte(data[size - 1], 0, 1))
+		return 1;
+
+	return 0;
+}
+
 uint8_t I2C_transmit(const uint8_t address, const uint8_t data[], const uint8_t size)
 {
 	if (data == NULL || size == 0)
 		return 0;
 
 	if (I2C_write_byte(address, 1, 0)) // first byte
-	{
-		for (unsigned int i = 0; i < size; i++)
-		{
-			if (i >= (size - 1))
-			{
-				if (I2C_write_byte(data[i], 0, 1))
-					return 1;
-			}
-			else
-			{
-				if (!I2C_write_byte(data[i], 0, 0))
-					break; // last byte
-			}
-		}
-	}
+		if (I2C_transmit_data(data, size))
+			return 1;
+
+	I2C_stop_cond();
+
+	return 0;
+}
+
+uint8_t I2C_transmit2(const uint8_t address, const uint8_t bite, const uint8_t data[], const uint8_t size)
+{
+	if (data == NULL || size == 0)
+		return 0;
+
+	if (I2C_write_byte(address, 1, 0))
+		if (I2C_write_byte(bite, 0, 0))     // extra byte
+			if (I2C_transmit_data(data, size))
+				return 1;
 
 	I2C_stop_cond();
 

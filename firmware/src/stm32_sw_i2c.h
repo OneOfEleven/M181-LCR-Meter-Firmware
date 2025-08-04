@@ -22,6 +22,7 @@ uint8_t I2C_receive_byte(const uint8_t address);
 uint8_t I2C_send_byte_data(const uint8_t address, const uint8_t reg, const uint8_t data);
 uint8_t I2C_receive_byte_data(const uint8_t address, const uint8_t reg);
 uint8_t I2C_transmit(const uint8_t address, const uint8_t data[], const uint8_t size);
+uint8_t I2C_transmit2(const uint8_t address, const uint8_t bite, const uint8_t data[], const uint8_t size);
 uint8_t I2C_receive(const uint8_t address, const uint8_t reg[], uint8_t *data, const uint8_t reg_size, const uint8_t size);
 
 #ifdef __cplusplus
