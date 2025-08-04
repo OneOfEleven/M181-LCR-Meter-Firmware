@@ -197,7 +197,11 @@ float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse
 uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR] = {0};  // holds look-up data for one complete sine wave cycle (for the DAC)
 
 // ADC DMA raw sample buffer
-t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR];  // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
+t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];                  // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
+#if (OVER_SAMPLING_FACTOR > 0)
+	unsigned int      adc_dma_buffer_offset = 0;
+	uint8_t           adc_dma_buffer_wait   = 1;
+#endif
 
 // ADC sample block averaging buffer
 // we take several sample blocks and average them together to reduce noise (bad PCB layout/design)
@@ -226,11 +230,7 @@ volatile int          save_settings_timer = -1;                            // we
 
 t_system_data         system_data = {0};                                   // various results saved in here
 
-//#if (4 * (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR)) > (8 * ADC_DATA_LENGTH)
-//	uint8_t           temp_buffer[sizeof(t_adc_dma_data_16) * (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR)]; // buffer must be big enough for whatever uses it
-//#else
-	uint8_t           temp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];                                   // buffer must be big enough for whatever uses it
-//#endif
+uint8_t               temp_buffer[sizeof(t_complex) * ADC_DATA_LENGTH];    // buffer must be big enough for whatever uses it
 uint8_t               temp_buffer_in_use = 0;                              // non-zero when the buffer is in use (pauses the DMA from saving it's data into it)
 
 uint8_t               tx_buffer[sizeof(t_packet)];                         // for TX'ing data via the serial port, must be big enough for everything that uses it
@@ -968,7 +968,7 @@ void set_measurement_frequency(const uint32_t Hz)
 	{	// fill the sine wave look-up table with one complete sine cycle
 
 		const float scale      = amplitude * (255 * 0.5f);                         // 0-255
-		const float phase_step = (2 * M_PI) / (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR);
+		const float phase_step = (2 * M_PI) / ARRAY_SIZE(sine_table);
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		//
@@ -976,29 +976,30 @@ void set_measurement_frequency(const uint32_t Hz)
 		//
 		// see 9.2.4 (page 173) of the stm32f103xx reference manual about the ODR being WORD ONLY
 		//
-		for (unsigned int i = 0; i < (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR); i++)
+		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
 
 	// set the timer rate, the timer clocks the ADC and DAC DMA at the desired ratetmp_buffer_in_use
-	if (measurement_Hz > 0)
+	if (measurement_Hz > 0 && LL_TIM_IsEnabledCounter(TIM3))
 	{
 		const uint32_t sample_rate_Hz = (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR) * measurement_Hz;
 //		const uint32_t period         = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), sample_rate_Hz);
 		const uint32_t period         = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (sample_rate_Hz / 2)) / sample_rate_Hz) - 1;
 		LL_TIM_SetAutoReload(TIM3, period);
 
-		{
-			// LL_ADC_SAMPLINGTIME_1CYCLE_5             1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
-			// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
-			// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
-			// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
-			// LL_ADC_SAMPLINGTIME_41CYCLES_5          41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max  222kHz sample rate
-			// LL_ADC_SAMPLINGTIME_55CYCLES_5          55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max  176kHz sample rate
-			// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
-			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
+		// LL_ADC_SAMPLINGTIME_1CYCLE_5             1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
+		// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
+		// LL_ADC_SAMPLINGTIME_13CYCLES_5          13.5 + 12.5 =  26 cycles, ADC clk = 12MHz, 2.2us sample time, max  461kHz sample rate
+		// LL_ADC_SAMPLINGTIME_28CYCLES_5          28.5 + 12.5 =  41 cycles, ADC clk = 12MHz, 3.4us sample time, max  292kHz sample rate
+		// LL_ADC_SAMPLINGTIME_41CYCLES_5          41.5 + 12.5 =  54 cycles, ADC clk = 12MHz, 4.5us sample time, max  222kHz sample rate
+		// LL_ADC_SAMPLINGTIME_55CYCLES_5          55.5 + 12.5 =  68 cycles, ADC clk = 12MHz, 5.7us sample time, max  176kHz sample rate
+		// LL_ADC_SAMPLINGTIME_71CYCLES_5          71.5 + 12.5 =  84 cycles, ADC clk = 12MHz, 7.0us sample time, max  142kHz sample rate
+		// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
 
-			#ifdef DUAL_ADC_MODE
+		#ifdef DUAL_ADC_MODE
+			if (LL_ADC_IsEnabled(ADC1) && LL_ADC_IsEnabled(ADC2))
+			{
 				uint32_t sampling_time = LL_ADC_SAMPLINGTIME_239CYCLES_5;
 				if (sample_rate_Hz >= 500e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_1CYCLE_5;
@@ -1021,80 +1022,92 @@ void set_measurement_frequency(const uint32_t Hz)
 				if (sample_rate_Hz >= 40e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_71CYCLES_5;
 
-				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  sampling_time);
-				LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  sampling_time);
-			#else
+				LL_TIM_DisableCounter(TIM3);
+				LL_ADC_Disable(ADC1);
+				LL_ADC_Disable(ADC2);
+				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0, sampling_time);
+				LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1, sampling_time);
+				LL_ADC_Enable(ADC2);
+				LL_ADC_Enable(ADC1);
+				LL_TIM_EnableCounter(TIM3);
+			}
+		#else
+			if (LL_ADC_IsEnabled(ADC1))
+			{
 				uint32_t sampling_time = LL_ADC_SAMPLINGTIME_239CYCLES_5;
-				if (sample_rate_Hz >= 300e3)
+				if (sample_rate_Hz >= 250e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_1CYCLE_5;
 				else
-				if (sample_rate_Hz >= 230e3)
+				if (sample_rate_Hz >= 220e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_7CYCLES_5;
 				else
-				if (sample_rate_Hz >= 146e3)
+				if (sample_rate_Hz >= 135e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_13CYCLES_5;
 				else
-				if (sample_rate_Hz >= 111e3)
+				if (sample_rate_Hz >= 100e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_28CYCLES_5;
 				else
-				if (sample_rate_Hz >= 88e3)
+				if (sample_rate_Hz >= 80e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_41CYCLES_5;
 				else
-				if (sample_rate_Hz >= 71e3)
+				if (sample_rate_Hz >= 65e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_55CYCLES_5;
 				else
-				if (sample_rate_Hz >= 23e3)
+				if (sample_rate_Hz >= 20e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_71CYCLES_5;
 
-				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  sampling_time);
-				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  sampling_time);
-			#endif
-		}
+				LL_TIM_DisableCounter(TIM3);
+				LL_ADC_Disable(ADC1);
+				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0, sampling_time);
+				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1, sampling_time);
+				LL_ADC_Enable(ADC1);
+				LL_TIM_EnableCounter(TIM3);
+			}
+		#endif
 	}
+}
+
+void start_op_mode(const unsigned int mode)
+{
+	op_mode                    = mode;
+	adc_buffer_sum_count       = 0;
+	vi_measure_index           = 0;
+	temp_buffer_in_use         = 0;
+	frames                     = 0;
+	#if (OVER_SAMPLING_FACTOR > 0)
+		adc_dma_buffer_offset  = 0;
+		adc_dma_buffer_wait    = 1;
+	#endif
+	initialising               = 0;
 }
 
 // back to normal measurement mode
 //
 void start_measuring(void)
 {
-	initialising         = 1;
-	op_mode = OP_MODE_MEASURING;
+	initialising = 1;
 	set_measurement_frequency(settings.measurement_Hz);
-	adc_buffer_sum_count = 0;
-	vi_measure_index     = 0;
-	temp_buffer_in_use   = 0;
-	frames               = 0;
-	initialising         = 0;
+	start_op_mode(OP_MODE_MEASURING);
 }
 
 // initiate an OPEN probe calibration run
 //
 void start_probe_open_cal(void)
 {
-	initialising         = 1;
+	initialising = 1;
 	memset((void *)&calibrate, 0, sizeof(calibrate));
-	op_mode = OP_MODE_OPEN_PROBE_CALIBRATION;
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
-	adc_buffer_sum_count = 0;
-	vi_measure_index     = 0;
-	temp_buffer_in_use   = 0;
-	frames               = 0;
-	initialising         = 0;
+	start_op_mode(OP_MODE_OPEN_PROBE_CALIBRATION);
 }
 
 // initiate an SHORTED probe calibration run
 //
 void start_probe_short_cal(void)
 {
-	initialising         = 1;
+	initialising = 1;
 	memset((void *)&calibrate, 0, sizeof(calibrate));
-	op_mode = OP_MODE_SHORTED_PROBE_CALIBRATION;
 	set_measurement_frequency(measurement_table_Hz[calibrate.index_Hz]);
-	adc_buffer_sum_count = 0;
-	vi_measure_index     = 0;
-	temp_buffer_in_use   = 0;
-	frames               = 0;
-	initialising         = 0;
+	start_op_mode(OP_MODE_SHORTED_PROBE_CALIBRATION);
 }
 
 // compute the phase difference between two phases
@@ -1430,32 +1443,44 @@ void combine_afc(float *avg_rms, float *avg_deg)
 //
 // this is called from the ADC DMA interrupt
 //
-void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_samples)
+void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 {
-	if (buffer == NULL || num_samples == 0 || initialising || temp_buffer_in_use)
-		return;                                       // drop this sample block
+	if (buffer == NULL || initialising || temp_buffer_in_use || vi_measure_index >= VI_MODE_COUNT || (adc_dma_buffer_wait && adc_dma_buffer_offset > 0))
+	{	// drop this sample block
+		#if (OVER_SAMPLING_FACTOR > 0)
+			adc_dma_buffer_offset += (ADC_DATA_LENGTH >> OVER_SAMPLING_FACTOR);
+			if (adc_dma_buffer_offset >= ADC_DATA_LENGTH)
+				adc_dma_buffer_offset = 0;
+		#endif
+		return;
+	}
 
-	if (vi_measure_index >= VI_MODE_COUNT)
-		return;                                       // the exec is not ready for more samples
+	adc_dma_buffer_wait = 0;
 
 	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);     // TEST only, LED on
 
 	// copy the new ADC sample block to somewhere else (as quickly as possible so as not to hold up the DMA)
 	//
-	#if (OVER_SAMPLING_FACTOR <= 0)
+	#if (OVER_SAMPLING_FACTOR <= 0)                   // no over-sampling
 
-		memcpy(temp_buffer, buffer, sizeof(t_adc_dma_data_16u) * num_samples);            // simply copy as is (no over-sampling was done)
+		memcpy(temp_buffer, buffer, sizeof(t_adc_dma_data_16u) * ADC_DATA_LENGTH);
 
 	#else
-	{	// we have over-sampled (sampled at a higher rate in order to get more samples to help reduce noise)
+	{	// we have over-sampled (sampled at a higher rate in order to help reduce noise)
 		//
 		// we need to undo that ..
-		//  in this case, we simply average 'N' number of samples into to a single sample (add/divide)
+		//  in this case, we simply average 'N' number of samples into a single sample (add/divide)
+		//  this CPU is not fast enough for doing a proper down-sampler (FIR LPF)
 
 		register const t_adc_dma_data_16u *in_buf  = (t_adc_dma_data_16u *)buffer;       // source of raw ADC samples
 		register       t_adc_dma_data_16u *tmp_buf = (t_adc_dma_data_16u *)temp_buffer;  // location to save them too
 
-		for (unsigned int i = 0; i < (num_samples >> OVER_SAMPLING_FACTOR); i++)
+		#if (OVER_SAMPLING_FACTOR > 0)
+			// select next section of the destination buffer
+			tmp_buf += adc_dma_buffer_offset;
+		#endif
+
+		for (unsigned int i = 0; i < (ADC_DATA_LENGTH >> OVER_SAMPLING_FACTOR); i++)
 		{
 			register t_adc_dma_data_16u sum;
 			register t_adc_dma_data_16u samp;
@@ -1469,14 +1494,14 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_s
 				sum.afc += samp.afc;                //  "         "
 
 			#elif (OVER_SAMPLING_FACTOR == 2)
-				sum      = *in_buf++;
-				samp     = *in_buf++;
+				sum      = *in_buf++;               // 1st sample
+				samp     = *in_buf++;               // 2nd sample
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
-				samp     = *in_buf++;
+				samp     = *in_buf++;               // 3rd sample
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
-				samp     = *in_buf++;
+				samp     = *in_buf++;               // 4th sample
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
 
@@ -1507,8 +1532,20 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_s
 			#else
 				sum.adc = 0;
 				sum.afc = 0;
-				for (unsigned int k = 0; k < (1u << (OVER_SAMPLING_FACTOR - 2)); k++)
+				for (unsigned int k = 0; k < (1u << (OVER_SAMPLING_FACTOR - 3)); k++)
 				{
+					samp     = *in_buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp     = *in_buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp     = *in_buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
+					samp     = *in_buf++;
+					sum.adc += samp.adc;
+					sum.afc += samp.afc;
 					samp     = *in_buf++;
 					sum.adc += samp.adc;
 					sum.afc += samp.afc;
@@ -1533,7 +1570,16 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_s
 	}
 	#endif
 
-	temp_buffer_in_use = 1;                           // let the exec know their is a new sample block ready and waiting
+	#if (OVER_SAMPLING_FACTOR > 0)
+		adc_dma_buffer_offset += (ADC_DATA_LENGTH >> OVER_SAMPLING_FACTOR);
+		if (adc_dma_buffer_offset < ADC_DATA_LENGTH)
+			return;
+		adc_dma_buffer_offset = 0;
+		adc_dma_buffer_wait   = 1;
+	#endif
+
+	// let the exec know their is a new complete sample block ready and waiting
+	temp_buffer_in_use = 1;
 
 	// generate an SWI to further process the new samples
 	if (LL_EXTI_IsEnabledIT_0_31(LL_EXTI_LINE_4))
@@ -1560,24 +1606,10 @@ void OPTIMIZE_SPEED add_ADC_to_average(const unsigned int vi_mode, const unsigne
 
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{	// add the new samples to the averaging buffer
-//			#if (OVER_SAMPLING_FACTOR <= 0)
-				register const t_adc_dma_data_16 samp = *buffer++;
-				adc_buffer_sum[i].adc += (samp.adc - 2048) * adc_sign;
-				adc_buffer_sum[i].afc += (samp.afc - 2048) * afc_sign;
-/*			#else
-			{
-				register t_adc_dma_data_16u sum = {0};
-				for (unsigned int k = 0; k < (1u << OVER_SAMPLING_FACTOR); k++)
-				{
-					register const t_adc_dma_data_16u samp = *buffer++;
-					sum.adc += samp.adc;
-					sum.afc += samp.afc;
-				}
-				adc_buffer_sum[i].adc += ((int16_t)(sum.adc >> OVER_SAMPLING_FACTOR) - 2048) * adc_sign;
-				adc_buffer_sum[i].afc += ((int16_t)(sum.afc >> OVER_SAMPLING_FACTOR) - 2048) * afc_sign;
-			}
-			#endif
-*/		}
+			register const t_adc_dma_data_16 samp = *buffer++;
+			adc_buffer_sum[i].adc += (samp.adc - 2048) * adc_sign;
+			adc_buffer_sum[i].afc += (samp.afc - 2048) * afc_sign;
+		}
 		adc_data_clipping[vi_mode] = 0;                       // '0' = no clipping/saturation detected
 	}
 	else
@@ -1602,23 +1634,10 @@ void OPTIMIZE_SPEED add_ADC_to_average(const unsigned int vi_mode, const unsigne
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 		{
 			// fetch the raw ADC samples
-//			#if (OVER_SAMPLING_FACTOR <= 0)
-				register const t_adc_dma_data_16 samp = *buffer++;
-				register const int16_t adc = (samp.adc - 2048) * adc_sign;
-				register const int16_t afc = (samp.afc - 2048) * afc_sign;
-/*			#else
-				register int16_t adc = 0;
-				register int16_t afc = 0;
-				for (unsigned int k = 0; k < (1u << OVER_SAMPLING_FACTOR); k++)
-				{
-					register const t_adc_dma_data_16u samp = *buffer++;
-					adc += samp.adc;
-					afc += samp.afc;
-				}
-				adc = ((adc >> OVER_SAMPLING_FACTOR) - 2048) * adc_sign;
-				afc = ((afc >> OVER_SAMPLING_FACTOR) - 2048) * afc_sign;
-			#endif
-*/
+			register const t_adc_dma_data_16 samp = *buffer++;
+			register const int16_t adc = (samp.adc - 2048) * adc_sign;
+			register const int16_t afc = (samp.afc - 2048) * afc_sign;
+
 			// add the new samples to the averaging buffer
 			adc_buffer_sum[i].adc += adc;
 			adc_buffer_sum[i].afc += afc;
@@ -2807,7 +2826,7 @@ void MX_ADC_Init(void)
 			LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_WORD);
 
 			LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA_MULTI), (uint32_t)&adc_dma_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR) * 2);     // two buffers .. double buffering
+			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);           // two buffers .. double buffering
 
 			// clear all flags
 			LL_DMA_ClearFlag_GI1(DMA1);
@@ -2855,7 +2874,7 @@ void MX_ADC_Init(void)
 			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
 
 			LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
-			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_71CYCLES_5);
+			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_13CYCLES_5);
 		}
 
 		// *********************************
@@ -2882,7 +2901,7 @@ void MX_ADC_Init(void)
 		}
 
 		LL_ADC_REG_SetSequencerRanks( ADC2, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_1);
-		LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_71CYCLES_5);
+		LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_13CYCLES_5);
 
 		// *********************************
 
@@ -2929,7 +2948,7 @@ void MX_ADC_Init(void)
 			LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_HALFWORD);
 
 			LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1, LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA), (uint32_t)&adc_dma_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, (ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR) * 2);     // double buffering
+			LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_1, ADC_DATA_LENGTH * 2);     // double buffering
 
 			// enable selected DMA interrupts
 			LL_DMA_ClearFlag_GI1(DMA1);
@@ -2975,10 +2994,10 @@ void MX_ADC_Init(void)
 			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
 
 			LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
-			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_41CYCLES_5);
+			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_7CYCLES_5);
 
 			LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_2, LL_ADC_CHANNEL_1);
-			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_41CYCLES_5);
+			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_7CYCLES_5);
 		}
 
 		#if 1
@@ -3043,7 +3062,7 @@ void MX_TIM3_Init(void)
 		LL_DMA_SetMemorySize(           DMA1, LL_DMA_CHANNEL_3, LL_DMA_MDATAALIGN_HALFWORD);  //    "              "
 
 		LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3, (uint32_t)&sine_table, (uint32_t)&GPIOB->ODR, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR);
+		LL_DMA_SetDataLength(  DMA1, LL_DMA_CHANNEL_3, ARRAY_SIZE(sine_table));
 	}
 
 	{	// setup the timer
@@ -3417,13 +3436,13 @@ void DMA1_Channel1_IRQHandler(void)
 	if (LL_DMA_IsActiveFlag_HT1(DMA1))
 	{
 		LL_DMA_ClearFlag_HT1(DMA1);
-		process_ADC_DMA(&adc_dma_buffer[0], ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR);  // lower half of ADC buffer
+		process_ADC_DMA(&adc_dma_buffer[0]);                   // lower half of ADC buffer
 	}
 
 	if (LL_DMA_IsActiveFlag_TC1(DMA1))
 	{
 		LL_DMA_ClearFlag_TC1(DMA1);
-		process_ADC_DMA(&adc_dma_buffer[1], ADC_DATA_LENGTH << OVER_SAMPLING_FACTOR);  // upper half of ADC buffer
+		process_ADC_DMA(&adc_dma_buffer[1]);                   // upper half of ADC buffer
 	}
 
 	LL_DMA_ClearFlag_GI1(DMA1);                                // clear all DMA-1 CHANNEL-1 flags
@@ -4793,6 +4812,8 @@ int main(void)
 	MX_ADC_Init();
 	MX_TIM3_Init();
 
+	set_measurement_frequency(settings.measurement_Hz);
+
 	// *******
 	// give the user more time to read the bootup screen
 
@@ -4884,8 +4905,11 @@ int main(void)
 		{	// completed another full measurement cycle
 			process_op_mode();
 			send_sample_data();
+
 			frames++;
-			vi_measure_index = 0;         // start next data capture
+
+			// start next data capture
+			vi_measure_index = 0;
 		}
 		else
 //		if (system_data.vi_measure_mode != prev_vi_measure_mode && (draw_screen_count > 0 || op_mode != OP_MODE_MEASURING))
