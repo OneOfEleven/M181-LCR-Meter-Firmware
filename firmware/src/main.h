@@ -36,7 +36,7 @@
 	#define M_PI                     3.14159265358979323846264338327950288
 #endif
 
-#define FW_VERSION                   "1.0f"
+#define FW_VERSION                   "1.0g"
 
 #define NEWLINE                      "\n"
 

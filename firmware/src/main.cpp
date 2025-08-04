@@ -1426,39 +1426,6 @@ void combine_afc(float *avg_rms, float *avg_deg)
 
 #endif
 
-/*
-uint32_t num_ones(const uint32_t value)
-{
-	uint32_t unused = 0;
-	uint32_t bit    = 32;
-	uint32_t count  = 0;
-
-	asm("loop:                 \n" // loop
-	    "   tst  %2,#1         \n" // mask for bit-0
-	    "   beq  continue      \n" // branch if bit-0 is 0
-	    "   add  %0,#1         \n" // bit0 is 1 so increment count #
-	    "continue:             \n" // jump to here if bit-0 is 0
-	    "   lsr  %2,#1         \n" // move next bit into bit-0 position
-	    "   subs %3,#1         \n" // decrement bit number
-	    "   bne  loop          \n" // next bit
-	    : "=r"(count)
-		: "r"(unused) ,"r"(value) ,"r"(bit)
-	);
-
-
-	// or ...
-//	int src = 1;
-//	int dst;
-//
-//	asm("mov  %1, %0  \n"
-//      "add  $1, %0  \n"
-//      : "=r" (dst)
-//      : "r" (src));
-
-	return count;
-}
-*/
-
 // save the new ADC DMA sample block
 //
 // this is called from the ADC DMA interrupt
@@ -1466,51 +1433,42 @@ uint32_t num_ones(const uint32_t value)
 void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_samples)
 {
 	if (buffer == NULL || num_samples == 0 || initialising || temp_buffer_in_use)
-		return;                                       // the temp buffer is not available for use, drop this sample block
+		return;                                       // drop this sample block
 
 	if (vi_measure_index >= VI_MODE_COUNT)
-		return;                                       // wait till the exec is ready for more sample blocks
+		return;                                       // the exec is not ready for more samples
 
 	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);     // TEST only, LED on
 
-	// copy the new ADC sample block as quickly as possible so as not to hold up the DMA
+	// copy the new ADC sample block to somewhere else (as quickly as possible so as not to hold up the DMA)
+	//
 	#if (OVER_SAMPLING_FACTOR <= 0)
-		memcpy(temp_buffer, buffer, sizeof(t_adc_dma_data_16u) * num_samples);
+
+		memcpy(temp_buffer, buffer, sizeof(t_adc_dma_data_16u) * num_samples);            // simply copy as is (no over-sampling was done)
+
 	#else
-	{
-		register const t_adc_dma_data_16u *in_buf  = (t_adc_dma_data_16u *)buffer;
-		register       t_adc_dma_data_16u *tmp_buf = (t_adc_dma_data_16u *)temp_buffer;
+	{	// we have over-sampled (sampled at a higher rate in order to get more samples to help reduce noise)
+		//
+		// we need to undo that ..
+		//  in this case, we simply average 'N' number of samples into to a single sample (add/divide)
+
+		register const t_adc_dma_data_16u *in_buf  = (t_adc_dma_data_16u *)buffer;       // source of raw ADC samples
+		register       t_adc_dma_data_16u *tmp_buf = (t_adc_dma_data_16u *)temp_buffer;  // location to save them too
+
 		for (unsigned int i = 0; i < (num_samples >> OVER_SAMPLING_FACTOR); i++)
 		{
-			register t_adc_dma_data_16u samp;
 			register t_adc_dma_data_16u sum;
-			#if (OVER_SAMPLING_FACTOR == 1)
-				// unroll loop
-				sum      = *in_buf++;
-				samp     = *in_buf++;
-				sum.adc += samp.adc;
-				sum.afc += samp.afc;
-/*
-				__asm volatile(
-  					"ldr      %sum_adc,[%ib],#4            \n"  // sum_adc = *ib++
-  					"ldr      %sum_afc,[%ib],#4            \n"  // sum_afc = *ib++
-  					"ldr      %adc,[%ib],#4                \n"  // adc = *ib++
-  					"ldr      %afc,[%ib],#4                \n"  // afc = *ib++
-//					"add      %sum_adc,%sum_adc,%adc       \n"  // sum_adc += adc
-//					"add      %sum_afc,%sum_afc,%afc       \n"  // sum_afc += afc
+			register t_adc_dma_data_16u samp;
 
-					: [ib]       "r" (in_buf)
-					: [tb]       "r" (tmp_buf)
-//					: [adc]      "r" (samp.adc)
-//					: [afc]      "r" (samp.afc)
-//					: [sum_adc]  "r" (sum.adc)
-//					: [sum_afc]  "r" (sum.afc)
-//					: "cc","s0","s1","s2","s3","s4","s5","s6","s7","s8","s9","s10","s11","s12","s13","s14","s15","s16","s17","s18","s19","s20","s21","s22","s23","s24","s25","s26","s27","s31"
-					: [result]   "=r" (sum)
-				);
-*/
+			// un-over-sample .. simply average a number of samples together
+
+			#if (OVER_SAMPLING_FACTOR == 1)
+				sum      = *in_buf++;               // 1st sample
+				samp     = *in_buf++;               // 2nd sample
+				sum.adc += samp.adc;                // add them together
+				sum.afc += samp.afc;                //  "         "
+
 			#elif (OVER_SAMPLING_FACTOR == 2)
-				// unroll loop
 				sum      = *in_buf++;
 				samp     = *in_buf++;
 				sum.adc += samp.adc;
@@ -1521,8 +1479,8 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_s
 				samp     = *in_buf++;
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
+
 			#elif (OVER_SAMPLING_FACTOR == 3)
-				// unroll loop
 				sum      = *in_buf++;
 				samp     = *in_buf++;
 				sum.adc += samp.adc;
@@ -1545,23 +1503,12 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_s
 				samp     = *in_buf++;
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
+
 			#else
 				sum.adc = 0;
 				sum.afc = 0;
-				for (unsigned int k = 0; k < (1u << (OVER_SAMPLING_FACTOR - 3)); k++)
+				for (unsigned int k = 0; k < (1u << (OVER_SAMPLING_FACTOR - 2)); k++)
 				{
-					samp     = *in_buf++;
-					sum.adc += samp.adc;
-					sum.afc += samp.afc;
-					samp     = *in_buf++;
-					sum.adc += samp.adc;
-					sum.afc += samp.afc;
-					samp     = *in_buf++;
-					sum.adc += samp.adc;
-					sum.afc += samp.afc;
-					samp     = *in_buf++;
-					sum.adc += samp.adc;
-					sum.afc += samp.afc;
 					samp     = *in_buf++;
 					sum.adc += samp.adc;
 					sum.afc += samp.afc;
@@ -1576,8 +1523,11 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_s
 					sum.afc += samp.afc;
 				}
 			#endif
+
+			// divide down
 			sum.adc >>= OVER_SAMPLING_FACTOR;
 			sum.afc >>= OVER_SAMPLING_FACTOR;
+
 			*tmp_buf++ = sum;                         // save the un-over-sampled sample
 		}
 	}
@@ -1585,7 +1535,7 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer, const unsigned int num_s
 
 	temp_buffer_in_use = 1;                           // let the exec know their is a new sample block ready and waiting
 
-	// generate an SWI to further process these new samples
+	// generate an SWI to further process the new samples
 	if (LL_EXTI_IsEnabledIT_0_31(LL_EXTI_LINE_4))
 		LL_EXTI_GenerateSWI_0_31(LL_EXTI_LINE_4);
 }
@@ -2092,8 +2042,8 @@ void process_ADC(void)
 	// we drop the hi-gain blocks if they are clipped (clipping makes the data useless)
 	// we drop the lo-gain blocks if the hi-gain blocks are usable (if no high-gain clipping detected)
 	//
-	unsigned int average_count = (128ul * measurement_Hz) >> 10;  // the higher the measurement Hz, the more buffers we average
-//	unsigned int average_count = (100ul * measurement_Hz) >> 10;  // a bit faster
+//	unsigned int average_count = (128ul * measurement_Hz) >> (10 + OVER_SAMPLING_FACTOR); // the more oversampling we do, the less averaging we need to do
+	unsigned int average_count = (128ul * measurement_Hz) >> 10;
 	if (op_mode == OP_MODE_MEASURING)
 	{
 		if (display_hold)
@@ -2109,10 +2059,8 @@ void process_ADC(void)
 			average_count >>= 3;                                  // average fewer buffers in 'fast' mode (this is speeds up the display update rate)
 	}
 	else
-	{
-		if (adc_data_clipping[vi_mode])
-			average_count = 1;                                    // this block of samples are clipping, drop them, move on to the next mode
-	}
+	if (adc_data_clipping[vi_mode])
+		average_count = 1;                                        // this block of samples are clipping, drop them, move on to the next mode
 	average_count = (average_count < 1) ? 1 : average_count;
 
 	LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);               // TEST only, LED off
@@ -3846,122 +3794,137 @@ int send_dut_data(void)
 	const unsigned int tx_str_size = sizeof(tx_buffer);
 	char              *tx_str      = (char *)tx_buffer;
 
+	char str[20] = {0};
+
 	{
-		float rms_voltage = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc * ADC_TO_VOLTS : 0;
-		const char rms_voltage_unit = unit_conversion(&rms_voltage, "mkMG");
+		snprintf(str, sizeof(str), NEWLINE "DUT:" NEWLINE);
+		strcat(tx_str, str);
+	}
 
-		float rms_current = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc * ADC_TO_VOLTS  : 0;
-		const char rms_current_unit = unit_conversion(&rms_current, "numkMG");
+	{
+		str[0] = '\0';
+		strcatc(str, (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-');
+		strcatc(str, (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-');
+		const unsigned int len = strlen(tx_str);
+		snprintf(tx_str + len, tx_str_size - len, "  Cal %s" NEWLINE, str);
+	}
 
-		float impedance = system_data.impedance;
-		const char impedance_unit = unit_conversion(&impedance, "mkMG");
-
-		char v_str[8] = {0};
-		char i_str[8] = {0};
-		char z_str[8] = {0};
-		n_sprintf(5, rms_voltage, v_str, sizeof(v_str), 1);
-		n_sprintf(5, rms_current, i_str, sizeof(i_str), 1);
-		n_sprintf(5, impedance,   z_str, sizeof(z_str), 1);
-
-		char cal_str[3] = {0};
-		strcatc(cal_str, (settings.flags & SETTING_FLAG_OPEN_CAL_DONE)    ? 'O' : '-');
-		strcatc(cal_str, (settings.flags & SETTING_FLAG_SHORTED_CAL_DONE) ? 'S' : '-');
-
-		char m_str[4] = {0};
+	{
 		switch (lcr_mode)
 		{
-			case LCR_MODE_INDUCTANCE:  m_str[0] = 'L'; break;
-			case LCR_MODE_CAPACITANCE: m_str[0] = 'C'; break;
-			case LCR_MODE_RESISTANCE:  m_str[0] = 'R'; break;
-			case LCR_MODE_AUTO:        m_str[0] = 'A'; break;
-			default:                   m_str[0] = '?'; break;
+			case LCR_MODE_INDUCTANCE:  str[0] = 'L'; break;
+			case LCR_MODE_CAPACITANCE: str[0] = 'C'; break;
+			case LCR_MODE_RESISTANCE:  str[0] = 'R'; break;
+			case LCR_MODE_AUTO:        str[0] = 'A'; break;
+			default:                   str[0] = '?'; break;
 		}
 		switch (sp_mode)
 		{
-			case SP_MODE_SERIES:   m_str[1] = 's'; break;
-			case SP_MODE_PARALLEL: m_str[1] = 'p'; break;
-			case SP_MODE_AUTO:     m_str[1] = 'a'; break;
-			default:               m_str[1] = '?'; break;
+			case SP_MODE_SERIES:   str[1] = 's'; break;
+			case SP_MODE_PARALLEL: str[1] = 'p'; break;
+			case SP_MODE_AUTO:     str[1] = 'a'; break;
+			default:               str[1] = '?'; break;
 		}
-		strcatc(m_str, (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ');
-
+		str[2] = (settings.flags & SETTING_FLAG_FAST_UPDATES) ? 'F' : ' ';
+		str[3] = '\0';
 		const unsigned int len = strlen(tx_str);
+		snprintf(tx_str + len, tx_str_size - len, " Mode %s" NEWLINE, str);
+	}
 
-		snprintf(
-			tx_str + len,
-			tx_str_size - len,
-			NEWLINE
-			"DUT:" NEWLINE
-			"  Cal %s" NEWLINE
-			" Mode %s" NEWLINE
-			" Freq %lu" NEWLINE
-			"    V %s%c rms" NEWLINE
-			"    I %s%c rms" NEWLINE
-			"  Phi %0.3f deg" NEWLINE
-			"    Z %s%c" NEWLINE,
-			cal_str,
-			m_str,
-			measurement_Hz,
-			v_str, rms_voltage_unit,
-			i_str, rms_current_unit,
-			system_data.vi_phase_deg,
-			z_str, impedance_unit
-		);
+	{
+		snprintf(str, sizeof(str), "%lu", measurement_Hz);
+		const unsigned int len = strlen(tx_str);
+		snprintf(tx_str + len, tx_str_size - len, " Freq %s" NEWLINE, str);
+	}
+
+	{
+		float value = (system_data.rms_voltage_adc >= 0) ? system_data.rms_voltage_adc * ADC_TO_VOLTS : 0;
+		const char unit = unit_conversion(&value, "mkMG");
+		n_sprintf(5, value, str, sizeof(str), 1);
+		const unsigned int len = strlen(tx_str);
+		snprintf(tx_str + len, tx_str_size - len, "    V %s%c rms" NEWLINE, str, unit);
+	}
+
+	{
+		float value = (system_data.rms_current_adc >= 0) ? system_data.rms_current_adc * ADC_TO_VOLTS  : 0;
+		const char unit = unit_conversion(&value, "numkMG");
+		n_sprintf(5, value, str, sizeof(str), 1);
+		const unsigned int len = strlen(tx_str);
+		snprintf(tx_str + len, tx_str_size - len, "    I %s%c rms" NEWLINE, str, unit);
+	}
+
+	{
+		const unsigned int len = strlen(tx_str);
+		snprintf(tx_str + len, tx_str_size - len, "  Phi %0.3f deg" NEWLINE, system_data.vi_phase_deg);
+	}
+
+	{
+		float value = system_data.impedance;
+		const char unit = unit_conversion(&value, "mkMG");
+		n_sprintf(5, value, str, sizeof(str), 1);
+		const unsigned int len = strlen(tx_str);
+		snprintf(tx_str + len, tx_str_size - len, "    Z %s%c" NEWLINE, str, unit);
 	}
 
 	for (unsigned int i = 0; i < 2; i++)
 	{
-		float inductance  = (i == 0) ? system_data.series.inductance  : system_data.parallel.inductance;;
-		float capacitance = (i == 0) ? system_data.series.capacitance : system_data.parallel.capacitance;
-		float resistance  = (i == 0) ? system_data.series.resistance  : system_data.parallel.resistance;
-		float esr         = (i == 0) ? system_data.series.esr         : system_data.parallel.esr;
-		float tan_delta   = (i == 0) ? system_data.series.tan_delta   : system_data.parallel.tan_delta;
-		float qf          = (i == 0) ? system_data.series.qf          : system_data.parallel.qf;
-		float reactance   = (i == 0) ? system_data.series.reactance   : system_data.parallel.reactance;
-
-		const char inductance_unit  = unit_conversion(&inductance,  "um");
-		const char capacitance_unit = unit_conversion(&capacitance, "pnum");
-		const char resistance_unit  = unit_conversion(&resistance,  "mkMG");
-		const char esr_unit         = unit_conversion(&esr,         "mkMG");
-		const char tan_delta_unit   = unit_conversion(&tan_delta,   "mkMG");
-		const char qf_unit          = unit_conversion(&qf,          "kMG");
-		const char reactance_unit   = unit_conversion(&reactance,   "mkMG");
-
-		char l_str[8] = {0};
-		char c_str[8] = {0};
-		char r_str[8] = {0};
-		char e_str[8] = {0};
-		char d_str[8] = {0};
-		char q_str[8] = {0};
-		char x_str[8] = {0};
-		n_sprintf(5, inductance,  l_str, sizeof(l_str), 1);
-		n_sprintf(5, capacitance, c_str, sizeof(c_str), 1);
-		n_sprintf(5, resistance,  r_str, sizeof(r_str), 1);
-		n_sprintf(5, esr,         e_str, sizeof(e_str), 1);
-		n_sprintf(5, tan_delta,   d_str, sizeof(d_str), 1);
-		n_sprintf(5, qf,          q_str, sizeof(q_str), 1);
-		n_sprintf(5, reactance,   x_str, sizeof(x_str), 1);
-
 		const char mode = (i == 0) ? 's' : 'p';
 
-		const unsigned int len = strlen(tx_str);
+		{
+			float value = (i == 0) ? system_data.series.inductance  : system_data.parallel.inductance;;
+			const char unit  = unit_conversion(&value, "um");
+			n_sprintf(5, value, str, sizeof(str), 1);
+			const unsigned int len = strlen(tx_str);
+			snprintf(tx_str + len, tx_str_size - len, "   L%c %s%c" NEWLINE, mode, str, unit);
+		}
 
-		snprintf(tx_str + len, tx_str_size - len,
-			"   L%c %s%c" NEWLINE
-			"   C%c %s%c" NEWLINE
-			"   R%c %s%c" NEWLINE
-			" ESR%c %s%c" NEWLINE
-			"   D%c %s%c" NEWLINE
-			"   Q%c %s%c" NEWLINE
-			"   X%c %s%c" NEWLINE,
-			mode, l_str, inductance_unit,
-			mode, c_str, capacitance_unit,
-			mode, r_str, resistance_unit,
-			mode, e_str, esr_unit,
-			mode, d_str, tan_delta_unit,
-			mode, q_str, qf_unit,
-			mode, x_str, reactance_unit
-		);
+		{
+			float value = (i == 0) ? system_data.series.capacitance : system_data.parallel.capacitance;
+			const char unit = unit_conversion(&value, "pnum");
+			n_sprintf(5, value, str, sizeof(str), 1);
+			const unsigned int len = strlen(tx_str);
+			snprintf(tx_str + len, tx_str_size - len, "   C%c %s%c" NEWLINE, mode, str, unit);
+		}
+
+		{
+			float value = (i == 0) ? system_data.series.resistance : system_data.parallel.resistance;
+			const char unit = unit_conversion(&value, "mkMG");
+			n_sprintf(5, value, str, sizeof(str), 1);
+			const unsigned int len = strlen(tx_str);
+			snprintf(tx_str + len, tx_str_size - len, "   R%c %s%c" NEWLINE, mode, str, unit);
+		}
+
+		{
+			float value = (i == 0) ? system_data.series.esr : system_data.parallel.esr;
+			const char unit = unit_conversion(&value, "mkMG");
+			n_sprintf(5, value, str, sizeof(str), 1);
+			const unsigned int len = strlen(tx_str);
+			snprintf(tx_str + len, tx_str_size - len, " ESR%c %s%c" NEWLINE, mode, str, unit);
+		}
+
+		{
+			float value = (i == 0) ? system_data.series.tan_delta : system_data.parallel.tan_delta;
+			const char unit   = unit_conversion(&value, "mkMG");
+			n_sprintf(5, value, str, sizeof(str), 1);
+			const unsigned int len = strlen(tx_str);
+			snprintf(tx_str + len, tx_str_size - len, "   D%c %s%c" NEWLINE, mode, str, unit);
+		}
+
+		{
+			float value = (i == 0) ? system_data.series.qf : system_data.parallel.qf;
+			const char unit = unit_conversion(&value, "kMG");
+			n_sprintf(5, value, str, sizeof(str), 1);
+			const unsigned int len = strlen(tx_str);
+			snprintf(tx_str + len, tx_str_size - len, "   Q%c %s%c" NEWLINE, mode, str, unit);
+		}
+
+		{
+			float value = (i == 0) ? system_data.series.reactance : system_data.parallel.reactance;
+			const char unit = unit_conversion(&value, "mkMG");
+			n_sprintf(5, value, str, sizeof(str), 1);
+			const unsigned int len = strlen(tx_str);
+			snprintf(tx_str + len, tx_str_size - len, "   X%c %s%c" NEWLINE, mode, str, unit);
+		}
 	}
 
 	start_tx_dma(tx_buffer, strlen(tx_str));
