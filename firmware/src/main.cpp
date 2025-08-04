@@ -986,13 +986,19 @@ void set_measurement_frequency(const uint32_t Hz)
 			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
 	}
 
+	const uint8_t tim3_enabled = LL_TIM_IsEnabledCounter(TIM3);
+
 	// set the timer rate, the timer clocks the ADC and DAC DMA at the desired ratetmp_buffer_in_use
-	if (measurement_Hz > 0 && LL_TIM_IsEnabledCounter(TIM3))
+	if (measurement_Hz > 0)
 	{
 		const uint32_t sample_rate_Hz = (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR) * measurement_Hz;
-//		const uint32_t period         = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), sample_rate_Hz);
-		const uint32_t period         = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (sample_rate_Hz / 2)) / sample_rate_Hz) - 1;
-		LL_TIM_SetAutoReload(TIM3, period);
+
+		if (tim3_enabled)
+		{
+//			const uint32_t period         = __LL_TIM_CALC_ARR(rcc_clocks.HCLK_Frequency, LL_TIM_GetPrescaler(TIM3), sample_rate_Hz);
+			const uint32_t period         = (((rcc_clocks.HCLK_Frequency / (LL_TIM_GetPrescaler(TIM3) + 1)) + (sample_rate_Hz / 2)) / sample_rate_Hz) - 1;
+			LL_TIM_SetAutoReload(TIM3, period);
+		}
 
 		// LL_ADC_SAMPLINGTIME_1CYCLE_5             1.5 + 12.5 =  14 cycles, ADC clk = 12MHz, 1.2us sample time, max  857kHz sample rate
 		// LL_ADC_SAMPLINGTIME_7CYCLES_5            7.5 + 12.5 =  20 cycles, ADC clk = 12MHz, 1.7us sample time, max  600kHz sample rate
@@ -1028,14 +1034,16 @@ void set_measurement_frequency(const uint32_t Hz)
 				if (sample_rate_Hz >= 40e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_71CYCLES_5;
 
-				LL_TIM_DisableCounter(TIM3);
+				if (tim3_enabled)
+					LL_TIM_DisableCounter(TIM3);
 				LL_ADC_Disable(ADC1);
 				LL_ADC_Disable(ADC2);
 				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0, sampling_time);
 				LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1, sampling_time);
 				LL_ADC_Enable(ADC2);
 				LL_ADC_Enable(ADC1);
-				LL_TIM_EnableCounter(TIM3);
+				if (tim3_enabled)
+					LL_TIM_EnableCounter(TIM3);
 			}
 		#else
 			if (LL_ADC_IsEnabled(ADC1))
@@ -1062,14 +1070,17 @@ void set_measurement_frequency(const uint32_t Hz)
 				if (sample_rate_Hz >= 20e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_71CYCLES_5;
 
-				LL_TIM_DisableCounter(TIM3);
+				if (tim3_enabled)
+					LL_TIM_DisableCounter(TIM3);
 				LL_ADC_Disable(ADC1);
 				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0, sampling_time);
 				LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1, sampling_time);
 				LL_ADC_Enable(ADC1);
-				LL_TIM_EnableCounter(TIM3);
+				if (tim3_enabled)
+					LL_TIM_EnableCounter(TIM3);
 			}
 		#endif
+
 	}
 }
 
@@ -1492,23 +1503,23 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 
 		for (unsigned int i = 0; i < (ADC_DATA_LENGTH >> OVER_SAMPLING_FACTOR); i++)
 		{
-			register t_adc_dma_data_32u sum = {0};
 			register t_adc_dma_data_16u samp;
+			#if (OVER_SAMPLING_FACTOR <= 4)
+				register t_adc_dma_data_16u sum;
+			#else
+				register t_adc_dma_data_32u sum;
+			#endif
 
 			// un-over-sample .. simply average a number of samples together
 
 			#if (OVER_SAMPLING_FACTOR == 1)
-				samp     = *in_buf++;               // 1st sample
-				sum.adc += samp.adc;
-				sum.afc += samp.afc;
+				sum      = *in_buf++;               // 1st sample
 				samp     = *in_buf++;               // 2nd sample
 				sum.adc += samp.adc;                // add them together
 				sum.afc += samp.afc;                //  "         "
 
 			#elif (OVER_SAMPLING_FACTOR == 2)
-				samp     = *in_buf++;               // 1st sample
-				sum.adc += samp.adc;
-				sum.afc += samp.afc;
+				sum      = *in_buf++;               // 1st sample
 				samp     = *in_buf++;               // 2nd sample
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
@@ -1520,9 +1531,7 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 				sum.afc += samp.afc;
 
 			#elif (OVER_SAMPLING_FACTOR == 3)
-				samp     = *in_buf++;               // 1st sample
-				sum.adc += samp.adc;
-				sum.afc += samp.afc;
+				sum      = *in_buf++;               // 1st sample
 				samp     = *in_buf++;
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
@@ -1546,6 +1555,8 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 				sum.afc += samp.afc;
 
 			#else
+				sum.adc = 0;
+				sum.afc = 0;
 				for (unsigned int k = 0; k < (1u << (OVER_SAMPLING_FACTOR - 3)); k++)
 				{
 					samp     = *in_buf++;
@@ -2888,7 +2899,7 @@ void MX_ADC_Init(void)
 			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
 
 			LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
-			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_13CYCLES_5);
+			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_1CYCLE_5);
 		}
 
 		// *********************************
@@ -2915,7 +2926,7 @@ void MX_ADC_Init(void)
 		}
 
 		LL_ADC_REG_SetSequencerRanks( ADC2, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_1);
-		LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_13CYCLES_5);
+		LL_ADC_SetChannelSamplingTime(ADC2, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_1CYCLE_5);
 
 		// *********************************
 
@@ -3008,10 +3019,10 @@ void MX_ADC_Init(void)
 			// LL_ADC_SAMPLINGTIME_239CYCLES_5        239.5 + 12.5 = 252 cycles, ADC clk = 12MHz, 21us  sample time, max 47.6kHz sample rate
 
 			LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_1, LL_ADC_CHANNEL_0);
-			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_7CYCLES_5);
+			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_0,  LL_ADC_SAMPLINGTIME_1CYCLE_5);
 
 			LL_ADC_REG_SetSequencerRanks( ADC1, LL_ADC_REG_RANK_2, LL_ADC_CHANNEL_1);
-			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_7CYCLES_5);
+			LL_ADC_SetChannelSamplingTime(ADC1, LL_ADC_CHANNEL_1,  LL_ADC_SAMPLINGTIME_1CYCLE_5);
 		}
 
 		#if 1
