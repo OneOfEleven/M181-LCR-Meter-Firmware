@@ -64,6 +64,12 @@ typedef struct {
 
 // 32-bit ADC dual channel
 typedef struct {
+	uint32_t adc;
+	uint32_t afc;
+} t_adc_dma_data_32u;
+
+// 32-bit ADC dual channel
+typedef struct {
 	int32_t adc;
 	int32_t afc;
 } t_adc_dma_data_32;
@@ -1445,17 +1451,21 @@ void combine_afc(float *avg_rms, float *avg_deg)
 //
 void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 {
-	if (buffer == NULL || initialising || temp_buffer_in_use || vi_measure_index >= VI_MODE_COUNT || (adc_dma_buffer_wait && adc_dma_buffer_offset > 0))
-	{	// drop this sample block
-		#if (OVER_SAMPLING_FACTOR > 0)
-			adc_dma_buffer_offset += (ADC_DATA_LENGTH >> OVER_SAMPLING_FACTOR);
-			if (adc_dma_buffer_offset >= ADC_DATA_LENGTH)
-				adc_dma_buffer_offset = 0;
-		#endif
-		return;
-	}
-
-	adc_dma_buffer_wait = 0;
+	#if (OVER_SAMPLING_FACTOR <= 0)                   // no over-sampling
+		if (buffer == NULL || initialising || temp_buffer_in_use || vi_measure_index >= VI_MODE_COUNT)
+			return;                                    // drop this sample block
+	#else
+		if (buffer == NULL || initialising || temp_buffer_in_use || vi_measure_index >= VI_MODE_COUNT || (adc_dma_buffer_wait && adc_dma_buffer_offset > 0))
+		{	// drop this sample block
+			#if (OVER_SAMPLING_FACTOR > 0)
+				adc_dma_buffer_offset += (ADC_DATA_LENGTH >> OVER_SAMPLING_FACTOR);
+				if (adc_dma_buffer_offset >= ADC_DATA_LENGTH)
+					adc_dma_buffer_offset = 0;
+			#endif
+			return;
+		}
+		adc_dma_buffer_wait = 0;
+	#endif
 
 	LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);     // TEST only, LED on
 
@@ -1482,19 +1492,23 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 
 		for (unsigned int i = 0; i < (ADC_DATA_LENGTH >> OVER_SAMPLING_FACTOR); i++)
 		{
-			register t_adc_dma_data_16u sum;
+			register t_adc_dma_data_32u sum = {0};
 			register t_adc_dma_data_16u samp;
 
 			// un-over-sample .. simply average a number of samples together
 
 			#if (OVER_SAMPLING_FACTOR == 1)
-				sum      = *in_buf++;               // 1st sample
+				samp     = *in_buf++;               // 1st sample
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
 				samp     = *in_buf++;               // 2nd sample
 				sum.adc += samp.adc;                // add them together
 				sum.afc += samp.afc;                //  "         "
 
 			#elif (OVER_SAMPLING_FACTOR == 2)
-				sum      = *in_buf++;               // 1st sample
+				samp     = *in_buf++;               // 1st sample
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
 				samp     = *in_buf++;               // 2nd sample
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
@@ -1506,7 +1520,9 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 				sum.afc += samp.afc;
 
 			#elif (OVER_SAMPLING_FACTOR == 3)
-				sum      = *in_buf++;
+				samp     = *in_buf++;               // 1st sample
+				sum.adc += samp.adc;
+				sum.afc += samp.afc;
 				samp     = *in_buf++;
 				sum.adc += samp.adc;
 				sum.afc += samp.afc;
@@ -1530,8 +1546,6 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 				sum.afc += samp.afc;
 
 			#else
-				sum.adc = 0;
-				sum.afc = 0;
 				for (unsigned int k = 0; k < (1u << (OVER_SAMPLING_FACTOR - 3)); k++)
 				{
 					samp     = *in_buf++;
@@ -1562,10 +1576,10 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 			#endif
 
 			// divide down
-			sum.adc >>= OVER_SAMPLING_FACTOR;
-			sum.afc >>= OVER_SAMPLING_FACTOR;
+			samp.adc = sum.adc >> OVER_SAMPLING_FACTOR;
+			samp.afc = sum.afc >> OVER_SAMPLING_FACTOR;
 
-			*tmp_buf++ = sum;                         // save the un-over-sampled sample
+			*tmp_buf++ = samp;                         // save the un-over-sampled sample
 		}
 	}
 	#endif

@@ -81,7 +81,7 @@
 #define SINES_PER_BLOCK              2              // number of sine wave cycles per sample block     no more RAM left for more than 2 :(
 #define SAMPLES_PER_SINE_CYCLE       64u            // 2^n
 
-#define OVER_SAMPLING_FACTOR         3              // 0..3   ADC sample rate must be remain <= 800kHz for the STM32F103 :(
+#define OVER_SAMPLING_FACTOR         1              // 0..3   ADC sample rate must be remain <= 800kHz for the STM32F103 :(
 
 #define ADC_DATA_LENGTH              (SAMPLES_PER_SINE_CYCLE * SINES_PER_BLOCK)
 
