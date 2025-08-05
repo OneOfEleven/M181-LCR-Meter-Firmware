@@ -146,8 +146,11 @@ static const uint16_t omega_13x18[] = {
 };
 
 // measure frequencies
-const uint32_t measurement_table_Hz[2] = {100, 1000};            // standard
-//const uint32_t measurement_table_Hz[3] = {100, 1000, 10000};   // this one after we've updated the PCB compnents to pass 10kHz
+#ifndef MAX_6KHZ
+	const uint32_t measurement_table_Hz[2] = {100, 1000};            // standard
+#else
+	const uint32_t measurement_table_Hz[3] = {100, 1000, 6000};   // this one after we've updated the PCB compnents to pass 6kHz
+#endif
 
 struct {
 	uint8_t por;
@@ -1013,25 +1016,25 @@ void set_measurement_frequency(const uint32_t Hz)
 			if (LL_ADC_IsEnabled(ADC1) && LL_ADC_IsEnabled(ADC2))
 			{
 				uint32_t sampling_time = LL_ADC_SAMPLINGTIME_239CYCLES_5;
-				if (sample_rate_Hz >= 500e3)
+				if (sample_rate_Hz >= 570e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_1CYCLE_5;
 				else
-				if (sample_rate_Hz >= 440e3)
+				if (sample_rate_Hz >= 455e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_7CYCLES_5;
 				else
-				if (sample_rate_Hz >= 270e3)
+				if (sample_rate_Hz >= 285e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_13CYCLES_5;
 				else
-				if (sample_rate_Hz >= 200e3)
+				if (sample_rate_Hz >= 215e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_28CYCLES_5;
 				else
-				if (sample_rate_Hz >= 160e3)
+				if (sample_rate_Hz >= 170e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_41CYCLES_5;
 				else
-				if (sample_rate_Hz >= 130e3)
+				if (sample_rate_Hz >= 135e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_55CYCLES_5;
 				else
-				if (sample_rate_Hz >= 40e3)
+				if (sample_rate_Hz >= 45e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_71CYCLES_5;
 
 				if (tim3_enabled)

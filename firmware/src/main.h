@@ -61,7 +61,9 @@
 
 #define ADC_TO_VOLTS                ((float)(3.3 / 4095))        // 12-bit ADC
 
-//#define SHOW_CPU                                                 // show the device details on the serial link at boot-up
+//#define SHOW_CPU                                               // show the device details on the serial link at boot-up
+
+//#define MAX_6KHZ                                                 // uncomment this to add a 6kHz option, requires PCB component changes (see LTspice simulations)
 
 #define UART_BAUDRATE_MIN            115200
 #define UART_BAUDRATE_MAX            921600
@@ -81,8 +83,12 @@
 #define SINES_PER_BLOCK              2              // number of sine wave cycles per sample block     no more RAM left for more than 2 :(
 #define SAMPLES_PER_SINE_CYCLE       64u            // 2^n
 
-#define OVER_SAMPLING_FACTOR         1              // 0..3   ADC sample rate must be remain <= 800kHz for the STM32F103 :(
+#ifndef MAX_6KHZ
+	#define OVER_SAMPLING_FACTOR     1              // 0..3   ADC sample rate must be remain <= 800kHz for the STM32F103 :(
                                                     // to use > 1, you must swap R44 on the PCB to a 1k to fix the AFC sampling noise
+#else
+	#define OVER_SAMPLING_FACTOR     1              // ADC sample rate must not exceed 800kHz for the STM32F103 :(
+#endif
 
 #define ADC_DATA_LENGTH              (SAMPLES_PER_SINE_CYCLE * SINES_PER_BLOCK)
 
@@ -391,8 +397,11 @@ enum {
 	DATA_MODE_COUNT
 };
 
-extern const uint32_t measurement_table_Hz[2];
-//extern const uint32_t measurement_table_Hz[3];
+#ifndef MAX_6KHZ
+	extern const uint32_t measurement_table_Hz[2];
+#else
+	extern const uint32_t measurement_table_Hz[3];
+#endif
 
 #define SETTING_FLAG_FAST_UPDATES      (1u << 0)   // set if the user wants faster screen updates (but noisier)
 #define SETTING_FLAG_OPEN_CAL_DONE     (1u << 1)   // set if open    calibration is complete
