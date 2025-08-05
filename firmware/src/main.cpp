@@ -177,9 +177,6 @@ t_button              button[BUTTON_COUNT] = {0};                     // holds e
 
 uint32_t              measurement_Hz = measurement_table_Hz[1];       // current measurement frequency
 
-//float               dac_bias = 128;                                 // use '128' if you remove R29 (100k)
-float                 dac_bias = 142.89;                              // use this to account for the pointless added DC offset (R29) in the DAC design
-
 uint8_t               lcr_mode = LCR_MODE_CAPACITANCE;                // current LCR mode
 uint8_t               sp_mode  = SP_MODE_SERIES;                      // current Series/Parallel/Auto mode
 uint8_t               op_mode  = OP_MODE_MEASURING;                   // current operating mode
@@ -221,6 +218,9 @@ t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};               // av
 unsigned int          adc_buffer_sum_count            = 0;                 // average summing counter
 
 float                 adc_dc_offset[VI_MODE_COUNT * 2] = {0};              // ADC/AFC input DC offset
+
+//float               dac_bias = 128;                                      // use '128' if you remove R29 (100k)
+float                 dac_bias = 141.65;                                   // use this to account for the pointless added DC offset (R29) in the DAC design
 
 // VI mode sequence order to minimize mode switching time
 // because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins, large DC spike occurs)
@@ -981,6 +981,7 @@ void set_measurement_frequency(const uint32_t Hz)
 		amplitude = sqrtf(sqrtf(sqrtf(amplitude)));                                    //
 		amplitude = (amplitude < 0.8f) ? 0.8f : (amplitude > 1.0f) ? 1.0f : amplitude; // 0.8 to 1.0
 		amplitude *= 127 - fabsf(dac_bias - 128);
+//		amplitude = 0;
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		//
@@ -1750,16 +1751,29 @@ void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsig
 		}
 	}
 
+	// compute ADC DC offset
+	register float adc_sum = 0;
+	if (!adc_data_clipping[vi_mode])                 // don't bother if the samples are clipped (sample block is useless to us)
+	{
+		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+			adc_sum += buf_adc[i];
+		adc_sum *= 1.0f / ADC_DATA_LENGTH;
+	}
+//	else
+//		adc_sum = adc_dc_offset[buf_index + 0];
+
+	// compute AFC DC offset
+	register float afc_sum = 0;
+	for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+		afc_sum += buf_afc[i];
+	afc_sum *= 1.0f / ADC_DATA_LENGTH;
+
 	if (op_mode == OP_MODE_SINE_TUNE)
 	{
-/*		// compute AFC DC offset
-		register float sum = 0;
-		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-			sum += buf_afc[i];
-		sum *= 1.0f / ADC_DATA_LENGTH;
+
 		// save it
-		adc_dc_offset[buf_index + 1] = sum;
-*/
+		adc_dc_offset[buf_index + 1] = afc_sum;
+
 
 		//  TODO:
 
@@ -1775,41 +1789,29 @@ void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsig
 		if (!adc_data_clipping[vi_mode])                 // don't bother if the samples are clipped (sample block is useless to us)
 		{	// ADC input
 
-			// compute the DC offset of the block
-			register float sum = 0;
-			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-				sum += buf_adc[i];
-			sum *= 1.0f / ADC_DATA_LENGTH;
-
 			// smooth the DC offset value (LPF)
 //			if (!adc_data_clipping[vi_mode])
-				adc_dc_offset[buf_index + 0] = ((1.0f - coeff) * adc_dc_offset[buf_index + 0]) + (coeff * sum);
+				adc_dc_offset[buf_index + 0] = ((1.0f - coeff) * adc_dc_offset[buf_index + 0]) + (coeff * adc_sum);
 
 			if (!display_hold || calibrating)
 			{	// subtract/remove the DC offset
 //				if (!adc_data_clipping[vi_mode])
-					sum = adc_dc_offset[buf_index + 0];
+					adc_sum = adc_dc_offset[buf_index + 0];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-					buf_adc[i] -= sum;
+					buf_adc[i] -= adc_sum;
 			}
 		}
 
-		{	// AFC input (samples never ever clip)
-
-			// compute the DC offset
-			register float sum = 0;
-			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-				sum += buf_afc[i];
-			sum *= 1.0f / ADC_DATA_LENGTH;
+		{	// AFC input
 
 			// smooth the DC offset value (LPF)
-			adc_dc_offset[buf_index + 1] = ((1.0f - coeff) * adc_dc_offset[buf_index + 1]) + (coeff * sum);
+			adc_dc_offset[buf_index + 1] = ((1.0f - coeff) * adc_dc_offset[buf_index + 1]) + (coeff * afc_sum);
 
 			if (!display_hold || calibrating)
 			{	// subtract/remove the DC offset
-				sum = adc_dc_offset[buf_index + 1];
+				afc_sum = adc_dc_offset[buf_index + 1];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-					buf_afc[i] -= sum;
+					buf_afc[i] -= afc_sum;
 			}
 		}
 	}
