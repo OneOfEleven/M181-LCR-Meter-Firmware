@@ -177,6 +177,9 @@ t_button              button[BUTTON_COUNT] = {0};                     // holds e
 
 uint32_t              measurement_Hz = measurement_table_Hz[1];       // current measurement frequency
 
+//float               dac_bias = 128;                                 // use '128' if you remove R29 (100k)
+float                 dac_bias = 142.89;                              // use this to account for the pointless added DC offset (R29) in the DAC design
+
 uint8_t               lcr_mode = LCR_MODE_CAPACITANCE;                // current LCR mode
 uint8_t               sp_mode  = SP_MODE_SERIES;                      // current Series/Parallel/Auto mode
 uint8_t               op_mode  = OP_MODE_MEASURING;                   // current operating mode
@@ -217,7 +220,7 @@ t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];                  // *2
 t_adc_dma_data_32     adc_buffer_sum[ADC_DATA_LENGTH] = {0};               // average summing buffer
 unsigned int          adc_buffer_sum_count            = 0;                 // average summing counter
 
-float                 adc_dc_offset[VI_MODE_COUNT * 2] = {0};              // ADC input DC offset
+float                 adc_dc_offset[VI_MODE_COUNT * 2] = {0};              // ADC/AFC input DC offset
 
 // VI mode sequence order to minimize mode switching time
 // because of a HW design floor (takes time for HW to settle after changing the HW GS/VI mode pins, large DC spike occurs)
@@ -962,36 +965,36 @@ char unit_conversion(float *value, const char units[])   // const char units[] =
 //
 void set_measurement_frequency(const uint32_t Hz)
 {
-	{	// limit the range
+	{	// clamp the frequency
 		const uint32_t max = measurement_table_Hz[ARRAY_SIZE(measurement_table_Hz) - 1];
 		const uint32_t min = measurement_table_Hz[0];
 		measurement_Hz = (Hz < min) ? min : (Hz > max) ? max : Hz;
 	}
 
-	// lower freq = lower amplitude (due to PCB HW filter design)
-	//
-	float amplitude = (float)measurement_Hz / 1000;                                // 0.0 ~ 1.0
-	amplitude = sqrtf(sqrtf(sqrtf(amplitude)));                                    //
-	amplitude = (amplitude < 0.8f) ? 0.8f : (amplitude > 1.0f) ? 1.0f : amplitude; // 0.8 to 1.0
-
 	{	// fill the sine wave look-up table with one complete sine cycle
 
-		const float scale      = amplitude * (255 * 0.5f);                         // 0-255
-		const float phase_step = (2 * M_PI) / ARRAY_SIZE(sine_table);
+		const float phase_step = (2 * M_PI) / ARRAY_SIZE(sine_table);                  // fill the table with one complete sine cycle
+
+		// lower freq = lower amplitude (due to PCB HW filter design)
+		//
+		float amplitude = (float)measurement_Hz / 1000;                                // 0.0 ~ 1.0
+		amplitude = sqrtf(sqrtf(sqrtf(amplitude)));                                    //
+		amplitude = (amplitude < 0.8f) ? 0.8f : (amplitude > 1.0f) ? 1.0f : amplitude; // 0.8 to 1.0
+		amplitude *= 127 - fabsf(dac_bias - 128);
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		//
-		// so create a 16-bit table with the upper 8-bits all high
+		// so create a 16-bit table with the upper 8-bits all high (they affect the upper 8-bits of the 16-bit GPIO port)
 		//
 		// see 9.2.4 (page 173) of the stm32f103xx reference manual about the ODR being WORD ONLY
 		//
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
-			sine_table[i] = 0xff00 | (uint8_t)floorf(((1.0f + sinf(phase_step * i)) * scale) + 0.5f); // raised sine
+			sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + 0.5f);     // 8-bit raised sine
 	}
 
 	const uint8_t tim3_enabled = LL_TIM_IsEnabledCounter(TIM3);
 
-	// set the timer rate, the timer clocks the ADC and DAC DMA at the desired ratetmp_buffer_in_use
+	// set the timer rate, the timer clocks the ADC and DAC DMA at the desired sample rate/frequency
 	if (measurement_Hz > 0)
 	{
 		const uint32_t sample_rate_Hz = (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR) * measurement_Hz;
@@ -1108,6 +1111,15 @@ void start_measuring(void)
 	initialising = 1;
 	set_measurement_frequency(settings.measurement_Hz);
 	start_op_mode(OP_MODE_MEASURING);
+}
+
+// initiate an AFC tune
+//
+void start_sine_tune(void)
+{
+	initialising = 1;
+	set_measurement_frequency(1000);
+	start_op_mode(OP_MODE_SINE_TUNE);
 }
 
 // initiate an OPEN probe calibration run
@@ -1738,6 +1750,21 @@ void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsig
 		}
 	}
 
+	if (op_mode == OP_MODE_SINE_TUNE)
+	{
+/*		// compute AFC DC offset
+		register float sum = 0;
+		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+			sum += buf_afc[i];
+		sum *= 1.0f / ADC_DATA_LENGTH;
+		// save it
+		adc_dc_offset[buf_index + 1] = sum;
+*/
+
+		//  TODO:
+
+	}
+	else
 	{	// remove DC offset from this new block of averaged samples
 
 		const float coeff = (frames <= 3) ? 0.9 : 0.3;   // fast LPF convergence to start with, then switch to slower coeff
@@ -1756,12 +1783,12 @@ void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsig
 
 			// smooth the DC offset value (LPF)
 //			if (!adc_data_clipping[vi_mode])
-				adc_dc_offset[buf_index] = ((1.0f - coeff) * adc_dc_offset[buf_index]) + (coeff * sum);
+				adc_dc_offset[buf_index + 0] = ((1.0f - coeff) * adc_dc_offset[buf_index + 0]) + (coeff * sum);
 
 			if (!display_hold || calibrating)
 			{	// subtract/remove the DC offset
 //				if (!adc_data_clipping[vi_mode])
-					sum = adc_dc_offset[buf_index];
+					sum = adc_dc_offset[buf_index + 0];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_adc[i] -= sum;
 			}
@@ -1776,11 +1803,11 @@ void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsig
 			sum *= 1.0f / ADC_DATA_LENGTH;
 
 			// smooth the DC offset value (LPF)
-			adc_dc_offset[buf_index] = ((1.0f - coeff) * adc_dc_offset[buf_index]) + (coeff * sum);
+			adc_dc_offset[buf_index + 1] = ((1.0f - coeff) * adc_dc_offset[buf_index + 1]) + (coeff * sum);
 
 			if (!display_hold || calibrating)
 			{	// subtract/remove the DC offset
-				sum = adc_dc_offset[buf_index];
+				sum = adc_dc_offset[buf_index + 1];
 				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 					buf_afc[i] -= sum;
 			}
@@ -1796,7 +1823,7 @@ void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsig
 //
 void process_data(void)
 {
-	if (display_hold || initialising)
+	if (display_hold || initialising || op_mode == OP_MODE_SINE_TUNE)
 		return;
 
 	if (process_Goertzel() < 0)
@@ -2089,7 +2116,6 @@ void process_ADC(void)
 	// we drop the hi-gain blocks if they are clipped (clipping makes the data useless)
 	// we drop the lo-gain blocks if the hi-gain blocks are usable (if no high-gain clipping detected)
 	//
-//	unsigned int average_count = (128ul * measurement_Hz) >> (10 + OVER_SAMPLING_FACTOR); // the more oversampling we do, the less averaging we need to do
 	unsigned int average_count = (128ul * measurement_Hz) >> 10;
 	if (op_mode == OP_MODE_MEASURING)
 	{
@@ -2105,6 +2131,9 @@ void process_ADC(void)
 		if (settings.flags & SETTING_FLAG_FAST_UPDATES)
 			average_count >>= 3;                                  // average fewer buffers in 'fast' mode (this is speeds up the display update rate)
 	}
+	else
+	if (op_mode == OP_MODE_SINE_TUNE)
+		average_count = 8;                                        // tuning the sine wave output to center the AFC
 	else
 	if (adc_data_clipping[vi_mode])
 		average_count = 1;                                        // this block of samples are clipping, drop them, move on to the next mode
@@ -2655,6 +2684,31 @@ void draw_screen(void)
 		}
 
 		// ***************************
+	}
+	else
+	if (op_mode == OP_MODE_SINE_TUNE)
+	{	// we're doing a sine wave calibration
+
+		snprintf(str_buf, sizeof(str_buf), "SINE TUNE %d",  CALIBRATE_COUNT - calibrate.count - 1);
+		ssd1306_SetCursor(0, 0);
+		ssd1306_WriteString(str_buf, &font_11x18, White);
+/*
+		{	// AFC voltage
+//			rms_voltage *= ADC_TO_VOLTS;
+			const char unit = unit_conversion(&rms_voltage, "mkMG");
+
+			ssd1306_SetCursor(0, SSD1306_HEIGHT - 1 - font_8x12.height);
+			ssd1306_WriteString("V", &font_8x12, White);
+
+			n_sprintf(3, rms_voltage, str_buf, sizeof(str_buf), 1);
+			if (unit != ' ')
+				strcatc(str_buf, unit);
+			//strcatc(str_buf, 'V');
+			trim_trailing_zeros(str_buf);
+			ssd1306_MoveCursor(4, 0);
+			ssd1306_WriteString(str_buf, &font_8x12, White);
+		}
+*/
 	}
 	else
 	if (op_mode == OP_MODE_OPEN_PROBE_CALIBRATION || op_mode == OP_MODE_SHORTED_PROBE_CALIBRATION)
@@ -4556,6 +4610,19 @@ void process_op_mode(void)
 		case OP_MODE_MEASURING:                // normal measurement mode
 			break;
 
+		case OP_MODE_SINE_TUNE:
+
+//			if (++calibrate.count >= CALIBRATE_COUNT)
+			{	// finished
+
+				printf(NEWLINE "sine tune done" NEWLINE);
+
+				// back to normal measurement mode
+				start_measuring();
+			}
+
+			break;
+
 		case OP_MODE_OPEN_PROBE_CALIBRATION:
 		{
 			if (rms_voltage < VOLTAGE_OPEN_CAL_THRESHOLD || rms_current > CURRENT_OPEN_CAL_THRESHOLD)
@@ -4902,6 +4969,8 @@ int main(void)
 	wait_for_all_button_release();
 
 	// *******
+
+//	start_sine_tune();
 
 	// start making use of the incoming ADC blocks
 	initialising = 0;

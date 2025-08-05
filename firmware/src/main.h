@@ -36,7 +36,7 @@
 	#define M_PI                     3.14159265358979323846264338327950288
 #endif
 
-#define FW_VERSION                   "1.0g"
+#define FW_VERSION                   "1.0h"
 
 #define NEWLINE                      "\n"
 
@@ -84,10 +84,10 @@
 #define SAMPLES_PER_SINE_CYCLE       64u            // 2^n
 
 #ifndef MAX_6KHZ
-	#define OVER_SAMPLING_FACTOR     1              // 0..3   ADC sample rate must be remain <= 800kHz for the STM32F103 :(
+	#define OVER_SAMPLING_FACTOR     1              // 0..3   ADC sample rate must remain <= 850kHz for the STM32F103 :(
                                                     // to use > 1, you must swap R44 on the PCB to a 1k to fix the AFC sampling noise
 #else
-	#define OVER_SAMPLING_FACTOR     1              // ADC sample rate must not exceed 800kHz for the STM32F103 :(
+	#define OVER_SAMPLING_FACTOR     1              // ADC sample rate must not exceed 850kHz for the STM32F103 :(
 #endif
 
 #define ADC_DATA_LENGTH              (SAMPLES_PER_SINE_CYCLE * SINES_PER_BLOCK)
@@ -357,6 +357,7 @@ enum {
 // Operating mode
 enum {
 	OP_MODE_MEASURING = 0,
+	OP_MODE_SINE_TUNE,
 	OP_MODE_OPEN_PROBE_CALIBRATION,
 	OP_MODE_SHORTED_PROBE_CALIBRATION,
 	OP_MODE_COUNT
