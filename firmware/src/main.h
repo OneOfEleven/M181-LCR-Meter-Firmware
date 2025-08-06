@@ -17,6 +17,7 @@
 #include "stm32f1xx_ll_adc.h"
 #include "stm32f1xx_ll_bus.h"
 #include "stm32f1xx_ll_cortex.h"
+#include "stm32f1xx_ll_crc.h"
 #include "stm32f1xx_ll_dma.h"
 #include "stm32f1xx_ll_exti.h"
 #include "stm32f1xx_ll_gpio.h"

@@ -13,7 +13,7 @@
 #include <stdio.h>
 
 #include <string.h>
-#include <stdlib.h>   // strtol()
+#include <stdlib.h>   // strtol() rand()
 #include <ctype.h>    // tolower()
 #include <float.h>    // INF
 #include <limits.h>
@@ -203,7 +203,8 @@ float                 high_gain = 101;                                // HW gain
 
 float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse value of the series resistor in series with the DUT (the LOAD cal calibrates this value)
 
-uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR] = {0};  // holds look-up data for one complete sine wave cycle (for the DAC)
+// holds look-up data for 'SINES_PER_BLOCK' complete sine wave cycles (for the DAC)
+uint16_t              sine_table[(SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR) * SINES_PER_BLOCK] = {0};
 
 // ADC DMA raw sample buffer
 t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];                  // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
@@ -971,17 +972,17 @@ void set_measurement_frequency(const uint32_t Hz)
 		measurement_Hz = (Hz < min) ? min : (Hz > max) ? max : Hz;
 	}
 
-	{	// fill the sine wave look-up table with one complete sine cycle
+	{	// fill the look-up table with 'SINES_PER_BLOCK' complete sine cycles
+		const float phase_step = (2 * M_PI * SINES_PER_BLOCK) / ARRAY_SIZE(sine_table);
 
-		const float phase_step = (2 * M_PI) / ARRAY_SIZE(sine_table);                  // fill the table with one complete sine cycle
-
-		// lower freq = lower amplitude (due to PCB HW filter design)
+		// lower freq needs lower amplitude to prevent clipping (due to PCB HW filter design)
 		//
 		float amplitude = (float)measurement_Hz / 1000;                                // 0.0 ~ 1.0
 		amplitude = sqrtf(sqrtf(sqrtf(amplitude)));                                    //
 		amplitude = (amplitude < 0.8f) ? 0.8f : (amplitude > 1.0f) ? 1.0f : amplitude; // 0.8 to 1.0
-		amplitude *= 127 - fabsf(dac_bias - 128);
-//		amplitude = 0;
+		amplitude *= 127 - fabsf(dac_bias - 128) - 1;                                  // '-1' because we're adding some randomness to the wave
+
+		//amplitude = 0;
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		//
@@ -990,7 +991,10 @@ void set_measurement_frequency(const uint32_t Hz)
 		// see 9.2.4 (page 173) of the stm32f103xx reference manual about the ODR being WORD ONLY
 		//
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
-			sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + 0.5f);     // 8-bit raised sine
+		{
+			const float dither = ((float)rand() - (RAND_MAX / 2)) * (1.0f / RAND_MAX);     // add dither (+-0.5 LSB) to help the ADC's, we could save this into a table to subtract it from the ADC results
+			sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + dither + 0.5f);   // 8-bit raised sine
+		}
 	}
 
 	const uint8_t tim3_enabled = LL_TIM_IsEnabledCounter(TIM3);
@@ -1056,25 +1060,25 @@ void set_measurement_frequency(const uint32_t Hz)
 			if (LL_ADC_IsEnabled(ADC1))
 			{
 				uint32_t sampling_time = LL_ADC_SAMPLINGTIME_239CYCLES_5;
-				if (sample_rate_Hz >= 250e3)
+				if (sample_rate_Hz >= 285e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_1CYCLE_5;
 				else
-				if (sample_rate_Hz >= 220e3)
+				if (sample_rate_Hz >= 227e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_7CYCLES_5;
 				else
-				if (sample_rate_Hz >= 135e3)
+				if (sample_rate_Hz >= 142e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_13CYCLES_5;
 				else
-				if (sample_rate_Hz >= 100e3)
+				if (sample_rate_Hz >= 107e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_28CYCLES_5;
 				else
-				if (sample_rate_Hz >= 80e3)
+				if (sample_rate_Hz >= 85e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_41CYCLES_5;
 				else
-				if (sample_rate_Hz >= 65e3)
+				if (sample_rate_Hz >= 67e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_55CYCLES_5;
 				else
-				if (sample_rate_Hz >= 20e3)
+				if (sample_rate_Hz >= 22e3)
 					sampling_time = LL_ADC_SAMPLINGTIME_71CYCLES_5;
 
 				if (tim3_enabled)
@@ -3258,6 +3262,11 @@ void MX_USART1_UART_Init(void)
 	LL_USART_Enable(USART1);
 }
 
+static void MX_CRC_Init(void)
+{
+	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_CRC);
+}
+
 // setup various GPIO pins
 //
 void MX_GPIO_Init(void)
@@ -4840,6 +4849,9 @@ int main(void)
 	#endif
 	LL_RCC_GetSystemClocksFreq(&rcc_clocks);
 	MX_GPIO_Init();
+	MX_CRC_Init();
+
+//	srand(time(NULL));
 
 	// fetch saved settings
 	eeprom_read_settings();
