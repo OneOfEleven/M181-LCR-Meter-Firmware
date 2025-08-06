@@ -204,7 +204,8 @@ float                 high_gain = 101;                                // HW gain
 float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse value of the series resistor in series with the DUT (the LOAD cal calibrates this value)
 
 // holds look-up data for 'SINES_PER_BLOCK' complete sine wave cycles (for the DAC)
-uint16_t              sine_table[(SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR) * SINES_PER_BLOCK] = {0};
+//uint16_t            sine_table[SAMPLES_PER_SINE_CYCLE] = {0};
+uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE * 19] = {0};  // ODD number of cycles
 
 // ADC DMA raw sample buffer
 t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];                  // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
@@ -973,7 +974,7 @@ void set_measurement_frequency(const uint32_t Hz)
 	}
 
 	{	// fill the look-up table with 'SINES_PER_BLOCK' complete sine cycles
-		const float phase_step = (2 * M_PI * SINES_PER_BLOCK) / ARRAY_SIZE(sine_table);
+		const float phase_step = (2 * M_PI) / SAMPLES_PER_SINE_CYCLE;
 
 		// lower freq needs lower amplitude to prevent clipping (due to PCB HW filter design)
 		//
