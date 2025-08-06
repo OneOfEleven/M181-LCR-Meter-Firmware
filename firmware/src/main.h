@@ -81,6 +81,8 @@
 
 //#define RIGHT_ALIGN_DUT                             // this right aligns the large DUT value on the display
 
+//#define ADD_DAC_DITHER                              // this helps the ADC's, though we already more than enough noise on those inputs :(
+
 #define SINES_PER_BLOCK              2              // number of sine wave cycles per sample block     no more RAM left for more than 2 :(
 #define SAMPLES_PER_SINE_CYCLE       64u            // 2^n
 

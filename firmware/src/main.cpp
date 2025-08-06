@@ -204,13 +204,18 @@ float                 high_gain = 101;                                // HW gain
 float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse value of the series resistor in series with the DUT (the LOAD cal calibrates this value)
 
 // holds look-up data for 'SINES_PER_BLOCK' complete sine wave cycles (for the DAC)
-//uint16_t            sine_table[SAMPLES_PER_SINE_CYCLE] = {0};
-uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE * 17] = {0};  // ODD number of cycles
+#ifdef ADD_DAC_DITHER
+	uint16_t          sine_table[SAMPLES_PER_SINE_CYCLE * 17] = {0};  // ODD number of cycles (reduce this buffer size if you need more RAM)
+#else
+	uint16_t          sine_table[SAMPLES_PER_SINE_CYCLE] = {0};
+#endif
 
-uint32_t              random32;
+#ifdef ADD_DAC_DITHER
+	volatile uint32_t random32;                                       // our own random number (updated using ADC sample noise)
+#endif
 
 // ADC DMA raw sample buffer
-t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];                  // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
+t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];             // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
 #if (OVER_SAMPLING_FACTOR > 0)
 	unsigned int      adc_dma_buffer_offset = 0;
 	uint8_t           adc_dma_buffer_wait   = 1;
@@ -978,6 +983,10 @@ void set_measurement_frequency(const uint32_t Hz)
 	{	// fill the look-up table with 'SINES_PER_BLOCK' complete sine cycles
 		const float phase_step = (2 * M_PI) / SAMPLES_PER_SINE_CYCLE;
 
+		#ifdef ADD_DAC_DITHER
+			srand(random32);
+		#endif
+
 		// lower freq needs lower amplitude to prevent clipping (due to PCB HW filter design)
 		//
 		float amplitude = (float)measurement_Hz / 1000;                                // 0.0 ~ 1.0
@@ -995,8 +1004,13 @@ void set_measurement_frequency(const uint32_t Hz)
 		//
 		for (unsigned int i = 0; i < ARRAY_SIZE(sine_table); i++)
 		{
-			const float dither = ((float)rand() - (RAND_MAX / 2)) * (1.0f / RAND_MAX);     // add dither (+-0.5 LSB) to help the ADC's, we could save this into a table to subtract it from the ADC results
-			sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + dither + 0.5f);   // 8-bit raised sine
+			#ifdef ADD_DAC_DITHER
+				// don't really need to add our own dither due to the amount of noise already present on the ADC inputs :(
+				const float dither = ((float)rand() - (RAND_MAX / 2)) * (1.0f / RAND_MAX);     // add +-0.5 LSB dither to help the ADC's, we could save this into a table to subtract it from the ADC results
+				sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + dither + 0.5f);   // 8-bit raised sine
+			#else
+				sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + 0.5f);   // 8-bit raised sine
+			#endif
 		}
 	}
 
@@ -1485,6 +1499,16 @@ void combine_afc(float *avg_rms, float *avg_deg)
 //
 void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 {
+	#ifdef ADD_DAC_DITHER
+		if (buffer != NULL)
+		{	// update our random number using the ADC sample noise
+			register const uint32_t *buf = (uint32_t *)buffer;
+			for (register unsigned int i = ADC_DATA_LENGTH; i > 0; i--)
+				LL_CRC_FeedData32(CRC, *buf++);
+			random32 = LL_CRC_ReadData32(CRC);
+		}
+	#endif
+
 	#if (OVER_SAMPLING_FACTOR <= 0)                   // no over-sampling
 		if (buffer == NULL || initialising || temp_buffer_in_use || vi_measure_index >= VI_MODE_COUNT)
 			return;                                    // drop this sample block
@@ -1615,32 +1639,6 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 
 			*tmp_buf++ = samp;                         // save the un-over-sampled sample
 		}
-	}
-	#endif
-
-	#if 1
-	{	// update our random number using the ADC sample noise
-		#if 1
-			register uint32_t *tmp_buf = (uint32_t *)temp_buffer;
-			for (register unsigned int i = ADC_DATA_LENGTH; i > 0; i--)
-				LL_CRC_FeedData32(CRC, *tmp_buf++);
-			random32 = LL_CRC_ReadData32(CRC);
-		#else
-			register uint8_t *tmp_buf = (uint8_t *)temp_buffer;
-			register uint32_t ran = random32;
-			for (register unsigned int i = (ADC_DATA_LENGTH / 2); i > 0; i--)
-			{
-				ran = (ran << 1) ^ *tmp_buf++;
-				ran = (ran << 1) ^ *tmp_buf++;
-				ran = (ran << 1) ^ *tmp_buf++;
-				ran = (ran << 1) ^ *tmp_buf++;
-				ran = (ran << 1) ^ *tmp_buf++;
-				ran = (ran << 1) ^ *tmp_buf++;
-				ran = (ran << 1) ^ *tmp_buf++;
-				ran = (ran << 1) ^ *tmp_buf++;
-			}
-			random32 = ran;
-		#endif
 	}
 	#endif
 
@@ -5014,8 +5012,9 @@ int main(void)
 
 	// *******
 
-	srand(random32);
-	set_measurement_frequency(settings.measurement_Hz);
+	#ifdef ADD_DAC_DITHER
+		set_measurement_frequency(settings.measurement_Hz);
+	#endif
 
 //	start_sine_tune();
 
