@@ -205,7 +205,9 @@ float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse
 
 // holds look-up data for 'SINES_PER_BLOCK' complete sine wave cycles (for the DAC)
 //uint16_t            sine_table[SAMPLES_PER_SINE_CYCLE] = {0};
-uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE * 19] = {0};  // ODD number of cycles
+uint16_t              sine_table[SAMPLES_PER_SINE_CYCLE * 17] = {0};  // ODD number of cycles
+
+uint32_t              random32;
 
 // ADC DMA raw sample buffer
 t_adc_dma_data_16     adc_dma_buffer[2][ADC_DATA_LENGTH];                  // *2 for DMA double buffering (ADC/DMA is continuously running so we need double buffering)
@@ -1613,6 +1615,32 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 
 			*tmp_buf++ = samp;                         // save the un-over-sampled sample
 		}
+	}
+	#endif
+
+	#if 1
+	{	// update our random number using the ADC sample noise
+		#if 1
+			register uint32_t *tmp_buf = (uint32_t *)temp_buffer;
+			for (register unsigned int i = ADC_DATA_LENGTH; i > 0; i--)
+				LL_CRC_FeedData32(CRC, *tmp_buf++);
+			random32 = LL_CRC_ReadData32(CRC);
+		#else
+			register uint8_t *tmp_buf = (uint8_t *)temp_buffer;
+			register uint32_t ran = random32;
+			for (register unsigned int i = (ADC_DATA_LENGTH / 2); i > 0; i--)
+			{
+				ran = (ran << 1) ^ *tmp_buf++;
+				ran = (ran << 1) ^ *tmp_buf++;
+				ran = (ran << 1) ^ *tmp_buf++;
+				ran = (ran << 1) ^ *tmp_buf++;
+				ran = (ran << 1) ^ *tmp_buf++;
+				ran = (ran << 1) ^ *tmp_buf++;
+				ran = (ran << 1) ^ *tmp_buf++;
+				ran = (ran << 1) ^ *tmp_buf++;
+			}
+			random32 = ran;
+		#endif
 	}
 	#endif
 
@@ -4852,8 +4880,6 @@ int main(void)
 	MX_GPIO_Init();
 	MX_CRC_Init();
 
-//	srand(time(NULL));
-
 	// fetch saved settings
 	eeprom_read_settings();
 
@@ -4924,6 +4950,9 @@ int main(void)
 
 	set_measurement_frequency(settings.measurement_Hz);
 
+	// start making use of the incoming ADC blocks
+	initialising = 0;
+
 	// *******
 	// give the user more time to read the bootup screen
 
@@ -4985,10 +5014,10 @@ int main(void)
 
 	// *******
 
-//	start_sine_tune();
+	srand(random32);
+	set_measurement_frequency(settings.measurement_Hz);
 
-	// start making use of the incoming ADC blocks
-	initialising = 0;
+//	start_sine_tune();
 
 	while (1)
 	{
