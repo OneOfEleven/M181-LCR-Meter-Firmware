@@ -87,7 +87,7 @@
 #define SAMPLES_PER_SINE_CYCLE       64u            // 2^n
 
 #ifndef MAX_6KHZ
-	#define OVER_SAMPLING_FACTOR     0              // 0..3   ADC sample rate must remain <= 850kHz for the STM32F103 :(
+	#define OVER_SAMPLING_FACTOR     1              // 0..3   ADC sample rate must remain <= 850kHz for the STM32F103 :(
                                                     // to use > 1, you must swap R44 on the PCB to a 1k to fix the AFC sampling noise
 #else
 	#define OVER_SAMPLING_FACTOR     0              // ADC sample rate must not exceed 850kHz for the STM32F103 :(

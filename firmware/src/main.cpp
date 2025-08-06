@@ -205,9 +205,9 @@ float                 inv_series_ohms = 1.0f / SERIES_RESISTOR_OHMS;  // inverse
 
 // holds look-up data for 'SINES_PER_BLOCK' complete sine wave cycles (for the DAC)
 #ifdef ADD_DAC_DITHER
-	uint16_t          sine_table[SAMPLES_PER_SINE_CYCLE * 17] = {0};  // ODD number of cycles (reduce this buffer size if you need more RAM)
+	uint16_t          sine_table[(SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR) * 9] = {0};  // "ODD" number of cycles (reduce the number of odd cycles if you need more RAM for other stuff)
 #else
-	uint16_t          sine_table[SAMPLES_PER_SINE_CYCLE] = {0};
+	uint16_t          sine_table[SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR] = {0};
 #endif
 
 #ifdef ADD_DAC_DITHER
@@ -981,7 +981,7 @@ void set_measurement_frequency(const uint32_t Hz)
 	}
 
 	{	// fill the look-up table with 'SINES_PER_BLOCK' complete sine cycles
-		const float phase_step = (2 * M_PI) / SAMPLES_PER_SINE_CYCLE;
+		const float phase_step = (2 * M_PI) / (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR);
 
 		#ifdef ADD_DAC_DITHER
 			srand(random32);
