@@ -981,7 +981,6 @@ void set_measurement_frequency(const uint32_t Hz)
 	}
 
 	{	// fill the look-up table with 'SINES_PER_BLOCK' complete sine cycles
-		const float phase_step = (2 * M_PI) / (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR);
 
 		#ifdef ADD_DAC_DITHER
 			srand(random32);
@@ -992,9 +991,15 @@ void set_measurement_frequency(const uint32_t Hz)
 		float amplitude = (float)measurement_Hz / 1000;                                // 0.0 ~ 1.0
 		amplitude = sqrtf(sqrtf(sqrtf(amplitude)));                                    //
 		amplitude = (amplitude < 0.8f) ? 0.8f : (amplitude > 1.0f) ? 1.0f : amplitude; // 0.8 to 1.0
-		amplitude *= 127 - fabsf(dac_bias - 128) - 1;                                  // '-1' because we're adding some randomness to the wave
+		#ifdef ADD_DAC_DITHER
+			amplitude *= 127 - fabsf(dac_bias - 128) - 0.5;                            // '- 0.5' leaves room for dither
+		#else
+			amplitude *= 127 - fabsf(dac_bias - 128);
+		#endif
 
 		//amplitude = 0;
+
+		const float phase_step = (2 * M_PI) / (SAMPLES_PER_SINE_CYCLE << OVER_SAMPLING_FACTOR);
 
 		// the DMA still writes 16-bits at a time to the GPIO when the DMA is set to 8-bit mode :(
 		//
@@ -1006,10 +1011,10 @@ void set_measurement_frequency(const uint32_t Hz)
 		{
 			#ifdef ADD_DAC_DITHER
 				// don't really need to add our own dither due to the amount of noise already present on the ADC inputs :(
-				const float dither = ((float)rand() - (RAND_MAX / 2)) * (1.0f / RAND_MAX);     // add +-0.5 LSB dither to help the ADC's, we could save this into a table to subtract it from the ADC results
-				sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + dither + 0.5f);   // 8-bit raised sine
+				const float dither = (rand() * (1.0f / RAND_MAX)) - 0.5f;                                                  // +-0.5 LSB dither
+				sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + dither + 0.5f);   // 8-bit raised sine inc dither
 			#else
-				sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + 0.5f);   // 8-bit raised sine
+				sine_table[i] = 0xff00 | (uint8_t)floorf(dac_bias + (sinf(phase_step * i) * amplitude) + 0.5f);            // 8-bit raised sine
 			#endif
 		}
 	}
@@ -1501,7 +1506,7 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 {
 	#ifdef ADD_DAC_DITHER
 		if (buffer != NULL)
-		{	// update our random number using the ADC sample noise
+		{	// update our random number using ADC sample noise
 			register const uint32_t *buf = (uint32_t *)buffer;
 			for (register unsigned int i = ADC_DATA_LENGTH; i > 0; i--)
 				LL_CRC_FeedData32(CRC, *buf++);
@@ -1509,7 +1514,7 @@ void OPTIMIZE_SPEED process_ADC_DMA(const void *buffer)
 		}
 	#endif
 
-	#if (OVER_SAMPLING_FACTOR <= 0)                   // no over-sampling
+	#if (OVER_SAMPLING_FACTOR <= 0)                     // no over-sampling
 		if (buffer == NULL || initialising || temp_buffer_in_use || vi_measure_index >= VI_MODE_COUNT)
 			return;                                    // drop this sample block
 	#else
@@ -3289,9 +3294,15 @@ void MX_USART1_UART_Init(void)
 	LL_USART_Enable(USART1);
 }
 
-static void MX_CRC_Init(void)
+void MX_CRC_Init(void)
 {
 	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_CRC);
+
+	LL_CRC_ResetCRCCalculationUnit(CRC);
+
+//	while (count--)
+//		LL_CRC_FeedData32(CRC, *data++);
+//	crc = LL_CRC_ReadData32(CRC);
 }
 
 // setup various GPIO pins
