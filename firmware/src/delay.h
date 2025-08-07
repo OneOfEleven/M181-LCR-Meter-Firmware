@@ -21,7 +21,7 @@ __STATIC_INLINE void DWT_Delay_ns(volatile uint32_t ns)
 	const uint32_t clk_cycle_start = DWT->CYCCNT;
 	if (ns == 0)
 		return;
-	ns = ((uint64_t)ns * SystemCoreClock) >> 30;        // close enough, but faster
+	ns = ((uint64_t)ns * SystemCoreClock) >> 30;        // close enough
 	while ((DWT->CYCCNT - clk_cycle_start) < ns) {}
 }
 */

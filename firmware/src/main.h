@@ -58,8 +58,6 @@
 #define RAD_TO_DEG                  ((float)(180.0 / M_PI))
 #define DEG_TO_RAD                  ((float)(M_PI / 180.0))
 
-#define SQR(x)                      ((x) * (x))
-
 #define ADC_TO_VOLTS                ((float)(3.3 / 4095))        // 12-bit ADC
 
 //#define SHOW_CPU                                               // show the device details on the serial link at boot-up
@@ -426,11 +424,31 @@ typedef struct t_settings {
 	uint8_t   flags;                                                 // various 'flags'
 
 	struct {
+/*		struct {
+			float adc;
+			float afc;
+		} mag_rms[VI_MODE_COUNT];                                    // averaged RMS magnitude values for each VI mode
+
+		struct {
+			float adc;
+			float afc;
+		} phase_deg[VI_MODE_COUNT];                                  // averaged phase values for each VI mode
+*/
 		float mag_rms[VI_MODE_COUNT * 2];                            // averaged RMS magnitude values for each VI mode
 		float phase_deg[VI_MODE_COUNT * 2];                          // averaged phase values for each VI mode
 	} open_probe_calibration[ARRAY_SIZE(measurement_table_Hz)];      // 100Hz and 1kHz results
 
 	struct {
+/*		struct {
+			float adc;
+			float afc;
+		} mag_rms[VI_MODE_COUNT];                                    // averaged RMS magnitude values for each VI mode
+
+		struct {
+			float adc;
+			float afc;
+		} phase_deg[VI_MODE_COUNT];                                  // averaged phase values for each VI mode
+*/
 		float mag_rms[VI_MODE_COUNT * 2];                            // averaged RMS magnitude values for each VI mode
 		float phase_deg[VI_MODE_COUNT * 2];                          // averaged phase values for each VI mode
 	} shorted_probe_calibration[ARRAY_SIZE(measurement_table_Hz)];   // 100Hz and 1kHz results
@@ -445,6 +463,15 @@ typedef struct t_system_data {
 	unsigned int vi_measure_mode;
 
 	// the final computed waveform magnitudes and phases - these are what's used to compute all the DUT parameters
+/*	struct {
+		float adc;
+		float afc;
+	} mag_rms[VI_MODE_COUNT];
+	struct {
+		float adc;
+		float afc;
+	} phase_deg[VI_MODE_COUNT];
+*/
 	float     mag_rms[VI_MODE_COUNT * 2];
 	float     phase_deg[VI_MODE_COUNT * 2];
 

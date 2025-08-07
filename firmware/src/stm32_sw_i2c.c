@@ -133,7 +133,7 @@ uint8_t I2C_read_byte(const uint8_t ack, const uint8_t stop)
 	B |= I2C_read_bit() << 3;
 	B |= I2C_read_bit() << 2;
 	B |= I2C_read_bit() << 1;
-	B |= I2C_read_bit();
+	B |= I2C_read_bit() << 0;
 
 	I2C_write_bit(ack ? 0 : 1);
 
@@ -147,10 +147,8 @@ uint8_t I2C_send_byte(const uint8_t address, const uint8_t data)
 {
 	//if (I2C_write_byte(address << 1, 1, 0))   // start, send address, write
 	if (I2C_write_byte(address, 1, 0))          // start, send address, write
-	{	// send data, stop
 		if (I2C_write_byte(data, 0, 1))
 			return 1;
-	}
 
 	I2C_stop_cond(); // make sure to impose a stop if NAK'd
 	return 0;

@@ -310,6 +310,12 @@ void stop(uint32_t ms = 0)
 	}
 }
 
+//__STATIC_INLINE float sqrf(const float v)
+__STATIC_FORCEINLINE float sqrf(const float v)
+{
+	return v * v;
+}
+
 char * strcatc(char buf[], const char c)
 {
 	if (buf != NULL)
@@ -1298,7 +1304,7 @@ int process_Goertzel(void)
 			{	// compute RMS magnitude of the unfiltered waveform
 				register float sum = 0;
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
-					sum += SQR(buf[k]);
+					sum += sqrf(buf[k]);
 				sum *= 1.0f / ADC_DATA_LENGTH;
 				system_data.mag_rms[buf_index] = sqrtf(sum);
 			}
@@ -1330,7 +1336,7 @@ int process_Goertzel(void)
 				for (unsigned int k = 0; k < ADC_DATA_LENGTH; k++)
 				{
 					register const t_complex samp = temp_buf[k]; // fetch filtered waveform sample
-					sum += SQR(samp.real) + SQR(samp.imag);      // sum it (for computing the average)
+					sum += sqrf(samp.real) + sqrf(samp.imag);    // sum it (for computing the average)
 					buf[k] = samp.real;                          // save the Goertzel filtered sample
 				}
 				sum *= 1.0f / ADC_DATA_LENGTH;
@@ -1428,7 +1434,8 @@ void combine_afc(float *avg_rms, float *avg_deg)
 	//
 	int compare_float(const void *a, const void *b)
 	{
-		return (*(float *)a - *(float *)b);
+		return (*(float *)a > *(float *)b) ? 1 : (*(float *)a < *(float *)b) ? -1 : 0;
+//		return (int)(*(float *)a - *(float *)b);
 	}
 
 	// median filter the magnitude and phase results to help further reduce noise
@@ -2006,7 +2013,7 @@ void process_data(void)
 	const float ser_qf           = ser_reactance / ser_resistive;                    // Q = X / R or 1 / D
 
 	// series to parallel
-	const float p                = SQR(ser_resistive) + SQR(ser_reactance);
+	const float p                = sqrf(ser_resistive) + sqrf(ser_reactance);
 	const float par_resistive    = p / ser_resistive;
 	const float par_reactance    = p / ser_reactance;
 	const float par_inductance   = par_reactance / omega;                            // L = X / ω
@@ -3331,6 +3338,7 @@ void MX_GPIO_Init(void)
 	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_LOW;
 	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
 	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
+
 	GPIO_InitStruct.Pin        = TP21_Pin;
 	LL_GPIO_Init(TP21_GPIO_Port, &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = TP22_Pin;
@@ -3341,13 +3349,19 @@ void MX_GPIO_Init(void)
 	LL_GPIO_Init(GS_GPIO_Port,   &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = VI_Pin;
 	LL_GPIO_Init(VI_GPIO_Port,   &GPIO_InitStruct);
+
 	GPIO_InitStruct.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
-	GPIO_InitStruct.Pin        = DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin;
-	LL_GPIO_Init(GPIOB,          &GPIO_InitStruct);
-	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+
+	GPIO_InitStruct.Pin        = DA0_Pin | DA1_Pin | DA2_Pin | DA3_Pin | DA4_Pin | DA5_Pin | DA6_Pin | DA7_Pin; // assuming all these pins are on the same port
+	LL_GPIO_Init(DA0_GPIO_Port,  &GPIO_InitStruct);
+
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL; // we can set the I2C clk line to push-pull because nothing else uses the I2C lines
+
 	GPIO_InitStruct.Pin        = SW_I2C_SCL_Pin;
 	LL_GPIO_Init(SW_I2C_SCL_GPIO_Port, &GPIO_InitStruct);
+
 	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
+
 	GPIO_InitStruct.Pin        = SW_I2C_SDA_Pin;
 	LL_GPIO_Init(SW_I2C_SDA_GPIO_Port, &GPIO_InitStruct);
 
@@ -3364,7 +3378,7 @@ void MX_GPIO_Init(void)
 	LL_GPIO_Init(BUTT_RCL_GPIO_Port,  &GPIO_InitStruct);
 
 	// protect the button input pins from the DAC DMA, it corrupts the upper 8-bits of port-B :(
-	// note, this does not work, it's broken on this cpu :(
+	// note, this does not work, it's broken on this cpu, the internal pull-up/downs are not locked :(
 	LL_GPIO_LockPin(BUTT_HOLD_GPIO_Port, BUTT_HOLD_Pin);
 	LL_GPIO_LockPin(BUTT_SP_GPIO_Port,   BUTT_SP_Pin);
 	LL_GPIO_LockPin(BUTT_RCL_GPIO_Port,  BUTT_RCL_Pin);
@@ -3476,14 +3490,14 @@ void SysTick_Handler(void)
 {
 	HAL_IncTick();
 
-//	uint32_t HAL_GetTick();
+//	const uint32_t tick = HAL_GetTick();
 
 	sys_tick++;
 
 	#if 1
 	{	// debounce the push buttons
 
-		const uint32_t tick = sys_tick;
+		const uint32_t tick = sys_tick ? sys_tick : 1;
 
 		const int debounce_ms = 30;     // 30ms debounce time
 
@@ -3558,7 +3572,7 @@ void SysTick_Handler(void)
 //
 void DMA1_Channel1_IRQHandler(void)
 {
-	// pass the ADC sample blocks over to the routine that does something with them
+	// pass the new ADC sample block over to the routine that does something with them
 
 //	if (LL_DMA_IsActiveFlag_TE1(DMA1))                         // error
 //	{	// error
@@ -3566,13 +3580,13 @@ void DMA1_Channel1_IRQHandler(void)
 
 	if (LL_DMA_IsActiveFlag_HT1(DMA1))
 	{
-		LL_DMA_ClearFlag_HT1(DMA1);
+//		LL_DMA_ClearFlag_HT1(DMA1);
 		process_ADC_DMA(&adc_dma_buffer[0]);                   // lower half of ADC buffer
 	}
 
 	if (LL_DMA_IsActiveFlag_TC1(DMA1))
 	{
-		LL_DMA_ClearFlag_TC1(DMA1);
+//		LL_DMA_ClearFlag_TC1(DMA1);
 		process_ADC_DMA(&adc_dma_buffer[1]);                   // upper half of ADC buffer
 	}
 
@@ -3587,7 +3601,7 @@ void DMA1_Channel4_IRQHandler(void)
 //	if (LL_DMA_IsActiveFlag_TE4(DMA1) || LL_DMA_IsActiveFlag_TC4(DMA1))
 	{
 		LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_4);
-		LL_DMA_ClearFlag_GI4(DMA1);                                      // clear all DMA-1 CHANNEL-4 flags
+		LL_DMA_ClearFlag_GI4(DMA1);                            // clear all DMA-1 CHANNEL-4 flags
 	}
 }
 
@@ -3595,7 +3609,7 @@ void DMA1_Channel4_IRQHandler(void)
 //
 void USART1_IRQHandler(void)
 {
-	{	// RX int
+	{	// RX int, save all incoming bytes into our RX buffer
 
 		//if (LL_USART_IsActiveFlag_IDLE(USART1))
 		//	LL_USART_ClearFlag_IDLE(USART1);
@@ -3624,7 +3638,7 @@ void USART1_IRQHandler(void)
 	}
 
 	#if 0
-	{	// TX int
+	{	// TX int, send all bytes in our TX buffer
 
 		const uint8_t enabled = LL_USART_IsEnabledIT_TXE(USART1);
 		//if (enabled)
@@ -4593,13 +4607,13 @@ void process_uart_receive(void)
 		// number of bytes in our RX buffer waiting to be processed
 		uint32_t num = (buf_wr >= buf_rd) ? buf_wr - buf_rd : rx_buf_size - buf_rd;
 		if (num == 0)
-			break;                               // hmm, no new data ??
+			break;                  // hmm, no new data ??
 
 		// limit to fit into our RX text line buffer
 		num = (num > (line_buf_size - line_wr)) ? line_buf_size - line_wr : num;
 		if (num == 0)
 		{	// no room left, somethings not right, clear everything
-			serial.rx.buffer_rd = buf_rd = buf_wr;
+			serial.rx.buffer_rd      = buf_rd = buf_wr;
 			serial.rx.line.buffer_wr = line_wr = 0;
 			return;
 		}
@@ -4660,6 +4674,10 @@ void process_op_mode(void)
 			break;
 
 		case OP_MODE_SINE_TUNE:
+
+
+			// TODO: do whatever it is we were going to do
+
 
 //			if (++calibrate.count >= CALIBRATE_COUNT)
 			{	// finished
@@ -4859,6 +4877,7 @@ int main(void)
 	}
 	#endif
 
+	// fetch button ports n pins
 	button[BUTTON_HOLD].gpio_port = BUTT_HOLD_GPIO_Port;
 	button[BUTTON_HOLD].gpio_pin  = BUTT_HOLD_Pin;
 	button[BUTTON_SP].gpio_port   = BUTT_SP_GPIO_Port;
@@ -4869,7 +4888,7 @@ int main(void)
 	// set defaults
 	settings.series_ohms    = SERIES_RESISTOR_OHMS;      // this can be calibrated using a DUT with a known resistance value
 	settings.baudrate       = DEFAULT_UART_BAUDRATE;
-	settings.measurement_Hz = measurement_table_Hz[1];
+	settings.measurement_Hz = measurement_table_Hz[1];   // 1kHz
 //	settings.lcr_mode       = LCR_MODE_AUTO;
 	settings.lcr_mode       = LCR_MODE_CAPACITANCE;
 	settings.sp_mode        = SP_MODE_AUTO;
@@ -5027,7 +5046,7 @@ int main(void)
 		set_measurement_frequency(settings.measurement_Hz);
 	#endif
 
-//	start_sine_tune();
+//	start_sine_tune();   // not yet written .. TODO:
 
 	while (1)
 	{
@@ -5059,7 +5078,7 @@ int main(void)
 
 			frames++;
 
-			// start next data capture
+			// start next data capture cycle
 			vi_measure_index = 0;
 		}
 		else
@@ -5067,14 +5086,13 @@ int main(void)
 		if (system_data.vi_measure_mode != prev_vi_measure_mode && op_mode != OP_MODE_MEASURING)
 			draw_measurement_mode();
 
-		// save any unsaved settings
-		// we don't have a real EEPROM, so we use a bit of spare flash instead
-		//
 		if (save_settings_timer == 0)
-		{
-			if (eeprom_write_settings() >= 0)     // save settings
+		{	// time to save out settins
+			if (eeprom_write_settings() >= 0)     // do it
 			{	// done
-				save_settings_timer = -1;
+				save_settings_timer = -1;         // clear timer
+
+				// tell the world wot we just did !
 				printf(NEWLINE "settings saved" NEWLINE);
 			}
 		}

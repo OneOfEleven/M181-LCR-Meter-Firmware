@@ -114,7 +114,7 @@ void ssd1306_UpdateScreen(void)
 		txBuffer[0] = 0x40;                  // Control byte for data
 	#endif
 
-	for (int i = 0; i < 8; i++)
+	for (int i = 0; i < (SSD1306_HEIGHT / 8); i++)
 	{
 		ssd1306_WriteCommand(0xB0 + i);
 		ssd1306_WriteCommand(0x00);
