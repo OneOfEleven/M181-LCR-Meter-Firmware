@@ -23,7 +23,7 @@
 	void FASTCALL make_CRC16_table(void);
 #endif
 uint16_t FASTCALL CRC16(const uint16_t crc, const uint8_t data);
-uint16_t FASTCALL CRC16_block(uint16_t crc, const void *data, int n);
+uint16_t FASTCALL CRC16_block(uint16_t crc, const void *data, unsigned int n);
 
 #ifdef __cplusplus
 	}

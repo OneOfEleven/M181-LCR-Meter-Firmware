@@ -556,7 +556,7 @@ void __fastcall TForm1::FormClose(TObject *Sender, TCloseAction &Action)
 
 		::FreeConsole();
 	}
-	
+
 	if (m_bitmap_main)
 		delete m_bitmap_main;
 	m_bitmap_main = NULL;
@@ -846,7 +846,7 @@ void __fastcall TForm1::loadSettings()
 	NormaliseTrackBar->Position = ini->ReadInteger("Misc", "Normalised", NormaliseTrackBar->Position);
 
 	HistogramSpeedButton->Down = ini->ReadBool("Misc", "Histogram", HistogramSpeedButton->Down);
-	
+
 	delete ini;
 }
 
@@ -953,6 +953,9 @@ void __fastcall TForm1::serialDisconnect()
 
 	// disable data sending
 	m_serial.port.TxBytes("data off\n");
+	m_serial.port.TxBytes("data off\n");
+	m_serial.port.TxBytes("data off\n");
+	m_serial.port.TxBytes("data off\n");
 
 	Sleep(100);
 
@@ -1042,6 +1045,9 @@ bool __fastcall TForm1::serialConnect()
 	#endif
 
 	// enable binary sending
+	m_serial.port.TxBytes("\ndata bin\n");
+	m_serial.port.TxBytes("\ndata bin\n");
+	m_serial.port.TxBytes("\ndata bin\n");
 	m_serial.port.TxBytes("\ndata bin\n");
 
 	m_serial.client.ready = true;
@@ -1647,7 +1653,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 
 					if (i < 2)
 						continue;
-						
+
 					String s1, s2;
 					s1.printf(" %d ", level);
 					s2.printf(" %d ", -level);
@@ -1816,7 +1822,7 @@ void __fastcall TForm1::PaintBox1Paint(TObject *Sender)
 			s = " HIGH Gain ";
 			m_bitmap_main->Canvas->TextOut(x_size + (x_size / 2) - (m_bitmap_main->Canvas->TextWidth(s) / 2), 10, s);
 		}
-		
+
 		#if 0
 		{	// min/max limits
 			s.printf(" +-%.0f ", peak_value);
