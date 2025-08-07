@@ -1,10 +1,7 @@
 
 #include "crc.h"
 
-#define CRC_TABLE_4
-
-// x^16 + x^12 + x^5 + 1
-//#define CRC_POLY16       0x1021
+//#define CRC_POLY16       0x1021        // x^16 + x^12 + x^5 + 1
 #define CRC_POLY16_REV   0x8408
 
 #ifdef USE_CRC_TABLES
@@ -77,59 +74,36 @@
 			if (crc16_table_created)
 				return;
 
-			#ifdef CRC_TABLE_4
-				for (i = 0; i < 16; i++)
-				{
-					unsigned int k;
-					uint16_t crc = i << 8;
-					for (k = 8; k > 0; k--)
-						crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_REV : crc << 1;
-					CRC16_TABLE[i] = crc;
-				}
-			#else
-				for (i = 0; i < 256; i++)
-				{
-					unsigned int k;
-					uint16_t crc = i << 8;
-					for (k = 8; k > 0; k--)
-						crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_REV : crc << 1;
-					CRC16_TABLE[i] = crc;
-				}
-			#endif
+			for (i = 0; i < (sizeof(CRC16_TABLE) / sizeof(CRC16_TABLE[0])); i++)
+			{
+				unsigned int k;
+				uint16_t crc = i << 8;
+				for (k = 8; k > 0; k--)
+					crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_REV : crc << 1;
+				CRC16_TABLE[i] = crc;
+			}
 
 			crc16_table_created = 1;
 		}
 
 	#endif
 
-	#ifdef CRC_TABLE_4
+	uint16_t FASTCALL CRC16(uint16_t crc, const uint8_t data)
+	{
+		#ifndef USE_CRC_FLASH
+			if (!crc16_table_created)
+				make_CRC16_table();
+		#endif
 
-		uint16_t FASTCALL CRC16(uint16_t crc, const uint8_t data)
-		{
-			#ifndef USE_CRC_FLASH
-				if (!crc16_table_created)
-					make_CRC16_table();
-			#endif
-
+		#ifdef CRC_TABLE_4
 			crc ^= (uint16_t)data << 8;
 			crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
 			crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
 			return crc;
-		}
-
-	#else
-
-		uint16_t FASTCALL CRC16(const uint16_t crc, const uint8_t data)
-		{
-			#ifndef USE_CRC_FLASH
-				if (!crc16_table_created)
-					make_CRC16_table();
-			#endif
-
+		#else
 			return (crc << 8) ^ CRC16_TABLE[(crc >> 8) ^ data];
-		}
-
-	#endif
+		#endif
+	}
 
 	uint16_t FASTCALL CRC16_block(uint16_t crc, const void *data, unsigned int n)
 	{
@@ -141,7 +115,7 @@
 		#endif
 
 		while (n >= 4)
-		{
+		{	// loop unroll
 			#ifdef CRC_TABLE_4
 				crc ^= (uint16_t)(*data8++) << 8;
 				crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];

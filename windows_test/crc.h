@@ -17,7 +17,8 @@
 #endif
 
 //#define USE_CRC_FLASH   // CRC tables in flash rather than EAM
-#define USE_CRC_TABLES  // fast CRC .. if you have the flash or RAM to spare for the CRC tables
+#define USE_CRC_TABLES    // fast CRC
+//#define CRC_TABLE_4
 
 #ifndef USE_CRC_FLASH
 	void FASTCALL make_CRC16_table(void);

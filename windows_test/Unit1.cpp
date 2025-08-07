@@ -1173,10 +1173,8 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 	while (client.rx.buffer_wr >= sizeof(t_packet))
 	{
 		if (packet->marker != PACKET_MARKER)
-		{
-			// slide the data down on byte
-			memmove(&client.rx.buffer[0], &client.rx.buffer[1], client.rx.buffer_wr - 1);
-			client.rx.buffer_wr--;
+		{	// slide the data down on byte
+			memmove(&client.rx.buffer[0], &client.rx.buffer[1], --client.rx.buffer_wr);
 			continue;
 		}
 
@@ -1184,12 +1182,9 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 
 		const uint16_t crc = CRC16_block(0, packet->data, sizeof(packet->data));
 //		if (crc != packet->crc)
-		if (crc != packet->crc && packet->crc != 0)  // allow the packet if the CRC is 0x0000
-		{
-			// slide the data down on byte
-			memmove(&client.rx.buffer[0], &client.rx.buffer[1], client.rx.buffer_wr - 1);
-			client.rx.buffer_wr--;
-
+		if (crc != packet->crc && packet->crc != 0)  // ignore the CRC check if the CRC is '0'
+		{	// slide the data down on byte
+			memmove(&client.rx.buffer[0], &client.rx.buffer[1], --client.rx.buffer_wr);
 			printf("error: crc\r\n");
 			continue;
 		}
@@ -1303,8 +1298,12 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 	// remove spent data
 	const unsigned int size = sizeof(uint32_t) + sizeof(m_values);
 	if (client.rx.buffer_wr > size)
+	{
 		memmove(&client.rx.buffer[0], &client.rx.buffer[1], client.rx.buffer_wr - size);
-	client.rx.buffer_wr -= size;
+		client.rx.buffer_wr -= size;
+	}
+	else
+		client.rx.buffer_wr = 0;
 #endif
 }
 
