@@ -166,6 +166,9 @@
 #define SWCLK_Pin                    LL_GPIO_PIN_14
 #define SWCLK_GPIO_Port              GPIOA
 
+#define PWR_Pin                      LL_GPIO_PIN_15
+#define PWR_GPIO_Port                GPIOA
+
 #define DA0_Pin                      LL_GPIO_PIN_0
 #define DA0_GPIO_Port                GPIOB
 
@@ -189,6 +192,9 @@
 
 #define DA7_Pin                      LL_GPIO_PIN_7
 #define DA7_GPIO_Port                GPIOB
+
+#define BUTT_PWR_Pin                 LL_GPIO_PIN_12
+#define BUTT_PWR_GPIO_Port           GPIOB
 
 #define BUTT_HOLD_Pin                LL_GPIO_PIN_13
 #define BUTT_HOLD_GPIO_Port          GPIOB
@@ -349,7 +355,8 @@
 
 // User push butons
 enum {
-	BUTTON_HOLD = 0,
+	BUTTON_PWR = 0,
+	BUTTON_HOLD,
 	BUTTON_SP,
 	BUTTON_RCL,
 	BUTTON_COUNT

@@ -1775,11 +1775,13 @@ void OPTIMIZE_SPEED add_ADC_to_average(const unsigned int vi_mode, const unsigne
 	}
 }
 
-// fetch & re-scale the summed ADC sample blocks to create an averaged single block of samples
+// fetch & re-scale the summed ADC sample blocks to create an averaged single block of FP samples
 //
 void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsigned int skip_block_count)
 {
 	const unsigned int buf_index = vi_mode * 2;
+
+	const uint8_t clipped = adc_data_clipping[vi_mode];
 
 	// point to buffers where we'll save the averaged samples into
 	register float *buf_adc = adc_data[buf_index + 0];
@@ -1792,18 +1794,20 @@ void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsig
 			buf_adc[i] = adc_buffer_sum[i].adc * scale;
 			buf_afc[i] = adc_buffer_sum[i].afc * scale;
 		}
+
+		// reset averaging buffer ready for the next measurement run
+		memset(adc_buffer_sum, 0, sizeof(adc_buffer_sum));
+		adc_buffer_sum_count = 0;
 	}
 
 	// compute ADC DC offset
 	register float adc_sum = 0;
-	if (!adc_data_clipping[vi_mode])                 // don't bother if the samples are clipped (sample block is useless to us)
+	if (!clipped)                       // don't bother if the samples are clipped (sample block is useless to us)
 	{
 		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
 			adc_sum += buf_adc[i];
 		adc_sum *= 1.0f / ADC_DATA_LENGTH;
 	}
-//	else
-//		adc_sum = adc_dc_offset[buf_index + 0];
 
 	// compute AFC DC offset
 	register float afc_sum = 0;
@@ -1811,57 +1815,44 @@ void OPTIMIZE_SPEED finish_ADC_averaging(const unsigned int vi_mode, const unsig
 		afc_sum += buf_afc[i];
 	afc_sum *= 1.0f / ADC_DATA_LENGTH;
 
+	// save the DC offset
+	if (frames <= 1)
+	{
+		adc_dc_offset[buf_index + 0] = adc_sum;
+		adc_dc_offset[buf_index + 1] = afc_sum;
+	}
+	else
+	if (!clipped)
+	{
+		const float coeff = 0.3;
+
+		adc_dc_offset[buf_index + 0] = ((1.0f - coeff) * adc_dc_offset[buf_index + 0]) + (coeff * adc_sum);
+		adc_sum = adc_dc_offset[buf_index + 0];
+
+		adc_dc_offset[buf_index + 1] = ((1.0f - coeff) * adc_dc_offset[buf_index + 1]) + (coeff * afc_sum);
+		afc_sum = adc_dc_offset[buf_index + 1];
+	}
+
 	if (op_mode == OP_MODE_SINE_TUNE)
 	{
-
-		// save it
-		adc_dc_offset[buf_index + 1] = afc_sum;
-
 
 		//  TODO:
 
 	}
 	else
+//	if (!display_hold || op_mode != OP_MODE_MEASURING)
+	if (!display_hold)
 	{	// remove DC offset from this new block of averaged samples
+		//
+		// although if we are Goertzel filtering them, then this step is not required as the BPF filter removes all traces of any DC offset
 
-		const float coeff = (frames <= 3) ? 0.9 : 0.3;   // fast LPF convergence to start with, then switch to slower coeff
+		if (!clipped)
+			for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+				buf_adc[i] -= adc_sum;
 
-		const unsigned int calibrating = (op_mode != OP_MODE_MEASURING) ? 1 : 0;  // set if we're doing a calibration run
-
-//		if (!adc_data_clipping[vi_mode] || calibrating)  // don't bother if the samples are clipped (sample block is useless to us)
-		if (!adc_data_clipping[vi_mode])                 // don't bother if the samples are clipped (sample block is useless to us)
-		{	// ADC input
-
-			// smooth the DC offset value (LPF)
-//			if (!adc_data_clipping[vi_mode])
-				adc_dc_offset[buf_index + 0] = ((1.0f - coeff) * adc_dc_offset[buf_index + 0]) + (coeff * adc_sum);
-
-			if (!display_hold || calibrating)
-			{	// subtract/remove the DC offset
-//				if (!adc_data_clipping[vi_mode])
-					adc_sum = adc_dc_offset[buf_index + 0];
-				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-					buf_adc[i] -= adc_sum;
-			}
-		}
-
-		{	// AFC input
-
-			// smooth the DC offset value (LPF)
-			adc_dc_offset[buf_index + 1] = ((1.0f - coeff) * adc_dc_offset[buf_index + 1]) + (coeff * afc_sum);
-
-			if (!display_hold || calibrating)
-			{	// subtract/remove the DC offset
-				afc_sum = adc_dc_offset[buf_index + 1];
-				for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
-					buf_afc[i] -= afc_sum;
-			}
-		}
+		for (unsigned int i = 0; i < ADC_DATA_LENGTH; i++)
+			buf_afc[i] -= afc_sum;
 	}
-
-	// reset averaging buffer ready for the next measurement run
-	memset(adc_buffer_sum, 0, sizeof(adc_buffer_sum));
-	adc_buffer_sum_count = 0;
 }
 
 // process the new averaged sample blocks to finally get the DUT parameters
@@ -3326,6 +3317,7 @@ void MX_GPIO_Init(void)
 	// *****************
 	// output pins
 
+	LL_GPIO_ResetOutputPin(PWR_GPIO_Port,  PWR_Pin);
 	LL_GPIO_ResetOutputPin(TP21_GPIO_Port, TP21_Pin);
 	LL_GPIO_ResetOutputPin(TP22_GPIO_Port, TP22_Pin);
 	LL_GPIO_ResetOutputPin(LED_GPIO_Port,  LED_Pin);
@@ -3364,12 +3356,16 @@ void MX_GPIO_Init(void)
 
 	GPIO_InitStruct.Pin        = SW_I2C_SDA_Pin;
 	LL_GPIO_Init(SW_I2C_SDA_GPIO_Port, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin        = PWR_Pin;
+	LL_GPIO_Init(PWR_GPIO_Port,  &GPIO_InitStruct);
 
 	// *****************
 	// input pins
 
 	GPIO_InitStruct.Mode       = LL_GPIO_MODE_INPUT;
 	GPIO_InitStruct.Pull       = LL_GPIO_PULL_UP;
+	GPIO_InitStruct.Pin        = BUTT_PWR_Pin;
+	LL_GPIO_Init(BUTT_PWR_GPIO_Port,  &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = BUTT_HOLD_Pin;
 	LL_GPIO_Init(BUTT_HOLD_GPIO_Port, &GPIO_InitStruct);
 	GPIO_InitStruct.Pin        = BUTT_SP_Pin;
@@ -3379,6 +3375,7 @@ void MX_GPIO_Init(void)
 
 	// protect the button input pins from the DAC DMA, it corrupts the upper 8-bits of port-B :(
 	// note, this does not work, it's broken on this cpu, the internal pull-up/downs are not locked :(
+	LL_GPIO_LockPin(BUTT_PWR_GPIO_Port,  BUTT_PWR_Pin);
 	LL_GPIO_LockPin(BUTT_HOLD_GPIO_Port, BUTT_HOLD_Pin);
 	LL_GPIO_LockPin(BUTT_SP_GPIO_Port,   BUTT_SP_Pin);
 	LL_GPIO_LockPin(BUTT_RCL_GPIO_Port,  BUTT_RCL_Pin);
@@ -3754,6 +3751,46 @@ void process_buttons(void)
 		for (unsigned int i = 0; i < BUTTON_COUNT; i++)
 			button[i].processed = 1;
 
+		return;
+	}
+
+	// *************
+	// PWR button
+
+	if (button[BUTTON_PWR].pressed_ms > 0)
+	{
+		if (button[BUTTON_PWR].held_ms >= 500 && button[BUTTON_PWR].processed == 0)
+		{	// PWR held down
+			button[BUTTON_PWR].processed = 1;
+
+			if (save_settings_timer >= 0)
+			{	// save settings before we shut down
+				if (eeprom_write_settings() >= 0)     // do it
+				{	// done
+					save_settings_timer = -1;         // clear timer
+
+					// tell the world wot we just did !
+					printf(NEWLINE "settings saved" NEWLINE);
+				}
+			}
+
+			printf(NEWLINE "powering off .." NEWLINE);
+
+			// release power
+			LL_GPIO_SetOutputPin(PWR_GPIO_Port, PWR_Pin);
+		}
+		return;
+	}
+
+	if (button[BUTTON_PWR].released)
+	{
+		if (button[BUTTON_PWR].processed == 0)
+		{
+			button[BUTTON_PWR].processed = 1;
+
+			display_hold = 0;
+			draw_screen();
+		}
 		return;
 	}
 
@@ -4878,6 +4915,8 @@ int main(void)
 	#endif
 
 	// fetch button ports n pins
+	button[BUTTON_PWR].gpio_port  = BUTT_PWR_GPIO_Port;
+	button[BUTTON_PWR].gpio_pin   = BUTT_PWR_Pin;
 	button[BUTTON_HOLD].gpio_port = BUTT_HOLD_GPIO_Port;
 	button[BUTTON_HOLD].gpio_pin  = BUTT_HOLD_Pin;
 	button[BUTTON_SP].gpio_port   = BUTT_SP_GPIO_Port;
@@ -5062,6 +5101,22 @@ int main(void)
 		// service user input, this is high priority !
 		process_buttons();
 
+		if (LL_GPIO_IsOutputPinSet(PWR_GPIO_Port, PWR_Pin))
+		{	// we have released power from our self
+			// stay here till lights out
+			initialising = 1;
+			LL_TIM_DisableCounter(TIM3);                     // don't need the ADC ints anymore
+			LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);    // LED on
+			while (1)
+			{
+				__WFI();
+				#ifdef USE_IWDG
+					// feed the doggy
+					service_IWDG(0);
+				#endif
+			}
+		}
+
 		// process any data received via the serial port
 		process_uart_receive();
 
@@ -5087,7 +5142,7 @@ int main(void)
 			draw_measurement_mode();
 
 		if (save_settings_timer == 0)
-		{	// time to save out settins
+		{	// time to save our settings
 			if (eeprom_write_settings() >= 0)     // do it
 			{	// done
 				save_settings_timer = -1;         // clear timer
