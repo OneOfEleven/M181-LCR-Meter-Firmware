@@ -2880,6 +2880,8 @@ void SystemClock_Config(void)
 
 	LL_RCC_SetADCClockSource(LL_RCC_ADC_CLKSRC_PCLK2_DIV_6);
 
+	LL_RCC_GetSystemClocksFreq(&rcc_clocks);
+	
 //	if (HAL_InitTick(TICK_INT_PRIORITY) != HAL_OK)
 //		Error_Handler();
 
@@ -4940,12 +4942,11 @@ int main(void)
 	DWT_Delay_Init();
 	HAL_Init();
 	SystemClock_Config();
+	MX_GPIO_Init();
+	MX_CRC_Init();
 	#ifdef USE_IWDG
 		MX_IWDG_Init();
 	#endif
-	LL_RCC_GetSystemClocksFreq(&rcc_clocks);
-	MX_GPIO_Init();
-	MX_CRC_Init();
 
 	// fetch saved settings
 	eeprom_read_settings();

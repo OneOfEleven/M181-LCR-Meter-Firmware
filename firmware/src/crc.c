@@ -3,8 +3,9 @@
 
 #include "crc.h"
 
-//#define CRC_POLY16       0x1021        // x^16 + x^12 + x^5 + 1
-#define CRC_POLY16_REV   0x8408
+// CCITT polynomial x^16 + x^12 + x^5 + 1
+#define CRC_POLY16_FWD  0x1021
+//#define CRC_POLY16_REV   0x8408
 
 #ifdef USE_CRC_TABLES
 
@@ -82,8 +83,8 @@
 //				uint16_t crc = i;
 				uint16_t crc = i << 8;
 				for (k = 8; k > 0; k--)
-//					crc = (crc &     1u) ? (crc >> 1) ^ CRC_POLY16     : crc >> 1;
-					crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_REV : crc << 1;
+					crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_FWD : crc << 1;
+//					crc = (crc &     1u) ? (crc >> 1) ^ CRC_POLY16_REV : crc >> 1;
 				CRC16_TABLE[i] = crc;
 			}
 
@@ -165,8 +166,8 @@
 //		crc ^= (uint16_t)data;
 		crc ^= (uint16_t)data << 8;
 		for (i = 8; i > 0; i--)
-//			crc = (crc &     1u) ? (crc >> 1) ^ CRC_POLY16     : crc >> 1;
-			crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_REV : crc << 1;
+			crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_FWD : crc << 1;
+//			crc = (crc &     1u) ? (crc >> 1) ^ CRC_POLY16_REV : crc >> 1;
 		return crc;
 	}
 
