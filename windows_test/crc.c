@@ -103,7 +103,7 @@
 			return crc;
 		#else
 			return (crc << 8) ^ CRC16_TABLE[(crc >> 8) ^ data];
-//			return (crc >> 8) ^ CRC16_TABLE[(crc >> 8) ^ data];
+//			return (crc >> 8) ^ CRC16_TABLE[(crc & 0xff) ^ data];
 		#endif
 	}
 
