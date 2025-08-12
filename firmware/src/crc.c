@@ -13,6 +13,7 @@
 #ifdef USE_CRC_TABLES
 
 	#ifdef USE_CRC_FLASH
+		// table is located in FLASH
 
 		static const uint16_t CRC16_TABLE[] =
 		{	// 0x1021
@@ -55,14 +56,15 @@
 		};
 
 	#else
+		// table is located in RAM
 
 		uint8_t crc16_table_created = 0;
 
 		#pragma pack(push, 1)
 			#ifdef CRC_TABLE_4
-				uint16_t CRC16_TABLE[16];
+				uint16_t CRC16_TABLE[16];             // nibble table
 			#else
-				uint16_t CRC16_TABLE[256];
+				uint16_t CRC16_TABLE[256];            // full table
 			#endif
 		#pragma pack(pop)
 
@@ -76,11 +78,11 @@
 			for (i = 0; i < (sizeof(CRC16_TABLE) / sizeof(CRC16_TABLE[0])); i++)
 			{
 				unsigned int k;
-				uint16_t crc = i << 8;
-//				uint16_t crc = i;
+				uint16_t crc = i << 8;                                                            // forward
+//				uint16_t crc = i;                                                                 // reflected
 				for (k = 8; k > 0; k--)
-					crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_FWD : crc << 1;
-//					crc = (crc &     1u) ? (crc >> 1) ^ CRC_POLY16_REV : crc >> 1;
+					crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_FWD : crc << 1;                // forward
+//					crc = (crc &     1u) ? (crc >> 1) ^ CRC_POLY16_REV : crc >> 1;                // reflected
 				CRC16_TABLE[i] = crc;
 			}
 
@@ -97,9 +99,11 @@
 		#endif
 
 		#ifdef CRC_TABLE_4
+			// forward
 			crc ^= (uint16_t)data << 8;
 			crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
 			crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
+			// reflected
 //			crc ^= data;
 //			crc = (crc >> 4) ^ CRC16_TABLE[crc & 0x0f];
 //			crc = (crc >> 4) ^ CRC16_TABLE[crc & 0x0f];
@@ -134,11 +138,17 @@
 				crc ^= (uint16_t)(*data8++) << 8;
 				crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
 				crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
+
+				// TODO: add reflected code
+
 			#else
 				crc = (crc << 8) ^ CRC16_TABLE[(crc >> 8) ^ *data8++];
 				crc = (crc << 8) ^ CRC16_TABLE[(crc >> 8) ^ *data8++];
 				crc = (crc << 8) ^ CRC16_TABLE[(crc >> 8) ^ *data8++];
 				crc = (crc << 8) ^ CRC16_TABLE[(crc >> 8) ^ *data8++];
+
+				// TODO: add reflected code
+
 			#endif
 			n -= 4;
 		}
@@ -146,15 +156,17 @@
 		while (n--)
 		{
 			#ifdef CRC_TABLE_4
+				// forward
 				crc ^= (uint16_t)(*data8++) << 8;
 				crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
 				crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
+				// reflected
 //				crc ^= *data8++;
 //				crc = (crc >> 4) ^ CRC16_TABLE[crc & 0x0f];
 //				crc = (crc >> 4) ^ CRC16_TABLE[crc & 0x0f];
 			#else
-				crc = (crc << 8) ^ CRC16_TABLE[(crc >> 8) ^ *data8++];
-//				crc = (crc >> 8) ^ CRC16_TABLE[(crc & 0xff) ^ *data8++];
+				crc = (crc << 8) ^ CRC16_TABLE[(crc >> 8) ^ *data8++];                  // forward
+//				crc = (crc >> 8) ^ CRC16_TABLE[(crc & 0xff) ^ *data8++];                // reflected
 			#endif
 		}
 
@@ -167,11 +179,11 @@
 	uint16_t FASTCALL CRC16(uint16_t crc, const uint8_t data)
 	{	// bit bang (no table)
 		unsigned int i;
-		crc ^= (uint16_t)data << 8;
-//		crc ^= data;
+		crc ^= (uint16_t)data << 8;                                                     // forward
+//		crc ^= data;                                                                    // reflected
 		for (i = 8; i > 0; i--)
-			crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_FWD : crc << 1;
-//			crc = (crc &     1u) ? (crc >> 1) ^ CRC_POLY16_REV : crc >> 1;
+			crc = (crc & 0x8000) ? (crc << 1) ^ CRC_POLY16_FWD : crc << 1;              // forward
+//			crc = (crc &     1u) ? (crc >> 1) ^ CRC_POLY16_REV : crc >> 1;              // reflected
 		return crc;
 	}
 
@@ -197,8 +209,9 @@
 #ifdef USE_CRC_TABLES
 
 	#ifdef USE_CRC_FLASH
+		// table is located in FLASH
 
-		static const uint32_t CRC16_TABLE[] =
+		static const uint32_t CRC32_TABLE[] =
 		{	// 0x04C11DB7
 			0x00000000, 0x04c11db7, 0x09823b6e, 0x0d4326d9, 0x130476dc, 0x17c56b6b, 0x1a864db2, 0x1e475005,
 			0x2608edb8, 0x22c9f00f, 0x2f8ad6d6, 0x2b4bcb61, 0x350c9b64, 0x31cd86d3, 0x3c8ea00a, 0x384fbdbd,
@@ -239,14 +252,15 @@
 		};
 
 	#else
+		// table is located in RAM
 
 		uint8_t crc32_table_created = 0;
 
 		#pragma pack(push, 1)
 			#ifdef CRC_TABLE_4
-				uint16_t CRC32_TABLE[16];
+				uint32_t CRC32_TABLE[16];          // nibble table
 			#else
-				uint16_t CRC32_TABLE[256];
+				uint32_t CRC32_TABLE[256];         // full table
 			#endif
 		#pragma pack(pop)
 
@@ -263,8 +277,8 @@
 				uint32_t crc = i << 24;
 //				uint32_t crc = i;
 				for (k = 8; k > 0; k--)
-					crc = (crc & 0x80000000) ? (crc << 1) ^ CRC_POLY32_FWD : crc << 1;
-//					crc = (crc &         1u) ? (crc >> 1) ^ CRC_POLY32_REV : crc >> 1;
+					crc = (crc & 0x80000000) ? (crc << 1) ^ CRC_POLY32_FWD : crc << 1;   // forward
+//					crc = (crc &         1u) ? (crc >> 1) ^ CRC_POLY32_REV : crc >> 1;   // reflected
 				CRC32_TABLE[i] = crc;
 			}
 
@@ -281,16 +295,18 @@
 		#endif
 
 		#ifdef CRC_TABLE_4
+			// forward
 			crc ^= (uint32_t)data << 24;
 			crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 			crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
+			// reflected
 //			crc ^= data;
 //			crc = (crc >> 4) ^ CRC32_TABLE[crc & 0x0f];
 //			crc = (crc >> 4) ^ CRC32_TABLE[crc & 0x0f];
 			return crc;
 		#else
-			return (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ data];
-//			return (crc >> 8) ^ CRC32_TABLE[(crc & 0xff) ^ data];
+			return (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ data];                // forward
+//			return (crc >> 8) ^ CRC32_TABLE[(crc & 0xff) ^ data];               // reflected
 		#endif
 	}
 
@@ -318,11 +334,17 @@
 				crc ^= (uint32_t)(*data8++) << 24;
 				crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 				crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
+
+				// TODO: add reflected code
+
 			#else
 				crc = (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ *data8++];
 				crc = (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ *data8++];
 				crc = (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ *data8++];
 				crc = (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ *data8++];
+
+				// TODO: add reflected code
+
 			#endif
 			n -= 4;
 		}
@@ -330,15 +352,17 @@
 		while (n--)
 		{
 			#ifdef CRC_TABLE_4
+				// forward
 				crc ^= (uint32_t)(*data8++) << 24;
 				crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 				crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
+				// reflected
 //				crc ^= *data8++;
 //				crc = (crc >> 4) ^ CRC32_TABLE[crc & 0x0f];
 //				crc = (crc >> 4) ^ CRC32_TABLE[crc & 0x0f];
 			#else
-				crc = (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ *data8++];
-//				crc = (crc >> 8) ^ CRC32_TABLE[(crc & 0xff) ^ *data8++];
+				crc = (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ *data8++];    // forward
+//				crc = (crc >> 8) ^ CRC32_TABLE[(crc & 0xff) ^ *data8++];   // reflected
 			#endif
 		}
 
@@ -354,8 +378,8 @@
 		crc ^= (uint32_t)data << 24;
 //		crc ^= data;
 		for (i = 8; i > 0; i--)
-			crc = (crc & 0x80000000) ? (crc << 1) ^ CRC_POLY32_FWD : crc << 1;
-//			crc = (crc &         1u) ? (crc >> 1) ^ CRC_POLY32_REV : crc >> 1;
+			crc = (crc & 0x80000000) ? (crc << 1) ^ CRC_POLY32_FWD : crc << 1;   // forward
+//			crc = (crc &         1u) ? (crc >> 1) ^ CRC_POLY32_REV : crc >> 1;   // reflected
 		return crc;
 	}
 
