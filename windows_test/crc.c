@@ -3,6 +3,48 @@
 
 #include "crc.h"
 
+// ***************************************
+
+inline uint8_t FASTCALL bit_rev8(uint8_t n)
+{
+	n = ((n >> 1) & 0x55u) | ((n << 1) & 0xAAu);
+	n = ((n >> 2) & 0x33u) | ((n << 2) & 0xCCu);
+	n = ((n >> 4) & 0x0Fu) | ((n << 4) & 0xF0u);
+	return n;
+}
+
+inline uint16_t FASTCALL bit_rev16(uint16_t n)
+{	// untested
+	n = ((n >> 1) & 0x5555u) | ((n << 1) & 0xAAAAu);
+	n = ((n >> 2) & 0x3333u) | ((n << 2) & 0xCCCCu);
+	n = ((n >> 4) & 0x0F0Fu) | ((n << 4) & 0xF0F0u);
+	n = ((n >> 8) & 0x00FFu) | ((n << 8) & 0xFF00u);
+   return n;
+}
+
+inline uint32_t FASTCALL bit_rev32(uint32_t n)
+{
+	n = ((n >>  1) & 0x55555555u) | ((n <<  1) & 0xAAAAAAAAu);
+	n = ((n >>  2) & 0x33333333u) | ((n <<  2) & 0xCCCCCCCCu);
+	n = ((n >>  4) & 0x0F0F0F0Fu) | ((n <<  4) & 0xF0F0F0F0u);
+	n = ((n >>  8) & 0x00FF00FFu) | ((n <<  8) & 0xFF00FF00u);
+	n = ((n >> 16) & 0x0000FFFFu) | ((n << 16) & 0xFFFF0000u);
+	return n;
+}
+
+inline uint64_t FASTCALL bit_rev64(uint64_t n)
+{
+	n = ((n >>  1) & 0x5555555555555555u) | ((n <<  1) & 0xAAAAAAAAAAAAAAAAu);
+	n = ((n >>  2) & 0x3333333333333333u) | ((n <<  2) & 0xCCCCCCCCCCCCCCCCu);
+	n = ((n >>  4) & 0x0F0F0F0F0F0F0F0Fu) | ((n <<  4) & 0xF0F0F0F0F0F0F0F0u);
+	n = ((n >>  8) & 0x00FF00FF00FF00FFu) | ((n <<  8) & 0xFF00FF00FF00FF00u);
+	n = ((n >> 16) & 0x0000FFFF0000FFFFu) | ((n << 16) & 0xFFFF0000FFFF0000u);
+	n = ((n >> 32) & 0x00000000FFFFFFFFu) | ((n << 32) & 0xFFFFFFFF00000000u);
+	return n;
+}
+
+// ***************************************
+
 #if defined(CRC_FWD_16) || defined(CRC_REV_16)
 	// 16-bit
 
@@ -396,6 +438,7 @@
 					{
 						unsigned int k;
 						uint32_t crc = i << 24;
+//						uint32_t crc = __RBIT(i);
 						for (k = 8; k > 0; k--)
 							crc = (crc & 0x80000000) ? (crc << 1) ^ CRC_POLY32_FWD : crc << 1;
 						CRC32_TABLE[i] = crc;
@@ -426,6 +469,7 @@
 			#ifdef CRC_TABLE_4
 				#if defined(CRC_FWD_32)
 					crc ^= (uint32_t)data << 24;
+//					crc ^= __RBIT((uint32_t)data);
 					crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 					crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 				#elif defined(CRC_REV_32)
@@ -437,6 +481,7 @@
 			#else
 				#if defined(CRC_FWD_32)
 					return (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ data];
+//					return (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ __RBIT(data)];
 				#elif defined(CRC_REV_32)
 					return (crc >> 8) ^ CRC32_TABLE[(crc & 0xff) ^ data];
 				#endif
@@ -456,16 +501,20 @@
 			{	// loop unroll
 				#ifdef CRC_TABLE_4
 					#if defined(CRC_FWD_32)
-						crc ^= (uint32_t)(*data8++) << 24;
+						crc ^= (uint32_t)*data8++ << 24;
+//						crc ^= __RBIT((uint32_t)*data8++);
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
-						crc ^= (uint32_t)(*data8++) << 24;
+						crc ^= (uint32_t)*data8++ << 24;
+//						crc ^= __RBIT((uint32_t)*data8++);
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
-						crc ^= (uint32_t)(*data8++) << 24;
+						crc ^= (uint32_t)*data8++ << 24;
+//						crc ^= __RBIT((uint32_t)*data8++);
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
-						crc ^= (uint32_t)(*data8++) << 24;
+						crc ^= (uint32_t)*data8++ << 24;
+//						crc ^= __RBIT((uint32_t)*data8++);
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 					#elif defined(CRC_REV_32)
@@ -502,7 +551,8 @@
 			{
 				#ifdef CRC_TABLE_4
 					#if defined(CRC_FWD_32)
-						crc ^= (uint32_t)(*data8++) << 24;
+						crc ^= (uint32_t)*data8++ << 24;
+//						crc ^= __RBIT((uint32_t)*data8++);
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 						crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 					#elif defined(CRC_REV_32)
@@ -513,6 +563,7 @@
 				#else
 					#if defined(CRC_FWD_32)
 						crc = (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ *data8++];
+//						crc = (crc << 8) ^ CRC32_TABLE[(crc >> 24) ^ __RBIT(*data8++)];
 					#elif defined(CRC_REV_32)
 						crc = (crc >> 8) ^ CRC32_TABLE[(crc & 0xff) ^ *data8++];
 					#endif
@@ -530,6 +581,7 @@
 			unsigned int i;
 			#if defined(CRC_FWD_32)
 				crc ^= (uint32_t)data << 24;
+//				crc ^= __RBIT((uint32_t)data);
 				for (i = 8; i > 0; i--)
 					crc = (crc & 0x80000000) ? (crc << 1) ^ CRC_POLY32_FWD : crc << 1;
 			#elif defined(CRC_REV_32)
