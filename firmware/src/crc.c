@@ -100,6 +100,7 @@
 			crc ^= (uint16_t)data << 8;
 			crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
 			crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
+//			crc ^= data;
 //			crc = (crc >> 4) ^ CRC16_TABLE[crc & 0x0f];
 //			crc = (crc >> 4) ^ CRC16_TABLE[crc & 0x0f];
 			return crc;
