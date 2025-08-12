@@ -8,23 +8,31 @@
 	extern "C" {
 #endif
 
-#include <stdint.h>
-
 #if (__BORLANDC__)
 	#define FASTCALL __fastcall
 #else
 	#define FASTCALL
 #endif
 
-//#define USE_CRC_FLASH   // CRC tables in flash rather than EAM
-#define USE_CRC_TABLES    // fast CRC
-//#define CRC_TABLE_4
+#include <stdint.h>
+
+//#define USE_CRC_FLASH   // CRC tables in flash rather than RAM, RAM access is faster though
+#define USE_CRC_TABLES    // CRC tables (fast)
+//#define CRC_TABLE_4       // use smaller tables
 
 #ifndef USE_CRC_FLASH
 	void FASTCALL make_CRC16_table(void);
 #endif
 uint16_t FASTCALL CRC16(const uint16_t crc, const uint8_t data);
 uint16_t FASTCALL CRC16_block(uint16_t crc, const void *data, unsigned int n);
+
+/*
+#ifndef USE_CRC_FLASH
+	void FASTCALL make_CRC32_table(void);
+#endif
+uint16_t FASTCALL CRC32(const uint32_t crc, const uint8_t data);
+uint16_t FASTCALL CRC32_block(uint32_t crc, const void *data, unsigned int n);
+*/
 
 #ifdef __cplusplus
 	}

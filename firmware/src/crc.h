@@ -26,7 +26,13 @@
 uint16_t FASTCALL CRC16(const uint16_t crc, const uint8_t data);
 uint16_t FASTCALL CRC16_block(uint16_t crc, const void *data, unsigned int n);
 
-//uint32_t FASTCALL crc32(uint32_t *data, uint32_t count, const uint8_t reset);
+/*
+#ifndef USE_CRC_FLASH
+	void FASTCALL make_CRC32_table(void);
+#endif
+uint16_t FASTCALL CRC32(const uint32_t crc, const uint8_t data);
+uint16_t FASTCALL CRC32_block(uint32_t crc, const void *data, unsigned int n);
+*/
 
 #ifdef __cplusplus
 	}
