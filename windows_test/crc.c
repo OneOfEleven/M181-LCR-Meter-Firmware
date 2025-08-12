@@ -58,11 +58,13 @@
 
 		uint8_t crc16_table_created = 0;
 
-		#ifdef CRC_TABLE_4
-			uint16_t CRC16_TABLE[16];
-		#else
-			uint16_t CRC16_TABLE[256];
-		#endif
+		#pragma pack(push, 1)
+			#ifdef CRC_TABLE_4
+				uint16_t CRC16_TABLE[16];
+			#else
+				uint16_t CRC16_TABLE[256];
+			#endif
+		#pragma pack(pop)
 
 		void FASTCALL make_CRC16_table(void)
 		{
@@ -146,6 +148,7 @@
 				crc ^= (uint16_t)(*data8++) << 8;
 				crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
 				crc = (crc << 4) ^ CRC16_TABLE[crc >> 12];
+//				crc ^= *data8++;
 //				crc = (crc >> 4) ^ CRC16_TABLE[crc & 0x0f];
 //				crc = (crc >> 4) ^ CRC16_TABLE[crc & 0x0f];
 			#else
@@ -238,11 +241,13 @@
 
 		uint8_t crc32_table_created = 0;
 
-		#ifdef CRC_TABLE_4
-			uint16_t CRC32_TABLE[16];
-		#else
-			uint16_t CRC32_TABLE[256];
-		#endif
+		#pragma pack(push, 1)
+			#ifdef CRC_TABLE_4
+				uint16_t CRC32_TABLE[16];
+			#else
+				uint16_t CRC32_TABLE[256];
+			#endif
+		#pragma pack(pop)
 
 		void FASTCALL make_CRC32_table(void)
 		{
@@ -278,6 +283,7 @@
 			crc ^= (uint32_t)data << 24;
 			crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 			crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
+//			crc ^= data;
 //			crc = (crc >> 4) ^ CRC32_TABLE[crc & 0x0f];
 //			crc = (crc >> 4) ^ CRC32_TABLE[crc & 0x0f];
 			return crc;
@@ -326,6 +332,7 @@
 				crc ^= (uint32_t)(*data8++) << 24;
 				crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
 				crc = (crc << 4) ^ CRC32_TABLE[crc >> 28];
+//				crc ^= *data8++;
 //				crc = (crc >> 4) ^ CRC32_TABLE[crc & 0x0f];
 //				crc = (crc >> 4) ^ CRC32_TABLE[crc & 0x0f];
 			#else
