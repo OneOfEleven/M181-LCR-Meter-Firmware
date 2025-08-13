@@ -4,7 +4,7 @@
 #include "crc.h"
 
 // ***************************************
-
+/*
 inline uint8_t FASTCALL bit_rev8(uint8_t n)
 {
 	n = ((n >> 1) & 0x55u) | ((n << 1) & 0xAAu);
@@ -19,7 +19,7 @@ inline uint16_t FASTCALL bit_rev16(uint16_t n)
 	n = ((n >> 2) & 0x3333u) | ((n << 2) & 0xCCCCu);
 	n = ((n >> 4) & 0x0F0Fu) | ((n << 4) & 0xF0F0u);
 	n = ((n >> 8) & 0x00FFu) | ((n << 8) & 0xFF00u);
-   return n;
+	return n;
 }
 
 inline uint32_t FASTCALL bit_rev32(uint32_t n)
@@ -42,7 +42,7 @@ inline uint64_t FASTCALL bit_rev64(uint64_t n)
 	n = ((n >> 32) & 0x00000000FFFFFFFFu) | ((n << 32) & 0xFFFFFFFF00000000u);
 	return n;
 }
-
+*/
 // ***************************************
 
 #if defined(CRC_FWD_16) || defined(CRC_REV_16)

@@ -612,7 +612,7 @@ uint32_t eeprom_find_last_good_settings(void)
 		{
 			const uint16_t crc1 = temp_settings.crc;
 			temp_settings.crc = 0;
-			const uint16_t crc2 = CRC16_block(0, &temp_settings, sizeof(t_settings));
+			const uint16_t crc2 = CRC16_block(0xffff, &temp_settings, sizeof(t_settings));
 			if (crc1 == crc2)
 			{
 				flash_addr_good = flash_addr;   // marker and CRC appear good, remember where it's located in flash
@@ -671,7 +671,7 @@ int eeprom_write_settings(void)
 	// add marker and CRC to the current system settings (so we can find them again in flash)
 	settings.marker = SETTINGS_MARKER;
 	settings.crc    = 0;
-	settings.crc    = CRC16_block(0, &settings, sizeof(t_settings));
+	settings.crc    = CRC16_block(0xffff, &settings, sizeof(t_settings));
 
 	if (HAL_OK != HAL_FLASH_Unlock())
 	{	// unlock error :(
@@ -800,6 +800,21 @@ int eeprom_write_settings(void)
 	// settings saved seem OK !
 
 	save_settings_timer = -1;
+
+	return 0;
+}
+
+int save_settings(void)
+{
+	if (eeprom_write_settings() < 0)     // do it
+		return -1;                       // failed
+
+	// done
+
+	save_settings_timer = -1;         // clear timer
+
+	// tell the world wot we just did !
+	printf(NEWLINE "settings saved" NEWLINE);
 
 	return 0;
 }
@@ -1422,7 +1437,7 @@ void combine_afc(float *avg_rms, float *avg_deg)
 	*avg_deg = (sum_phase.real != 0) ? atan2f(sum_phase.imag, sum_phase.real) * RAD_TO_DEG : NAN;
 }
 
-#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
+#if (MEDIAN_SIZE >= 3)
 
 	struct {
 		int   buffer_index;
@@ -1885,7 +1900,7 @@ void process_data(void)
 	}
 	#endif
 
-	#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
+	#if (MEDIAN_SIZE >= 3)
 		if (op_mode == OP_MODE_MEASURING)
 			median_filter();                          // median filter to improve display reading stabilisation
 	#endif
@@ -2345,6 +2360,16 @@ void draw_screen(void)
 
 	// clear the screen
 	ssd1306_Fill(Black);
+
+	if (LL_GPIO_IsOutputPinSet(PWR_GPIO_Port, PWR_Pin))
+	{	// we're powering down
+
+		ssd1306_SetCursor(0, (SSD1306_HEIGHT - font_11x18.height) / 2);
+		ssd1306_WriteString("PWR DOWN", &font_11x18, White);
+
+		ssd1306_UpdateScreen();
+		return;
+	}
 
 	if (op_mode == OP_MODE_MEASURING)
 	{	// we're in normal DUT measurement mode
@@ -2881,7 +2906,7 @@ void SystemClock_Config(void)
 	LL_RCC_SetADCClockSource(LL_RCC_ADC_CLKSRC_PCLK2_DIV_6);
 
 	LL_RCC_GetSystemClocksFreq(&rcc_clocks);
-	
+
 //	if (HAL_InitTick(TICK_INT_PRIORITY) != HAL_OK)
 //		Error_Handler();
 
@@ -3727,8 +3752,11 @@ void wait_for_all_button_release(void)
 //
 void process_buttons(void)
 {
+	if (LL_GPIO_IsOutputPinSet(PWR_GPIO_Port, PWR_Pin))
+		return;       // we're powering down
+
 	// both HOLD and S/P buttons held down
-	if (button[BUTTON_HOLD].pressed_ms > 0 && button[BUTTON_SP].pressed_ms > 0 && button[BUTTON_RCL].pressed_ms == 0)
+	if (button[BUTTON_HOLD].pressed_ms > 0 && button[BUTTON_SP].pressed_ms > 0 && button[BUTTON_RCL].pressed_ms == 0 && button[BUTTON_PWR].pressed_ms == 0)
 	{
 		if (button[BUTTON_HOLD].held_ms >= 800 && button[BUTTON_SP].held_ms >= 800)
 		{	// clear all saved settings (inc open/short calibrations), then reboot
@@ -3739,7 +3767,7 @@ void process_buttons(void)
 	}
 
 	// both S/P and RCL buttons held down
-	if (button[BUTTON_HOLD].pressed_ms == 0 && button[BUTTON_SP].pressed_ms > 0 && button[BUTTON_RCL].pressed_ms > 0)
+	if (button[BUTTON_HOLD].pressed_ms == 0 && button[BUTTON_SP].pressed_ms > 0 && button[BUTTON_RCL].pressed_ms > 0 && button[BUTTON_PWR].pressed_ms == 0)
 	{
 		if (button[BUTTON_SP].held_ms >= 800 && button[BUTTON_RCL].held_ms >= 800)
 			reboot();
@@ -3758,39 +3786,40 @@ void process_buttons(void)
 
 	// *************
 	// PWR button
-
+/*
 	if (button[BUTTON_PWR].pressed_ms > 0)
 	{
-		if (button[BUTTON_PWR].held_ms >= 500 && button[BUTTON_PWR].processed == 0)
-		{	// PWR held down
+		if (button[BUTTON_PWR].held_ms >= 100 && button[BUTTON_PWR].processed == 0)
+		{	// PWR butt held down
 			button[BUTTON_PWR].processed = 1;
 
 			if (save_settings_timer >= 0)
-			{	// save settings before we shut down
-				if (eeprom_write_settings() >= 0)     // do it
-				{	// done
-					save_settings_timer = -1;         // clear timer
+				save_settings();                      // save settings before we shut down
 
-					// tell the world wot we just did !
-					printf(NEWLINE "settings saved" NEWLINE);
-				}
-			}
+			printf(NEWLINE "powering down .." NEWLINE);
 
-			printf(NEWLINE "powering off .." NEWLINE);
-
-			// release power
+			// power down
 			LL_GPIO_SetOutputPin(PWR_GPIO_Port, PWR_Pin);
+
+			draw_screen();
 		}
 		return;
 	}
-
+*/
 	if (button[BUTTON_PWR].released)
 	{
 		if (button[BUTTON_PWR].processed == 0)
 		{
 			button[BUTTON_PWR].processed = 1;
 
-			display_hold = 0;
+			if (save_settings_timer >= 0)
+				save_settings();                      // save settings before we shut down
+
+			printf(NEWLINE "powering down .." NEWLINE);
+
+			// power down
+			LL_GPIO_SetOutputPin(PWR_GPIO_Port, PWR_Pin);
+
 			draw_screen();
 		}
 		return;
@@ -3979,7 +4008,7 @@ int send_binary_data(void)
 	tx_packet->marker = PACKET_MARKER;                                           // packet start marker
 	memcpy(&tx_packet->data, &adc_data, sizeof(adc_data));                       // packet data
 	tx_packet->crc = 0;
-	tx_packet->crc = CRC16_block(0, &tx_packet->data, sizeof(tx_packet->data));  // packet CRC - compute the CRC of the data
+	tx_packet->crc = CRC16_block(0xffff, &tx_packet->data, sizeof(tx_packet->data));  // packet CRC - compute the CRC of the data
 
 	// sen dit
 	start_tx_dma(tx_buffer, sizeof(t_packet));
@@ -4779,12 +4808,8 @@ void process_op_mode(void)
 
 					printf(NEWLINE "open probe calibration done" NEWLINE);
 
-					if (eeprom_write_settings() >= 0)     // save settings
-					{	// done
-						save_settings_timer = -1;
-						printf(NEWLINE "settings saved" NEWLINE);
+					if (save_settings() >= 0)
 						reboot();
-					}
 
 					// back to normal measurement mode
 					start_measuring();
@@ -4844,12 +4869,8 @@ void process_op_mode(void)
 
 					printf(NEWLINE "shorted probe calibration done" NEWLINE);
 
-					if (eeprom_write_settings() >= 0)     // save settings
-					{	// done
-						save_settings_timer = -1;
-						printf(NEWLINE "settings saved" NEWLINE);
+					if (save_settings() >= 0)
 						reboot();
-					}
 
 					// back to normal measurement mode
 					start_measuring();
@@ -4935,7 +4956,7 @@ int main(void)
 	settings.sp_mode        = SP_MODE_AUTO;
 	settings.data_mode      = DATA_MODE_NONE;
 
-	#if defined(MEDIAN_SIZE) && (MEDIAN_SIZE >= 3)
+	#if (MEDIAN_SIZE >= 3)
 		median.buffer_index = -1;
 	#endif
 
@@ -5099,11 +5120,11 @@ int main(void)
 		__WFI();    // wait here until next interrupt occurs
 //		__WFE();    // wait here in low power mode until next interrupt occurs
 
-		// service user input, this is high priority !
+		// service user input - overrides all other priorities
 		process_buttons();
 
 		if (LL_GPIO_IsOutputPinSet(PWR_GPIO_Port, PWR_Pin))
-		{	// we have released power from our self
+		{	// we are powering down
 			// stay here till lights out
 			initialising = 1;
 			LL_TIM_DisableCounter(TIM3);                     // don't need the ADC ints anymore
@@ -5143,15 +5164,7 @@ int main(void)
 			draw_measurement_mode();
 
 		if (save_settings_timer == 0)
-		{	// time to save our settings
-			if (eeprom_write_settings() >= 0)     // do it
-			{	// done
-				save_settings_timer = -1;         // clear timer
-
-				// tell the world wot we just did !
-				printf(NEWLINE "settings saved" NEWLINE);
-			}
-		}
+			save_settings();
 
 		#ifdef USE_IWDG
 			// feed the doggy

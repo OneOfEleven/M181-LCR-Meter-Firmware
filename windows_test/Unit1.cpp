@@ -1180,7 +1180,7 @@ void __fastcall TForm1::processClient(t_client &client, CSerialPort *serial_port
 
 		// found the start marker
 
-		const uint16_t crc = CRC16_block(0, packet->data, sizeof(packet->data));
+		const uint16_t crc = CRC16_block(0xffff, packet->data, sizeof(packet->data));
 //		if (crc != packet->crc)
 		if (crc != packet->crc && packet->crc != 0)  // ignore the CRC check if the CRC is '0'
 		{	// slide the data down on byte
